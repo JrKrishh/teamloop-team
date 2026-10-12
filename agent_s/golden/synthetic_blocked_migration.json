@@ -1,0 +1,182 @@
+{
+ "task": "T-11",
+ "title": "Add progress_snapshots table",
+ "source": "hand-built",
+ "expect": {
+  "percent": [
+   10,
+   50
+  ],
+  "blocked": true
+ },
+ "events": [
+  {
+   "v": 1,
+   "id": "2d257ff00b2c4e2cb5d99e1e925d39b9",
+   "ts": "2026-10-14T10:01:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11"
+  },
+  {
+   "v": 1,
+   "id": "281c04031eda4e758f7885aecbc0c737",
+   "ts": "2026-10-14T10:02:00Z",
+   "tool": "mcp",
+   "session": "s-blk",
+   "kind": "task_start",
+   "facts": {
+    "title": "Add progress_snapshots table"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11"
+  },
+  {
+   "v": 1,
+   "id": "ff04186dcbe9403e88087bcc461e41c7",
+   "ts": "2026-10-14T10:03:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "tool",
+   "facts": {
+    "tool": "Write",
+    "ok": true,
+    "file": "hub/migrations/003_progress.sql"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11"
+  },
+  {
+   "v": 1,
+   "id": "58630ac6dc894145a7664b49c1257b8f",
+   "ts": "2026-10-14T10:04:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": false,
+    "exit": 1,
+    "cmd": {
+     "kind": "other",
+     "ok": false
+    }
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11"
+  },
+  {
+   "v": 1,
+   "id": "66f8835b7b9347268e652fcb1f534c79",
+   "ts": "2026-10-14T10:05:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11",
+   "summary": "Wrote the progress_snapshots migration; applying it failed with a permission error.",
+   "status": "progress"
+  },
+  {
+   "v": 1,
+   "id": "74e896be9e7449269d50cc035873aaac",
+   "ts": "2026-10-14T10:06:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "tool",
+   "facts": {
+    "tool": "Edit",
+    "ok": true,
+    "file": "hub/migrations/003_progress.sql"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11"
+  },
+  {
+   "v": 1,
+   "id": "f445e727f5c8451ab80c61c9b3b9536d",
+   "ts": "2026-10-14T10:07:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": false,
+    "exit": 1,
+    "cmd": {
+     "kind": "other",
+     "ok": false
+    }
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11"
+  },
+  {
+   "v": 1,
+   "id": "38aaba8cab3c470287a8571e7d5b25f7",
+   "ts": "2026-10-14T10:08:00Z",
+   "tool": "mcp",
+   "session": "s-blk",
+   "kind": "blocked",
+   "facts": {},
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11",
+   "report": {
+    "reason": "Migration needs ALTER rights on the demo database; the hub user is read-only.",
+    "needs": "access"
+   }
+  },
+  {
+   "v": 1,
+   "id": "a2bf4d6e97d9455298a5efd720600c6f",
+   "ts": "2026-10-14T10:09:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11",
+   "summary": "Stuck: the database user can't create tables; asked for access.",
+   "status": "blocked"
+  },
+  {
+   "v": 1,
+   "id": "b61ea04e45614029839b3f8db5d0ba73",
+   "ts": "2026-10-14T10:10:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "waiting_input",
+   "facts": {
+    "type": "idle_prompt"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-11-migrate",
+   "task": "T-11"
+  }
+ ]
+}

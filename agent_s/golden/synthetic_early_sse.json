@@ -1,0 +1,116 @@
+{
+ "task": "T-12",
+ "title": "SSE stream for the board",
+ "source": "hand-built",
+ "expect": {
+  "percent": [
+   5,
+   40
+  ],
+  "blocked": false
+ },
+ "events": [
+  {
+   "v": 1,
+   "id": "cdba551aacf34bb992f38f91239889ac",
+   "ts": "2026-10-14T10:01:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-12-sse",
+   "task": "T-12"
+  },
+  {
+   "v": 1,
+   "id": "0523abb51a9c44c58f2ad6d3ddf7431f",
+   "ts": "2026-10-14T10:02:00Z",
+   "tool": "mcp",
+   "session": "s-blk",
+   "kind": "task_start",
+   "facts": {
+    "title": "SSE stream for the board"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-12-sse",
+   "task": "T-12"
+  },
+  {
+   "v": 1,
+   "id": "5a954745ff9d4835a12cf39ed17b7cd6",
+   "ts": "2026-10-14T10:03:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "tool",
+   "facts": {
+    "tool": "Read",
+    "ok": true
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-12-sse",
+   "task": "T-12"
+  },
+  {
+   "v": 1,
+   "id": "39d6629409f74f44ae2196972561dafc",
+   "ts": "2026-10-14T10:04:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "tool",
+   "facts": {
+    "tool": "Edit",
+    "ok": true,
+    "file": "hub/api/stream.py"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-12-sse",
+   "task": "T-12"
+  },
+  {
+   "v": 1,
+   "id": "c6b26377dc644a79bf514676857e2a5f",
+   "ts": "2026-10-14T10:05:00Z",
+   "tool": "mcp",
+   "session": "s-blk",
+   "kind": "self_report",
+   "facts": {},
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-12-sse",
+   "task": "T-12",
+   "report": {
+    "percent": 60,
+    "done": [
+     "designed the SSE endpoint"
+    ],
+    "doing": "writing the stream handler",
+    "next": [
+     "tests",
+     "board hookup"
+    ]
+   }
+  },
+  {
+   "v": 1,
+   "id": "2479aa8db8f94942843e90005a0939a0",
+   "ts": "2026-10-14T10:06:00Z",
+   "tool": "claude_code",
+   "session": "s-blk",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-12-sse",
+   "task": "T-12",
+   "summary": "Started the SSE endpoint: first draft of the stream handler, not tested yet.",
+   "status": "progress"
+  }
+ ]
+}

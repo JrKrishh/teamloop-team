@@ -1,0 +1,272 @@
+{
+ "task": "T-3",
+ "title": "Fix add()",
+ "source": "real Claude Code session, 12 Oct 2026",
+ "expect": {
+  "percent": [
+   85,
+   100
+  ],
+  "blocked": false
+ },
+ "events": [
+  {
+   "v": 1,
+   "id": "8743a91d70dc481d87094ece88ffea92",
+   "ts": "2026-10-12T18:27:32Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": null,
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "a0d70414b8bf4e259470b6d2fcf85019",
+   "ts": "2026-10-12T18:27:36Z",
+   "tool": "mcp",
+   "session": null,
+   "kind": "task_start",
+   "facts": {},
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "8f2367f129114213aaeed39282ae7b93",
+   "ts": "2026-10-12T18:27:36Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "mcp__teamloop__task_start",
+    "ok": true,
+    "ms": 66
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "8497d867203748ff9a43846503c4a45c",
+   "ts": "2026-10-12T18:27:42Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "ms": 4690,
+    "cmd": {
+     "kind": "test",
+     "ok": false,
+     "failed": 1
+    }
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "d52acf1ae6434936aa9211a3eccd10ba",
+   "ts": "2026-10-12T18:27:44Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "Edit",
+    "ok": true,
+    "ms": 66,
+    "file": "calc.py"
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "2293e5f3fca9421aae68b1fb1b9ddc65",
+   "ts": "2026-10-12T18:27:44Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "ToolSearch",
+    "ok": true,
+    "ms": 2
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "9a381bccd60d4fb3ba8b6f5740699e51",
+   "ts": "2026-10-12T18:27:48Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "ms": 2960,
+    "cmd": {
+     "kind": "test",
+     "ok": true,
+     "passed": 1
+    }
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "6e4d2769384f4fde8d176e8f43e35ad2",
+   "ts": "2026-10-12T18:27:50Z",
+   "tool": "mcp",
+   "session": null,
+   "kind": "self_report",
+   "facts": {},
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "report": {
+    "percent": 80,
+    "done": [
+     "Ran python -m pytest -q test_calc.py: failed (add(2, 3) returned -1)",
+     "Fixed calc.py: add() now returns a + b instead of a - b",
+     "Re-ran python -m pytest -q test_calc.py: 1 passed"
+    ],
+    "doing": "Committing calc.py with message 'Fix add'",
+    "next": [
+     "Confirm the commit landed"
+    ]
+   },
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "f3f75c1494c1408bb9f6dc9021c6a686",
+   "ts": "2026-10-12T18:27:50Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "mcp__teamloop__report_progress",
+    "ok": true,
+    "ms": 10
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "20e578b3e4c341d7883e0f971e67aeac",
+   "ts": "2026-10-12T18:27:51Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "ms": 675,
+    "cmd": {
+     "kind": "git",
+     "ok": true
+    }
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "d1319511147f42c68ec5c455e764d88f",
+   "ts": "2026-10-12T18:27:53Z",
+   "tool": "mcp",
+   "session": null,
+   "kind": "self_report",
+   "facts": {},
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "report": {
+    "percent": 100,
+    "done": [
+     "Ran python -m pytest -q test_calc.py: failed (add(2, 3) returned -1)",
+     "Fixed calc.py: add() now returns a + b instead of a - b",
+     "Re-ran python -m pytest -q test_calc.py: 1 passed",
+     "Committed calc.py as cd89186 'Fix add'"
+    ],
+    "doing": "Done",
+    "next": []
+   },
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "7e5e9b4fcf1042b8b0bd30944a4b8e04",
+   "ts": "2026-10-12T18:27:53Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "tool",
+   "facts": {
+    "tool": "mcp__teamloop__report_progress",
+    "ok": true,
+    "ms": 9
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "d36f8143a4d34e8481fd99f42c374562",
+   "ts": "2026-10-12T18:27:56Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "turn_end",
+   "facts": {},
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "summary": "T-3 fix for add() function completed with correct math operation and test verification",
+   "status": "done",
+   "member": "yang"
+  },
+  {
+   "v": 1,
+   "id": "6bb90dc34c0d41b3af56e2cc86a428e6",
+   "ts": "2026-10-12T18:27:56Z",
+   "tool": "claude_code",
+   "session": "133b0bcd-9489-43ad-be84-e045a9f47238",
+   "kind": "session_end",
+   "facts": {
+    "reason": "other"
+   },
+   "repo": "e2e",
+   "branch": "main",
+   "task": "T-3",
+   "member": "yang"
+  }
+ ]
+}
