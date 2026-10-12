@@ -100,6 +100,10 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     secret = (os.getenv("HUB_SECRET") or secrets.token_hex(32)).encode()
     chat = chat or llm.chat_json
     failed_at: dict[tuple[str, str], float] = {}
+    demo_room = os.getenv("HUB_DEMO_ROOM") or None
+    from .relay import _Window  # ccbridge's sliding-window limiter
+
+    demo_asks = _Window(int(os.getenv("HUB_DEMO_ASKS_PER_10MIN", "20")), 600.0)
 
     # ---- the board page ----------------------------------------------------------------------
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -123,6 +127,8 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
             if expires.isdigit() and int(expires) > time.time() and hmac.compare_digest(
                     teamloop_board, _sign(room, int(expires))):
                 return room
+        if demo_room and not authorization:  # public demo: read the demo room's board, never write
+            return demo_room
         return caller(authorization, x_ccbridge_room, x_ccbridge_session).room
 
     @app.post("/v1/board/login")
@@ -214,7 +220,7 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
                 "recent": [{"id": e["id"], "ts": e.get("ts"), "member": e["member"], "line": progress.describe(e)}
                            for e in evs[-12:] if progress.describe(e)],
             })
-        return {"room": room, "generated_at": now, "tasks": out,
+        return {"room": room, "generated_at": now, "tasks": out, "demo": room == demo_room,
                 "members": [{"name": m["member"], "last_activity": m["last"], "active": now - m["last"] < ACTIVE_SECONDS}
                             for m in members]}
 
@@ -224,6 +230,11 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
 
     @app.post("/v1/ask")
     def ask(req: AskIn, room: str = Depends(board_room)) -> dict:
+        if room == demo_room:
+            with lock:
+                allowed = demo_asks.allow(room, time.time())
+            if not allowed:
+                raise HTTPException(429, "The public demo is busy; try again in a few minutes")
         try:
             return qa.answer(req.question, events_for(room), chat=chat)
         except Exception as e:  # noqa: BLE001 - the model being down is not the lead's fault

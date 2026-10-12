@@ -77,6 +77,7 @@ button:disabled{opacity:.5;cursor:wait}
 .signin img{width:120px;height:160px;object-fit:contain}
 .signin form{display:flex;flex-direction:column;gap:10px;width:100%}
 .err{color:var(--bad);font-size:13px;min-height:1em}
+.demo{margin:16px 0 0;padding:10px 14px;border:1px dashed var(--line2);border-radius:10px;color:var(--muted);font-size:13px;max-width:90ch}
 @media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}aside{position:static}.people{margin-left:0}.wrap{padding-inline:16px}}
 </style>
 </head>
@@ -100,6 +101,7 @@ button:disabled{opacity:.5;cursor:wait}
     </form>
   </section>
 
+  <p class="demo" id="demo" hidden>Public demo with a sample team. The events are scripted in the exact shapes TeamLoop records; the progress, done/next lists and answers come from the real Agent S. Your own team's board is private to your room.</p>
   <div class="layout" id="main" hidden>
     <section>
       <div class="tally" id="tally"></div>
@@ -188,6 +190,7 @@ function card(t, members) {
 
 function render(b) {
   $("room").textContent = `room · ${b.room}`;
+  $("demo").hidden = !b.demo;
   const people = $("people"); people.replaceChildren();
   for (const m of b.members) {
     const p = el("div", "person"); p.append(mascot(m.name, m.active ? "idle" : "sleep"), el("span", null, m.name), el("span", "dot" + (m.active ? " on" : "")));

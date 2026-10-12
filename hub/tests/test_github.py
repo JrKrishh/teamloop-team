@@ -88,3 +88,11 @@ def test_ci_result_shows_on_the_pr(hub):
     assert deliver(client, "workflow_run", fixture("workflow_run_completed.json"), "d-2").json()["accepted"] == 1
     task = client.get("/v1/board", headers=yang).json()["tasks"][0]
     assert task["pr"]["checks"] == "success" and any(r["line"] == "CI ci: success" for r in task["recent"])
+
+
+def test_merged_pr_moves_task_to_done(hub):
+    _, client, yang = hub
+    deliver(client, "pull_request", fixture("pull_request_opened.json"), "d-1")
+    deliver(client, "pull_request", fixture("pull_request_merged.json"), "d-9")  # PR #1 really merged on 13 Oct
+    task = client.get("/v1/board", headers=yang).json()["tasks"][0]
+    assert task["status"] == "done" and task["pr"]["state"] == "merged"
