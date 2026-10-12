@@ -15,6 +15,27 @@ Research behind this plan (read these for sources):
 
 ---
 
+## Status: 13 Oct 2026, about 02:00 IST (built overnight by Yang's agent)
+| Item | State | Where / evidence |
+|---|---|---|
+| M1 CLI: login, init, task, pause, doctor, hook shim + spool | **done** | `connector/` |
+| M2 MCP: task_start, report_progress, mark_blocked | **done**; `get_team_status` not yet | `connector/teamloop/mcp_server.py` |
+| M3 Claude Code + Codex connectors | **done**, from real payloads | `tests/fixtures/hooks/{claude_code,codex}` |
+| M4 commit trailer | **done**, dogfooded on every commit here | `githook.py` |
+| M5 hub: events, progress, members | **done**; polling, no SSE yet | `hub/` (ccbridge relay + `team.py`) |
+| M6 Agent S: summaries, progress, Q&A | **done** on local qwen3:4b; **Nemotron not run yet (no key)** | `agent_s/`, eval 4/4 progress, 5/5 Q&A |
+| M7 board | **done** (Hoodie colours, mascots, Ask panel, public demo room) | `hub/hub/static/board.html`, `docs/demo/` |
+| M8 GitHub | **done** as a webhook receiver; GitHub App not created yet (needs Yang's account) | `hub/hub/github.py`, PR #1 fixtures |
+| M9 privacy test | **done**: canary text never reaches the hub DB | `connector/tests/test_send.py`, `hub/tests/test_e2e.py` |
+| Deploy (demo URL) | Dockerfile + guide ready; **not deployed** (needs Yang's HF account; image not built locally) | `Dockerfile`, `docs/deploy.md` |
+| Nebius credits + smoke test | **blocked on Yang's bank card** | `scripts/smoke_nebius.py` |
+| Outside teams (≥3) | **not started**: the real risk now | §20 |
+| S1 Cursor, S2 digest, S3 blocker pings, S5 Tavily | not started | |
+
+**Live end-to-end:** a real Claude Code session and a real Codex session ran in parallel into one hub, and Agent S wrote cited progress (see `docs/research/live-run-20261013.md`).
+
+---
+
 ## 0. One-page summary
 
 | | |

@@ -1,0 +1,139 @@
+{
+ "task": "T-7",
+ "title": "Add multiply()",
+ "source": "real Codex session through the live hub, 13 Oct 2026",
+ "expect": {
+  "percent": [
+   80,
+   100
+  ],
+  "blocked": false
+ },
+ "events": [
+  {
+   "v": 1,
+   "id": "ea55ef95f25147209530c90de59ee643",
+   "ts": "2026-10-12T19:27:57.267Z",
+   "tool": "codex",
+   "session": "01a13195-f012-7fd3-be66-bedca2d45aa6",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "repo": "repo-sourabh",
+   "branch": "T-7-multiply",
+   "task": "T-7",
+   "member": "sourabh"
+  },
+  {
+   "v": 1,
+   "id": "b6c7540dc01f47218c08fc4b9278a0a0",
+   "ts": "2026-10-12T19:28:03.974Z",
+   "tool": "codex",
+   "session": "01a13195-f012-7fd3-be66-bedca2d45aa6",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": null,
+    "cmd": {
+     "kind": "test",
+     "ok": false,
+     "failed": 1
+    }
+   },
+   "repo": "repo-sourabh",
+   "branch": "T-7-multiply",
+   "task": "T-7",
+   "member": "sourabh"
+  },
+  {
+   "v": 1,
+   "id": "38b7736a0ac94927b361d86cad327e8d",
+   "ts": "2026-10-12T19:28:06.601Z",
+   "tool": "codex",
+   "session": "01a13195-f012-7fd3-be66-bedca2d45aa6",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": null,
+    "cmd": {
+     "kind": "other",
+     "ok": null
+    }
+   },
+   "repo": "repo-sourabh",
+   "branch": "T-7-multiply",
+   "task": "T-7",
+   "member": "sourabh"
+  },
+  {
+   "v": 1,
+   "id": "0d0a059084f8491bb7362a35c02c7203",
+   "ts": "2026-10-12T19:28:08.686Z",
+   "tool": "codex",
+   "session": "01a13195-f012-7fd3-be66-bedca2d45aa6",
+   "kind": "tool",
+   "facts": {
+    "tool": "apply_patch",
+    "ok": true,
+    "file": "calc.py"
+   },
+   "repo": "repo-sourabh",
+   "branch": "T-7-multiply",
+   "task": "T-7",
+   "member": "sourabh"
+  },
+  {
+   "v": 1,
+   "id": "727aee456c2749339cdb15f842b559e7",
+   "ts": "2026-10-12T19:28:15.147Z",
+   "tool": "codex",
+   "session": "01a13195-f012-7fd3-be66-bedca2d45aa6",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": null,
+    "cmd": {
+     "kind": "test",
+     "ok": true,
+     "passed": 2
+    }
+   },
+   "repo": "repo-sourabh",
+   "branch": "T-7-multiply",
+   "task": "T-7",
+   "member": "sourabh"
+  },
+  {
+   "v": 1,
+   "id": "3a1c1a069c37499b8dc967848b22d49d",
+   "ts": "2026-10-12T19:28:16.946Z",
+   "tool": "codex",
+   "session": "01a13195-f012-7fd3-be66-bedca2d45aa6",
+   "kind": "turn_end",
+   "facts": {},
+   "repo": "repo-sourabh",
+   "branch": "T-7-multiply",
+   "task": "T-7",
+   "summary": "Implemented multiply function with passing tests and committed changes",
+   "status": "done",
+   "summary_model": "ollama:qwen3:4b",
+   "member": "sourabh"
+  },
+  {
+   "v": 1,
+   "id": "6950f9e751744a4db62fbbf22ebb7c3a",
+   "ts": "2026-10-12T19:28:17.380Z",
+   "tool": "codex",
+   "session": "01a13195-f012-7fd3-be66-bedca2d45aa6",
+   "kind": "session_end",
+   "facts": {
+    "reason": "other"
+   },
+   "repo": "repo-sourabh",
+   "branch": "T-7-multiply",
+   "task": "T-7",
+   "member": "sourabh"
+  }
+ ]
+}

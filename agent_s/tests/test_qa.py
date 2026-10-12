@@ -54,3 +54,11 @@ def test_short_ids_are_stripped_from_the_text():
                 "citations": ["e1"], "unknowns": []}
 
     assert qa.answer("Blocked?", team_events(), chat=chat)["answer"] == "T-11 is blocked on DB rights. Tests ran."
+
+
+def test_no_evidence_answer_drops_contradicting_citations():
+    def chat(job, messages, schema):
+        return {"answerable": True, "answer": "No evidence in the timeline.", "citations": ["e1", "e2"], "unknowns": ["deploys"]}
+
+    out = qa.answer("Did anyone deploy?", team_events(), chat=chat)
+    assert out["citations"] == [] and out["answer"].startswith(qa.NO_EVIDENCE)

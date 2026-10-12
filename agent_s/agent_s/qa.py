@@ -62,7 +62,8 @@ def answer(question: str, events: list[dict], chat: Callable = llm.chat_json) ->
     cited = [ids[c] for c in raw.get("citations", []) if c in ids][:5]
     reply = " ".join(_SHORT_IDS.sub("", str(raw.get("answer", ""))).split())
     unknowns = [" ".join(str(u).split())[:120] for u in raw.get("unknowns", [])][:5]
-    if not raw.get("answerable", True) or not cited:  # grounded or nothing
+    says_none = re.match(r"\s*(no evidence|i don'?t have evidence)", reply, re.I)  # the text and citations must agree
+    if not raw.get("answerable", True) or not cited or says_none:  # grounded or nothing
         cited = []
         reply = NO_EVIDENCE + (f" Unknown: {'; '.join(unknowns)}." if unknowns else "")
     return {"answer": reply, "citations": cited, "unknowns": unknowns, "model": llm.model_for("qa")}
