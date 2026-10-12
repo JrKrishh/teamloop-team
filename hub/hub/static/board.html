@@ -54,6 +54,8 @@ header{display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;padding-bott
 .cite{font:500 11px var(--fm);color:var(--faint);margin-left:4px}
 .foot{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
 .chip{font:600 12px/1 var(--fb);padding:5px 8px;border-radius:6px;background:var(--bg2);color:var(--text)}
+a.chip{text-decoration:none}a.chip:hover{text-decoration:underline}
+.chip.pr{border:1px solid var(--ok);background:transparent}.chip.pr.bad{border-color:var(--bad);color:var(--bad)}
 details{font-size:13px}summary{cursor:pointer;color:var(--muted);font-weight:600}
 .recent{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:4px;font:500 12px/1.45 var(--fm);color:var(--muted)}
 .recent li{overflow-wrap:anywhere}.recent time{color:var(--faint);margin-right:6px}
@@ -164,6 +166,15 @@ function card(t, members) {
   const foot = el("div", "foot");
   for (const m of t.members) foot.append(el("span", "chip", m));
   for (const tool of t.tools) if (TOOLS[tool]) foot.append(el("span", "chip", TOOLS[tool]));
+  if (t.pr) {
+    const bits = [`PR #${t.pr.number}`, t.pr.draft ? "draft" : t.pr.state];
+    if (t.pr.checks) bits.push(`CI ${t.pr.checks}`);
+    if (t.pr.review) bits.push(t.pr.review.replace("_", " "));
+    const ok = typeof t.pr.url === "string" && t.pr.url.startsWith("https://github.com/");
+    const chip = el(ok ? "a" : "span", "chip pr" + (t.pr.checks === "failure" ? " bad" : ""), bits.join(" · "));
+    if (ok) { chip.href = t.pr.url; chip.target = "_blank"; chip.rel = "noopener"; }
+    foot.append(chip);
+  }
   foot.append(el("span", null, `· ${ago(t.last_activity)} · ${t.events} events`)); c.append(foot);
 
   if (t.recent.length) {
@@ -182,10 +193,10 @@ function render(b) {
     const p = el("div", "person"); p.append(mascot(m.name, m.active ? "idle" : "sleep"), el("span", null, m.name), el("span", "dot" + (m.active ? " on" : "")));
     p.title = m.active ? "active in the last 5 min" : `last seen ${ago(m.last_activity)}`; people.append(p);
   }
-  const counts = {in_progress: 0, blocked: 0};
+  const counts = {in_progress: 0, blocked: 0, review: 0, done: 0};
   for (const t of b.tasks) counts[t.status] = (counts[t.status] || 0) + 1;
   const tally = $("tally"); tally.replaceChildren();
-  for (const [k, v] of [["tasks", b.tasks.length], ["in progress", counts.in_progress], ["blocked", counts.blocked]]) { const s = el("span"); s.append(el("b", null, String(v)), ` ${k}`); tally.append(s); }
+  for (const [k, v] of [["tasks", b.tasks.length], ["in progress", counts.in_progress], ["blocked", counts.blocked], ["in review", counts.review], ["done", counts.done]]) { const s = el("span"); s.append(el("b", null, String(v)), ` ${k}`); tally.append(s); }
   const grid = $("tasks"); grid.replaceChildren();
   if (!b.tasks.length) grid.append(el("div", "empty", "No task activity yet. Once a teammate runs `teamloop task T-<id>` and starts a session, their work shows up here."));
   for (const t of b.tasks) grid.append(card(t, b.members));

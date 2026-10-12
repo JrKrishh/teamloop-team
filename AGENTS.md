@@ -4,7 +4,7 @@ Read `PLAN.md` first. §5 is the scope contract, §15 is the schedule and §26 i
 
 ## Layout
 - `connector/`: the `teamloop` CLI on each developer's laptop: hook shim, spool, redaction, git trailer, MCP server, summarizer, sender. Owned by Yang.
-- `hub/`: team server. `hub/relay.py` and `hub/safety.py` are ccbridge c1f3385 (Sourabh, MIT) with one marked change; `hub/team.py` adds events, Agent S progress, board and Q&A. Owned by Sourabh (started by Yang's agent on 13 Oct at Yang's call). Contract: `docs/hub-api.md`. Run: `uvicorn hub.app:app_from_env --factory --port 8787`.
+- `hub/`: team server. `hub/relay.py` and `hub/safety.py` are ccbridge c1f3385 (Sourabh, MIT) with one marked change; `hub/team.py` adds events, Agent S progress, board and Q&A. Owned by Sourabh (started by Yang's agent on 13 Oct at Yang's call). Contract: `docs/hub-api.md`. Run: `uvicorn hub.app:app_from_env --factory --port 8799`.
 - `agent_s/`: Agent S, honest cited progress from events (Nemotron on Token Factory; Ollama in dev). The hub imports it. Owned by Yang. Eval: `python scripts/eval_agent_s.py` over `agent_s/golden/`.
 - `board/`: web board in the Hoodie design. Not started.
 - `docs/research/`: sources behind decisions. `docs/decisions/`: numbered decision records.

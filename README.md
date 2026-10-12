@@ -27,6 +27,19 @@ Codex asks you once to trust the repo's hooks (`codex`, then `/hooks`).
 
 Your agent gets three MCP tools: `task_start`, `report_progress` and `mark_blocked`. Commits get a `TeamLoop-Task:` trailer, even with `--no-verify`.
 
+## Hub and board (works today)
+```bash
+uv pip install -e agent_s -e connector -e "hub[dev]"
+CCBRIDGE_ROOMS="teamloop:<room token>" CCBRIDGE_OPEN_ROOMS=0 HUB_SECURE_COOKIE=0   uvicorn hub.app:app_from_env --factory --port 8799        # HUB_SECURE_COOKIE=0 only for plain http on localhost
+teamloop invite --url http://<hub>:8799 --room teamloop --token <room token>   # share this with the team
+teamloop login <invite> --name yang                                            # each teammate, once
+```
+Open `http://<hub>:8799/`, sign in with the room and token, and watch tasks fill in.
+
+**Agent S's model:** set `NEBIUS_API_KEY` for NVIDIA Nemotron on Token Factory. Otherwise it uses a local Ollama model (`AGENT_S_PROVIDER=ollama`).
+
+**GitHub:** see [docs/github-setup.md](docs/github-setup.md).
+
 ## Tests
 ```bash
 cd connector && .venv/Scripts/python -m pytest -q      # or .venv/bin/python on macOS/Linux
@@ -34,6 +47,6 @@ cd connector && .venv/Scripts/python -m pytest -q      # or .venv/bin/python on 
 
 ## Credits
 - [ccbridge](https://github.com/sourabhnirvani/ccbridge) (MIT, by Sourabh, @sourabhnirvani): relay, rooms, invites and prompt-injection safety. The hub builds on it.
-- TeamLoop neatHack (MIT): Agent S, the Hoodie design, mascots and secret redaction.
+- TeamLoop neatHack (MIT): Agent S, the Hoodie design and colours, the mascot art (`hub/hub/static/mascot`), and secret redaction.
 
 MIT licensed.

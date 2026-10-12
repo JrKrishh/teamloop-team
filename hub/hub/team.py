@@ -179,7 +179,8 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
             tasks = conn.execute(
                 "SELECT task, MAX(received_at) AS last, COUNT(*) AS n FROM events WHERE room = ? AND task IS NOT NULL"
                 " GROUP BY task ORDER BY last DESC", (room,)).fetchall()
-            members = conn.execute("SELECT member, MAX(received_at) AS last FROM events WHERE room = ? GROUP BY member",
+            members = conn.execute("SELECT member, MAX(received_at) AS last FROM events WHERE room = ? AND member != 'github'"
+                                   " GROUP BY member",
                                    (room,)).fetchall()
         out = []
         for t in tasks:
@@ -193,10 +194,22 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
             last_block = max((e["ts"] for e in evs if e["kind"] == "blocked"), default="")
             last_move = max((e["ts"] for e in evs if e["kind"] in ("self_report", "turn_end") and e.get("status") != "blocked"),
                             default="")
-            status = "blocked" if last_block and last_block >= last_move else (snap or {}).get("status", "in_progress")
+            gh = {k: [e for e in evs if e["kind"] == k] for k in ("pr", "review", "check")}
+            pr = gh["pr"][-1]["facts"] if gh["pr"] else None
+            if last_block and last_block >= last_move:
+                status = "blocked"
+            elif pr and pr.get("state") == "merged":
+                status = "done"
+            elif pr and pr.get("state") == "open" and not pr.get("draft"):
+                status = "review"
+            else:
+                status = (snap or {}).get("status", "in_progress")
             out.append({
                 "task": t["task"], "title": titles[-1] if titles else "", "events": t["n"],
-                "members": sorted({e["member"] for e in evs}), "tools": sorted({e["tool"] for e in evs if e.get("tool")}),
+                "members": sorted({e["member"] for e in evs if e["member"] != "github"}),
+                "tools": sorted({e["tool"] for e in evs if e.get("tool")}),
+                "pr": pr and {**pr, "checks": gh["check"][-1]["facts"].get("conclusion") if gh["check"] else None,
+                              "review": gh["review"][-1]["facts"].get("state") if gh["review"] else None},
                 "last_activity": t["last"], "status": status, "progress": snap,
                 "recent": [{"id": e["id"], "ts": e.get("ts"), "member": e["member"], "line": progress.describe(e)}
                            for e in evs[-12:] if progress.describe(e)],
