@@ -1,0 +1,7 @@
+[
+  {"question": "Is anything blocked right now?", "expect_any": ["T-11", "database", "access", "migration"], "abstain": false},
+  {"question": "How far is T-3?", "expect_any": ["done", "complete", "finished", "pass", "100"], "abstain": false},
+  {"question": "What is Sourabh working on?", "expect_any": ["T-11", "progress_snapshots", "migration"], "abstain": false},
+  {"question": "Has the SSE stream been tested yet?", "expect_any": ["not", "no", "untested"], "abstain": false},
+  {"question": "Did anyone deploy the hub to production this week?", "expect_any": [], "abstain": true}
+]
