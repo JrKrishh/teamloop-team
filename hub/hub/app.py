@@ -1,6 +1,6 @@
 """Build the hub: the ccbridge relay with TeamLoop installed on top.
 
-    uvicorn hub.app:app_from_env --factory --port 8787
+    uvicorn hub.app:app_from_env --factory --port 8799
 Env: HUB_DB (default teamloop-hub.db), HUB_SECRET (cookie signing; random per process if unset),
 CCBRIDGE_ROOMS / CCBRIDGE_OPEN_ROOMS (as in ccbridge), AGENT_S_PROVIDER / NEBIUS_API_KEY (Agent S model),
 GITHUB_WEBHOOK_SECRET / HUB_GITHUB_REPOS (owner/repo=room,...) for the GitHub receiver.

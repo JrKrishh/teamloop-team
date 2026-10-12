@@ -1,0 +1,28 @@
+{
+ "ref": "refs/heads/T-14-github-webhooks",
+ "repository": {
+  "id": 1415968337,
+  "name": "teamloop-team",
+  "full_name": "JrKrishh/teamloop-team",
+  "private": true,
+  "html_url": "https://github.com/JrKrishh/teamloop-team",
+  "default_branch": "main"
+ },
+ "sender": {
+  "login": "JrKrishh",
+  "id": 13532869,
+  "type": "User"
+ },
+ "commits": [
+  {
+   "id": "a27e885a65f42afde409c348e3dd235506e9a8f4",
+   "message": "GitHub webhook receiver (WIP): PRs, reviews, CI and commits become task events\n\nReal-payload fixtures come next, from this branch's own PR and CI runs.\n\nTeamLoop-Task: T-14",
+   "timestamp": "2026-10-12T19:38:44Z",
+   "url": "https://github.com/JrKrishh/teamloop-team/commit/a27e885a65f42afde409c348e3dd235506e9a8f4",
+   "author": {
+    "name": "JrKrishh",
+    "username": "JrKrishh"
+   }
+  }
+ ]
+}

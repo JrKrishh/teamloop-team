@@ -200,7 +200,7 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
                 status = "blocked"
             elif pr and pr.get("state") == "merged":
                 status = "done"
-            elif pr and pr.get("state") == "open":
+            elif pr and pr.get("state") == "open" and not pr.get("draft"):
                 status = "review"
             else:
                 status = (snap or {}).get("status", "in_progress")
