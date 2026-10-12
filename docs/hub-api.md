@@ -20,7 +20,7 @@ Drafted by Yang's agent from what the connector sends today. **Sourabh owns the 
 | `v` | yes | 1 |
 | `id` | yes | uuid hex; dedupe key |
 | `ts` | yes | UTC with ms, `2026-10-13T10:31:02.123Z` |
-| `tool` | yes | `claude_code`, `mcp` (agent self-reports), `cli` (`teamloop task`); later `codex`, `cursor` |
+| `tool` | yes | `claude_code`, `codex`, `mcp` (agent self-reports), `cli` (`teamloop task`); later `cursor` |
 | `session` | | the tool's session id; `null` for `mcp`/`cli` (join those by member + time) |
 | `kind` | yes | see below |
 | `member` | yes | added by the connector from its config |
@@ -34,7 +34,7 @@ Drafted by Yang's agent from what the connector sends today. **Sourabh owns the 
 | kind | facts / report |
 |---|---|
 | `session_start` | `{source}`: `startup`, `resume`, `clear` |
-| `tool` | `{tool, ok, ms, file?, exit?, cmd?: {kind: test/git/install/build/other, ok, passed?, failed?}}` |
+| `tool` | `{tool, ok, ms?, file?, files?, exit?, cmd?: {kind: test/git/install/build/other, ok, passed?, failed?}}`. `ok` can be **null**: Codex reports no exit status for shell commands, so only test counts decide those |
 | `turn_end`, `subagent_end` | `{}`, plus `summary`/`status` |
 | `waiting_input` | `{type}`: the agent is waiting on its human |
 | `session_end` | `{reason}`. **Orphans happen:** `claude mcp …` CLI calls fire SessionEnd with no start, so ignore an end for an unknown session. |

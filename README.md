@@ -16,12 +16,14 @@ Live progress from every teammate's AI coding session (Claude Code, Codex, Curso
 ```bash
 cd connector && uv venv && uv pip install -e ".[dev]"
 cd /path/to/your/repo
-teamloop init                     # Claude Code hooks + MCP server + commit-trailer hook, this repo only
+teamloop init                     # Claude Code (+ Codex if installed): hooks, MCP server, commit-trailer hook
 teamloop task T-14 "Add SSE"      # what this repo is working on
 teamloop doctor                   # every check, with the command that fixes it
 teamloop pause                    # record nothing until `teamloop resume`
 ```
 `init` writes hooks to `.claude/settings.local.json` (personal, kept out of git), so teammates without TeamLoop are never affected. Use `--scope user` to cover every repo, and `--dry-run` to preview.
+
+Codex asks you once to trust the repo's hooks (`codex`, then `/hooks`).
 
 Your agent gets three MCP tools: `task_start`, `report_progress` and `mark_blocked`. Commits get a `TeamLoop-Task:` trailer, even with `--no-verify`.
 

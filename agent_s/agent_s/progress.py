@@ -50,10 +50,15 @@ def describe(e: dict) -> str | None:
     if kind == "tool":
         cmd = f.get("cmd")
         if cmd:
+            if cmd["kind"] == "other" and cmd.get("ok") is not False:
+                return None  # ls, cat, Get-Content... noise unless it failed
+            verdict = {True: ": ok", False: ": FAILED"}.get(cmd.get("ok"), "")  # None: the tool didn't say (Codex)
             counts = ", ".join(f"{cmd[k]} {k}" for k in ("passed", "failed") if cmd.get(k))
-            return f"ran {cmd['kind']} command: {'ok' if cmd.get('ok') else 'FAILED'}" + (f" ({counts})" if counts else "")
+            return f"ran {cmd['kind']} command{verdict}" + (f" ({counts})" if counts else "")
         if f.get("file"):
-            return f"edited {f['file']}" + ("" if f.get("ok", True) else " (failed)")
+            more = len(f.get("files", [])) - 1
+            return f"edited {f['file']}" + (f" and {more} more" if more > 0 else "") + \
+                ("" if f.get("ok") is not False else " (failed)")
         if not f.get("ok", True):
             return f"{f.get('tool')} failed" + (f" (exit {f['exit']})" if f.get("exit") is not None else "")
         return None

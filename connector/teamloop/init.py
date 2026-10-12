@@ -10,7 +10,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from teamloop import claude, githook, repo
+from teamloop import claude, codex, githook, repo
 
 
 def _keep_out_of_git(found: repo.Repo, rel_path: str) -> None:
@@ -23,33 +23,50 @@ def _keep_out_of_git(found: repo.Repo, rel_path: str) -> None:
         f.write(f"\n{rel_path}\n")
 
 
+def _wire(label: str, path: Path, command: str, events: dict, tag: str, dry_run: bool) -> list[str] | None:
+    try:
+        settings = claude.load(path)
+    except json.JSONDecodeError as e:
+        print(f"{path} is not valid JSON ({e}); fix it first, then run init again.")
+        return None
+    changes = claude.merge(settings, command, events, tag)
+    print(f"{label} hooks -> {path}")
+    print("  " + (", ".join(changes) if changes else "already set"))
+    if changes and not dry_run:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return changes
+
+
 def run(scope: str = "local", dry_run: bool = False) -> int:
     found = repo.find(Path.cwd())
     if scope == "local" and found is None:
         print("Not in a git repo. cd into your project, or use `teamloop init --scope user` for every repo.")
         return 2
     root = found.root if found else Path.cwd()
+    repo_root = found.root if found else None
 
-    path = claude.settings_path(scope, found.root if found else None)
-    try:
-        settings = claude.load(path)
-    except json.JSONDecodeError as e:
-        print(f"{path} is not valid JSON ({e}); fix it first, nothing was changed.")
-        return 1
-    changes = claude.merge(settings, claude.hook_command())
-    print(f"Claude Code hooks -> {path}")
-    print("  " + (", ".join(changes) if changes else "already set"))
+    targets = [("Claude Code", claude.settings_path(scope, repo_root), claude.hook_command(), claude.EVENTS, claude.TAG,
+                ".claude/settings.local.json")]
+    has_codex = codex.cli() is not None
+    if has_codex:
+        targets.append(("Codex", codex.hooks_path(scope, repo_root), codex.hook_command(), codex.EVENTS, codex.TAG,
+                        ".codex/hooks.json"))
+    for label, path, command, events, tag, rel_path in targets:
+        changes = _wire(label, path, command, events, tag, dry_run)
+        if changes is None:
+            return 1
+        if changes and scope == "local" and not dry_run:
+            _keep_out_of_git(found, rel_path)
     if dry_run:
         print("Dry run: nothing written.")
         return 0
-    if changes:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-        if scope == "local":
-            _keep_out_of_git(found, ".claude/settings.local.json")
 
-    print("MCP -> " + claude.register_mcp(root, "local" if scope == "local" else "user"))
+    print("Claude Code MCP -> " + claude.register_mcp(root, "local" if scope == "local" else "user"))
+    if has_codex:
+        print("Codex MCP -> " + codex.register_mcp())
+        print("  Codex asks you to trust repo hooks once: run `codex`, type /hooks, approve the TeamLoop ones.")
     if found:
         print("Commit hook -> " + githook.install(found.root))
-    print('\nNext: `teamloop task T-<id> "title"`, restart your Claude Code session, then `teamloop doctor`.')
+    print('\nNext: `teamloop task T-<id> "title"`, restart your coding sessions, then `teamloop doctor`.')
     return 0

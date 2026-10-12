@@ -600,4 +600,5 @@ Decisions this plan already makes. Each one can be overturned at sign-off. After
 | D10 | **GitHub App**, not repo webhooks | One install covers many repos, and permissions are scoped | Per-repo webhooks |
 | D11 | Separate repo, **MIT**; credit ccbridge and TeamLoop | The rules need an OSS licence; neatHack stays frozen | Build inside `sourabhnirvani/teamloop` |
 | D12 | Claude Code uses **command hooks**, not http hooks *(12 Oct)* | An http hook would send `last_assistant_message` straight off the laptop, which breaks D2. Command hooks keep every tool on one path. | Claude Code `type: http` hooks to the hub |
+| D14 | Codex: **unquoted hook command**, results judged from output *(13 Oct)* | Real Codex 0.162.1 runs on Windows: hooks go through PowerShell, where a leading quoted path fails silently; shell results carry no exit code and no failure event; edits are `apply_patch` | Copying Claude Code's quoted command and exit-code logic |
 | D13 | Spool = **one file per event**, written to a temp file then renamed *(12 Oct)* | Parallel tool calls fire hooks at the same moment; appending to one file can interleave on Windows | One JSONL file per day |

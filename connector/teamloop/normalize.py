@@ -9,6 +9,7 @@ Field maps come from real payloads in tests/fixtures/hooks/<tool>/. Two facts fr
 
 from __future__ import annotations
 
+import json
 import re
 import time
 import uuid
@@ -114,4 +115,48 @@ def claude_code(p: dict, root: Path | None) -> dict | None:
     return None
 
 
-NORMALIZERS: dict[str, Callable[[dict, Path | None], dict | None]] = {"claude_code": claude_code}
+_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
+_PATCH_EXIT = re.compile(r"^Exit code: (\d+)", re.M)
+
+
+def codex(p: dict, root: Path | None) -> dict | None:
+    """Codex CLI (fixtures: tests/fixtures/hooks/codex). Unlike Claude Code: shell results are a bare output
+    string with no exit code and no failure event, so `ok` is None (unknown) unless test counts decide it;
+    file edits are `apply_patch`, whose paths live in the patch text."""
+    name, tool = p.get("hook_event_name"), "codex"
+    if name == "SessionStart":
+        return event("session_start", tool, p, {"source": p.get("source")})
+    if name == "PostToolUse":
+        used, args = p.get("tool_name") or "", p.get("tool_input") or {}
+        out = p.get("tool_response")
+        out = out if isinstance(out, str) else json.dumps(out)
+        facts: dict[str, Any] = {"tool": used, "ok": None}
+        if used == "apply_patch":
+            files = [rel(f.strip(), root) for f in _PATCH_FILE.findall(args.get("command") or "")]
+            if files:
+                facts["file"] = files[0]
+                if len(files) > 1:
+                    facts["files"] = files[:20]
+            m = _PATCH_EXIT.search(out)
+            if m:
+                facts["ok"] = int(m.group(1)) == 0
+        elif used == "Bash":
+            cmd: dict[str, Any] = {"kind": command_kind(args.get("command") or ""), "ok": None}
+            if cmd["kind"] == "test":
+                counts = count_tests(out)
+                cmd.update(counts)
+                if counts:
+                    cmd["ok"] = not counts.get("failed")
+            facts["cmd"] = cmd
+        return event("tool", tool, p, facts)
+    if name in ("Stop", "SubagentStop"):
+        kind = "turn_end" if name == "Stop" else "subagent_end"
+        return event(kind, tool, p, local={"text": p.get("last_assistant_message") or ""})
+    if name == "PermissionRequest":
+        return event("waiting_input", tool, p, {"type": "permission"})
+    if name == "SessionEnd":
+        return event("session_end", tool, p, {"reason": p.get("reason")})
+    return None
+
+
+NORMALIZERS: dict[str, Callable[[dict, Path | None], dict | None]] = {"claude_code": claude_code, "codex": codex}

@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from teamloop import claude, doctor, githook, init
+from teamloop import claude, codex, doctor, githook, init
 
 
 @pytest.fixture
@@ -16,6 +16,7 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(claude, "register_mcp", lambda cwd, scope: "registered (test)")
     monkeypatch.setattr(claude, "mcp_registered", lambda cwd: True)
+    monkeypatch.setattr(codex, "cli", lambda: None)  # never touch the real ~/.codex in tests
     root = tmp_path / "proj"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "T-8-init"], cwd=root, check=True)
@@ -74,3 +75,17 @@ def test_doctor_names_the_fix(project):
     rows = doctor.checks(project)
     fixes = {fix for lvl, _, fix in rows if lvl == "fail"}
     assert "teamloop init" in fixes and "teamloop git-hook install" in fixes
+
+
+def test_init_wires_codex_when_installed(project, monkeypatch):
+    calls = []
+    monkeypatch.setattr(codex, "cli", lambda: "codex")
+    monkeypatch.setattr(codex, "register_mcp", lambda: calls.append("mcp") or "registered (test)")
+    monkeypatch.setattr(codex, "mcp_registered", lambda: bool(calls))
+    assert init.run("local") == 0 and calls == ["mcp"]
+    hooks = json.loads((project / ".codex" / "hooks.json").read_text())
+    assert claude.missing(hooks, codex.EVENTS, codex.TAG) == []
+    cmd = hooks["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert not cmd.startswith('"')  # Codex runs hooks through PowerShell on Windows: a leading quote fails silently
+    assert ".codex" not in subprocess.run(["git", "status", "--porcelain"], cwd=project, capture_output=True, text=True).stdout
+    assert [r for r in doctor.checks(project) if r[0] == "fail"] == []

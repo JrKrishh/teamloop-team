@@ -8,7 +8,7 @@ import re
 import time
 from pathlib import Path
 
-from teamloop import __version__, claude, githook, repo, spool
+from teamloop import __version__, claude, codex, githook, repo, spool
 
 
 def checks(cwd: Path) -> list[tuple[str, str, str]]:
@@ -70,6 +70,22 @@ def checks(cwd: Path) -> list[tuple[str, str, str]]:
         add("ok", "MCP server 'teamloop' registered")
     else:
         add("fail", "MCP server not registered", "teamloop init")
+
+    if codex.cli():
+        paths = [codex.hooks_path("local", found.root)] if found else []
+        paths.append(codex.hooks_path("user", None))
+        try:
+            wired_codex = any(not claude.missing(claude.load(p), codex.EVENTS, codex.TAG) for p in paths)
+        except ValueError:
+            wired_codex = False
+        if wired_codex:
+            add("ok", f"Codex hooks on all {len(codex.EVENTS)} events (approve them once in Codex: /hooks)")
+        else:
+            add("fail", "Codex is installed but its hooks aren't set up", "teamloop init")
+        if codex.mcp_registered():
+            add("ok", "Codex MCP server 'teamloop' registered")
+        else:
+            add("fail", "Codex MCP server not registered", "teamloop init")
 
     log = spool.home() / "hook.log"
     if log.is_file() and time.time() - log.stat().st_mtime < 86400:

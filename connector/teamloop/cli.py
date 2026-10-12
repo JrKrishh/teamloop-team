@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="teamloop", description="Your AI coding session's progress, shared with your team as summaries.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     h = sub.add_parser("hook", help="called by your coding tool's hooks; reads the event on stdin")
-    h.add_argument("tool", choices=["claude_code"])
+    h.add_argument("tool", choices=["claude_code", "codex"])
     t = sub.add_parser("task", help="set the task this repo is working on, e.g. `teamloop task T-14 \"Add SSE\"`")
     t.add_argument("id", nargs="?")
     t.add_argument("title", nargs="?")

@@ -62,3 +62,33 @@ def test_rel_never_returns_machine_paths():
     assert rel("C:/work/calc-demo/src/a.py", ROOT) == "src/a.py"
     assert rel(r"C:\Users\dev\secret\b.py", ROOT) == "b.py"
     assert rel("/home/dev/proj/c.py", None) == "c.py"
+
+
+# --- Codex (real payloads, tests/fixtures/hooks/codex) ---
+from teamloop.normalize import codex  # noqa: E402
+
+
+def run_codex(name):
+    return [codex(p, ROOT) for p in payloads("codex", name)]
+
+
+def test_codex_session_kinds():
+    kinds = [e["kind"] for e in run_codex("fix_test_session.jsonl")]
+    assert kinds == ["session_start"] + ["tool"] * 5 + ["turn_end", "session_end"]
+
+
+def test_codex_tests_judged_from_output_not_exit_code():
+    cmds = [e["facts"]["cmd"] for e in run_codex("fix_test_session.jsonl") if e["facts"].get("tool") == "Bash"]
+    assert cmds[0] == {"kind": "test", "ok": False, "failed": 1}
+    assert {"kind": "test", "ok": True, "passed": 1} in cmds
+    assert cmds[-1] == {"kind": "other", "ok": None}  # sys.exit(3): Codex reports no exit status at all
+
+
+def test_codex_apply_patch_files_and_exit():
+    [patch] = [e["facts"] for e in run_codex("fix_test_session.jsonl") if e["facts"].get("tool") == "apply_patch"]
+    assert patch == {"tool": "apply_patch", "ok": True, "file": "calc.py"}
+
+
+def test_codex_turn_text_stays_local():
+    [turn] = [e for e in run_codex("fix_test_session.jsonl") if e["kind"] == "turn_end"]
+    assert turn["local"]["text"].startswith("Fixed `calc.py`") and turn["facts"] == {}
