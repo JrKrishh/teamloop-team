@@ -1,0 +1,733 @@
+{
+ "built": "2026-10-12 19:43 UTC",
+ "events": [
+  {
+   "v": 1,
+   "id": "6d084886e14d4f84aa76f062430cde6d",
+   "offset_min": 95,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21"
+  },
+  {
+   "v": 1,
+   "id": "6714303521874128ab9dd8ab05e67ee0",
+   "offset_min": 94,
+   "tool": "mcp",
+   "session": "yang-T-21",
+   "kind": "task_start",
+   "facts": {
+    "title": "SSE stream for the board"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": null,
+   "task": "T-21"
+  },
+  {
+   "v": 1,
+   "id": "e5fe88757c94438c98cd740428446a5e",
+   "offset_min": 90,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "tool",
+   "facts": {
+    "tool": "Write",
+    "ok": true,
+    "file": "hub/hub/stream.py"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21"
+  },
+  {
+   "v": 1,
+   "id": "7166038b38034e44bd55a67615894156",
+   "offset_min": 84,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "cmd": {
+     "kind": "test",
+     "ok": false,
+     "passed": 3,
+     "failed": 2
+    }
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21"
+  },
+  {
+   "v": 1,
+   "id": "67e448cd37464fd4ba187fcd39cdb95b",
+   "offset_min": 83,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21",
+   "summary": "Added a first /v1/stream endpoint; 2 of 5 stream tests fail on reconnect.",
+   "status": "progress"
+  },
+  {
+   "v": 1,
+   "id": "5d0434ebf8024e5fb134f8901abedefe",
+   "offset_min": 70,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "tool",
+   "facts": {
+    "tool": "Edit",
+    "ok": true,
+    "file": "hub/hub/stream.py"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21"
+  },
+  {
+   "v": 1,
+   "id": "a40af0221da1424392d9d892aa2a3314",
+   "offset_min": 66,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "cmd": {
+     "kind": "test",
+     "ok": true,
+     "passed": 5
+    }
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21"
+  },
+  {
+   "v": 1,
+   "id": "bebad527b2fa4006a7cf8ef0cb3ea857",
+   "offset_min": 65,
+   "tool": "mcp",
+   "session": "yang-T-21",
+   "kind": "self_report",
+   "facts": {},
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": null,
+   "task": "T-21",
+   "report": {
+    "percent": 60,
+    "done": [
+     "stream endpoint",
+     "reconnect with Last-Event-ID"
+    ],
+    "doing": "wiring the board to the stream",
+    "next": [
+     "board uses EventSource",
+     "drop polling"
+    ]
+   }
+  },
+  {
+   "v": 1,
+   "id": "3e8e6a4907f34487b5c8850fab2ecf32",
+   "offset_min": 64,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21",
+   "summary": "Reconnects now resume from Last-Event-ID; all 5 stream tests pass.",
+   "status": "progress"
+  },
+  {
+   "v": 1,
+   "id": "3066af4e522d4675b29df18e323d2962",
+   "offset_min": 8,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "tool",
+   "facts": {
+    "tool": "Edit",
+    "ok": true,
+    "file": "hub/hub/static/board.html"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21"
+  },
+  {
+   "v": 1,
+   "id": "7d80cabd872c40c8b9048f38e35c57bb",
+   "offset_min": 3,
+   "tool": "claude_code",
+   "session": "yang-T-21",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-21-board-sse",
+   "task": "T-21",
+   "summary": "Board now opens an EventSource; polling kept as a fallback for now.",
+   "status": "progress"
+  },
+  {
+   "v": 1,
+   "id": "e30e896219424a54b2940f58af5f8e58",
+   "offset_min": 120,
+   "tool": "codex",
+   "session": "sourabh-T-22",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-22-snapshots-migration",
+   "task": "T-22"
+  },
+  {
+   "v": 1,
+   "id": "54b584058de14db3982fa3c05cbc1610",
+   "offset_min": 116,
+   "tool": "codex",
+   "session": "sourabh-T-22",
+   "kind": "tool",
+   "facts": {
+    "tool": "apply_patch",
+    "ok": true,
+    "file": "hub/migrations/003_progress.sql"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-22-snapshots-migration",
+   "task": "T-22"
+  },
+  {
+   "v": 1,
+   "id": "90f5aae5a92441389d003d8455c41e32",
+   "offset_min": 112,
+   "tool": "codex",
+   "session": "sourabh-T-22",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": null,
+    "cmd": {
+     "kind": "other",
+     "ok": false
+    }
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-22-snapshots-migration",
+   "task": "T-22"
+  },
+  {
+   "v": 1,
+   "id": "ff7a3d0665f14f9d8f6edd86801bc05d",
+   "offset_min": 111,
+   "tool": "codex",
+   "session": "sourabh-T-22",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-22-snapshots-migration",
+   "task": "T-22",
+   "summary": "Wrote the progress_snapshots migration; applying it failed with a permission error.",
+   "status": "progress"
+  },
+  {
+   "v": 1,
+   "id": "3bbfe918ef014375bcbea4fcdd3a3746",
+   "offset_min": 60,
+   "tool": "codex",
+   "session": "sourabh-T-22",
+   "kind": "tool",
+   "facts": {
+    "tool": "apply_patch",
+    "ok": true,
+    "file": "hub/migrations/003_progress.sql"
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-22-snapshots-migration",
+   "task": "T-22"
+  },
+  {
+   "v": 1,
+   "id": "4e8269f25f2c44d2acd6a393ae22c4e7",
+   "offset_min": 57,
+   "tool": "codex",
+   "session": "sourabh-T-22",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": null,
+    "cmd": {
+     "kind": "other",
+     "ok": false
+    }
+   },
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-22-snapshots-migration",
+   "task": "T-22"
+  },
+  {
+   "v": 1,
+   "id": "b7392c12485f47db8de41128fcd8e03a",
+   "offset_min": 56,
+   "tool": "mcp",
+   "session": "sourabh-T-22",
+   "kind": "blocked",
+   "facts": {},
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": null,
+   "task": "T-22",
+   "report": {
+    "reason": "The demo database user is read-only, so the migration can't create tables.",
+    "needs": "access"
+   }
+  },
+  {
+   "v": 1,
+   "id": "93da39b53e95407fa4a3eaa1790f34e6",
+   "offset_min": 55,
+   "tool": "codex",
+   "session": "sourabh-T-22",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "sourabh",
+   "repo": "teamloop-team",
+   "branch": "T-22-snapshots-migration",
+   "task": "T-22",
+   "summary": "Stuck: the database user can't create tables; asked the lead for access.",
+   "status": "blocked"
+  },
+  {
+   "v": 1,
+   "id": "370fa71613e7471c902fda4572d320fd",
+   "offset_min": 240,
+   "tool": "claude_code",
+   "session": "asha-T-19",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "member": "asha",
+   "repo": "teamloop-team",
+   "branch": "T-19-board-signin",
+   "task": "T-19"
+  },
+  {
+   "v": 1,
+   "id": "ccb0e2e2a4d94a7aa797f89f65a71e59",
+   "offset_min": 238,
+   "tool": "mcp",
+   "session": "asha-T-19",
+   "kind": "task_start",
+   "facts": {
+    "title": "Board sign-in with an HttpOnly cookie"
+   },
+   "member": "asha",
+   "repo": "teamloop-team",
+   "branch": null,
+   "task": "T-19"
+  },
+  {
+   "v": 1,
+   "id": "81d5aaa2a36941338859d0a10d2a4476",
+   "offset_min": 230,
+   "tool": "claude_code",
+   "session": "asha-T-19",
+   "kind": "tool",
+   "facts": {
+    "tool": "Edit",
+    "ok": true,
+    "file": "hub/hub/team.py"
+   },
+   "member": "asha",
+   "repo": "teamloop-team",
+   "branch": "T-19-board-signin",
+   "task": "T-19"
+  },
+  {
+   "v": 1,
+   "id": "f2c2a227fc8f469aaca098211c5b9546",
+   "offset_min": 220,
+   "tool": "claude_code",
+   "session": "asha-T-19",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "cmd": {
+     "kind": "test",
+     "ok": true,
+     "passed": 7
+    }
+   },
+   "member": "asha",
+   "repo": "teamloop-team",
+   "branch": "T-19-board-signin",
+   "task": "T-19"
+  },
+  {
+   "v": 1,
+   "id": "7fcb53f616734389be3891c8224ab9a4",
+   "offset_min": 219,
+   "tool": "claude_code",
+   "session": "asha-T-19",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "cmd": {
+     "kind": "git",
+     "ok": true
+    }
+   },
+   "member": "asha",
+   "repo": "teamloop-team",
+   "branch": "T-19-board-signin",
+   "task": "T-19"
+  },
+  {
+   "v": 1,
+   "id": "906309046e884bdc9c8838c033f47e71",
+   "offset_min": 218,
+   "tool": "claude_code",
+   "session": "asha-T-19",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "asha",
+   "repo": "teamloop-team",
+   "branch": "T-19-board-signin",
+   "task": "T-19",
+   "summary": "Sign-in sets an HttpOnly cookie; 7 tests pass; committed and pushed.",
+   "status": "done"
+  },
+  {
+   "v": 1,
+   "id": "4c623dddb5de4176a34452baed9a90fe",
+   "offset_min": 215,
+   "tool": "github",
+   "session": "asha-T-19",
+   "kind": "pr",
+   "facts": {
+    "number": 18,
+    "title": "T-19: board sign-in with an HttpOnly cookie",
+    "state": "open",
+    "draft": false,
+    "url": null,
+    "author": "asha"
+   },
+   "member": "github",
+   "repo": "teamloop-team",
+   "branch": null,
+   "task": "T-19"
+  },
+  {
+   "v": 1,
+   "id": "2c02a8a6d497496fb33a136d39499bbc",
+   "offset_min": 205,
+   "tool": "github",
+   "session": "asha-T-19",
+   "kind": "check",
+   "facts": {
+    "name": "ci",
+    "conclusion": "success",
+    "branch": "T-19-board-signin",
+    "url": null
+   },
+   "member": "github",
+   "repo": "teamloop-team",
+   "branch": null,
+   "task": "T-19"
+  },
+  {
+   "v": 1,
+   "id": "79fbfd9657b8422fa13cd07e27b58dd9",
+   "offset_min": 420,
+   "tool": "claude_code",
+   "session": "yang-T-17",
+   "kind": "session_start",
+   "facts": {
+    "source": "startup"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-17-commit-trailer",
+   "task": "T-17"
+  },
+  {
+   "v": 1,
+   "id": "07ddae1870414358a0be0c89456b841b",
+   "offset_min": 415,
+   "tool": "claude_code",
+   "session": "yang-T-17",
+   "kind": "tool",
+   "facts": {
+    "tool": "Write",
+    "ok": true,
+    "file": "connector/teamloop/githook.py"
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-17-commit-trailer",
+   "task": "T-17"
+  },
+  {
+   "v": 1,
+   "id": "619c2e9ca7ee44719d0c58ce762b4a4c",
+   "offset_min": 400,
+   "tool": "claude_code",
+   "session": "yang-T-17",
+   "kind": "tool",
+   "facts": {
+    "tool": "Bash",
+    "ok": true,
+    "cmd": {
+     "kind": "test",
+     "ok": true,
+     "passed": 6
+    }
+   },
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-17-commit-trailer",
+   "task": "T-17"
+  },
+  {
+   "v": 1,
+   "id": "df59219634714ec0976763300e690ea1",
+   "offset_min": 398,
+   "tool": "claude_code",
+   "session": "yang-T-17",
+   "kind": "turn_end",
+   "facts": {},
+   "member": "yang",
+   "repo": "teamloop-team",
+   "branch": "T-17-commit-trailer",
+   "task": "T-17",
+   "summary": "prepare-commit-msg hook adds TeamLoop-Task trailers, keeps existing hooks; 6 tests pass.",
+   "status": "done"
+  },
+  {
+   "v": 1,
+   "id": "8c580cc7dd1e4b10a94d3b7b39a1d097",
+   "offset_min": 380,
+   "tool": "github",
+   "session": "yang-T-17",
+   "kind": "pr",
+   "facts": {
+    "number": 15,
+    "title": "T-17: commit trailer hook",
+    "state": "merged",
+    "draft": false,
+    "url": null,
+    "author": "yang"
+   },
+   "member": "github",
+   "repo": "teamloop-team",
+   "branch": null,
+   "task": "T-17"
+  }
+ ],
+ "snapshots": {
+  "T-21": {
+   "task": "T-21",
+   "done": [
+    {
+     "text": "Added /v1/stream endpoint",
+     "evidence_ids": [
+      "e5fe88757c94438c98cd740428446a5e"
+     ]
+    },
+    {
+     "text": "Reconnects resume from Last-Event-ID",
+     "evidence_ids": [
+      "3e8e6a4907f34487b5c8850fab2ecf32"
+     ]
+    },
+    {
+     "text": "All 5 stream tests pass",
+     "evidence_ids": [
+      "a40af0221da1424392d9d892aa2a3314"
+     ]
+    }
+   ],
+   "doing": [
+    {
+     "text": "Wiring the board to the stream",
+     "evidence_ids": [
+      "bebad527b2fa4006a7cf8ef0cb3ea857"
+     ]
+    }
+   ],
+   "next": [
+    {
+     "text": "Board uses EventSource",
+     "evidence_ids": [
+      "bebad527b2fa4006a7cf8ef0cb3ea857"
+     ]
+    }
+   ],
+   "blockers": [],
+   "percent": 85,
+   "confidence": "high",
+   "status": "in_progress",
+   "agent_says_percent": 60,
+   "dropped_uncited": 0,
+   "model": "ollama:qwen3:4b",
+   "generated_at": "2026-10-12T19:42:20Z"
+  },
+  "T-22": {
+   "task": "T-22",
+   "done": [
+    {
+     "text": "Wrote progress_snapshots migration",
+     "evidence_ids": [
+      "54b584058de14db3982fa3c05cbc1610",
+      "3bbfe918ef014375bcbea4fcdd3a3746"
+     ]
+    }
+   ],
+   "doing": [
+    {
+     "text": "Fixing permission error",
+     "evidence_ids": [
+      "90f5aae5a92441389d003d8455c41e32",
+      "4e8269f25f2c44d2acd6a393ae22c4e7",
+      "b7392c12485f47db8de41128fcd8e03a"
+     ]
+    }
+   ],
+   "next": [
+    {
+     "text": "Get access to database",
+     "evidence_ids": [
+      "b7392c12485f47db8de41128fcd8e03a",
+      "93da39b53e95407fa4a3eaa1790f34e6"
+     ]
+    }
+   ],
+   "blockers": [
+    {
+     "text": "Demo database user is read-only",
+     "evidence_ids": [
+      "b7392c12485f47db8de41128fcd8e03a"
+     ]
+    }
+   ],
+   "percent": 40,
+   "confidence": "high",
+   "status": "blocked",
+   "agent_says_percent": null,
+   "dropped_uncited": 0,
+   "model": "ollama:qwen3:4b",
+   "generated_at": "2026-10-12T19:42:36Z"
+  },
+  "T-19": {
+   "task": "T-19",
+   "done": [
+    {
+     "text": "Sign-in sets an HttpOnly cookie",
+     "evidence_ids": [
+      "906309046e884bdc9c8838c033f47e71"
+     ]
+    },
+    {
+     "text": "7 tests pass",
+     "evidence_ids": [
+      "f2c2a227fc8f469aaca098211c5b9546"
+     ]
+    },
+    {
+     "text": "committed and pushed",
+     "evidence_ids": [
+      "906309046e884bdc9c8838c033f47e71"
+     ]
+    }
+   ],
+   "doing": [],
+   "next": [
+    {
+     "text": "PR #18 open",
+     "evidence_ids": [
+      "4c623dddb5de4176a34452baed9a90fe"
+     ]
+    }
+   ],
+   "blockers": [],
+   "percent": 95,
+   "confidence": "high",
+   "status": "in_progress",
+   "agent_says_percent": null,
+   "dropped_uncited": 0,
+   "model": "ollama:qwen3:4b",
+   "generated_at": "2026-10-12T19:42:49Z"
+  },
+  "T-17": {
+   "task": "T-17",
+   "done": [
+    {
+     "text": "prepare-commit-msg hook adds TeamLoop-Task trailers, keeps existing hooks",
+     "evidence_ids": [
+      "df59219634714ec0976763300e690ea1"
+     ]
+    },
+    {
+     "text": "6 tests pass",
+     "evidence_ids": [
+      "619c2e9ca7ee44719d0c58ce762b4a4c"
+     ]
+    }
+   ],
+   "doing": [],
+   "next": [
+    {
+     "text": "PR #15 merged",
+     "evidence_ids": [
+      "8c580cc7dd1e4b10a94d3b7b39a1d097"
+     ]
+    }
+   ],
+   "blockers": [],
+   "percent": 95,
+   "confidence": "high",
+   "status": "in_progress",
+   "agent_says_percent": null,
+   "dropped_uncited": 0,
+   "model": "ollama:qwen3:4b",
+   "generated_at": "2026-10-12T19:43:01Z"
+  }
+ }
+}

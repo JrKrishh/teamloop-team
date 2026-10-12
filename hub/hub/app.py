@@ -3,7 +3,8 @@
     uvicorn hub.app:app_from_env --factory --port 8799
 Env: HUB_DB (default teamloop-hub.db), HUB_SECRET (cookie signing; random per process if unset),
 CCBRIDGE_ROOMS / CCBRIDGE_OPEN_ROOMS (as in ccbridge), AGENT_S_PROVIDER / NEBIUS_API_KEY (Agent S model),
-GITHUB_WEBHOOK_SECRET / HUB_GITHUB_REPOS (owner/repo=room,...) for the GitHub receiver.
+GITHUB_WEBHOOK_SECRET / HUB_GITHUB_REPOS (owner/repo=room,...) for the GitHub receiver,
+HUB_DEMO_ROOM (public read-only demo room, seeded from demo/demo.json), HUB_DEMO_ASKS_PER_10MIN.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from typing import Callable, Optional
 
 from fastapi import FastAPI
 
-from . import github, relay, team
+from . import demo, github, relay, team
 
 
 def create(db_path: str = ":memory:", chat: Optional[Callable] = None, open_rooms: Optional[bool] = None,
@@ -25,4 +26,7 @@ def create(db_path: str = ":memory:", chat: Optional[Callable] = None, open_room
 
 
 def app_from_env() -> FastAPI:
-    return create(os.getenv("HUB_DB", "teamloop-hub.db"), debounce=float(os.getenv("HUB_DEBOUNCE", "30")))
+    app = create(os.getenv("HUB_DB", "teamloop-hub.db"), debounce=float(os.getenv("HUB_DEBOUNCE", "30")))
+    if os.getenv("HUB_DEMO_ROOM"):  # public, read-only sample team for the hosted demo
+        demo.seed(app, os.environ["HUB_DEMO_ROOM"])
+    return app

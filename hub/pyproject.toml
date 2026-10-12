@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 include = ["hub*"]
 
 [tool.setuptools.package-data]
-hub = ["static/*.html", "static/mascot/*/*.webp", "static/mascot/*.md"]
+hub = ["static/*.html", "static/mascot/*/*.webp", "static/mascot/*.md", "demo/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
