@@ -277,7 +277,7 @@ Credit both projects in the README and in the Devpost "what existed before" sect
 | Tool | Args | Effect |
 |---|---|---|
 | `task_start` | `task_id`, `title?` | Binds the session to the task |
-| `report_progress` | `percent`, `done[]`, `doing`, `next[]` | A self-report event (labelled "agent's own estimate") |
+| `report_progress` | `percent`, `done[]`, `doing`, `next_steps[]` | A self-report event (labelled "agent's own estimate") |
 | `mark_blocked` | `reason`, `needs` (`person`/`decision`/`access`/`info`) | Blocked card and notification |
 | `get_team_status` | (none) | Returns the board snapshot, so an agent can check what others are doing |
 | `ask_team` (S4) | `to`, `question` | ccbridge message, injection-wrapped |

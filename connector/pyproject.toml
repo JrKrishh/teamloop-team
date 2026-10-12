@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "TeamLoop connector: turns your AI coding session into private, summarized progress for your team."
 license = "MIT"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["mcp>=1.2,<2"]
 
 [project.optional-dependencies]
 nebius = ["openai>=1.40"]

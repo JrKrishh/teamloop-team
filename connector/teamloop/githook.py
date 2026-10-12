@@ -27,7 +27,9 @@ exit 0
 
 
 def git(*args: str, cwd: str | os.PathLike = ".") -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+    # stdin=DEVNULL: inside the MCP server, stdin is the protocol pipe; a child that inherits it stalls on Windows
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL).stdout.strip()
 
 
 def hooks_dir(cwd: str | os.PathLike = ".") -> Path:

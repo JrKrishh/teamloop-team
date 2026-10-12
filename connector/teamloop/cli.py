@@ -1,4 +1,4 @@
-"""`teamloop` command line. Day 1: hook, task, git-hook, pause/resume, status (login/init/doctor/daemon come next)."""
+"""`teamloop` command line. login and daemon arrive with the hub."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def _task(args: argparse.Namespace) -> int:
         found = repo.find(os.getcwd())
         print(repo.task(found) or "no task set (teamloop task <ID>)")
         return 0
-    if not is_task_id(args.id):
+    if not repo.is_task_id(args.id):
         print(f"not a task id: {args.id} (expected something like T-14)", file=sys.stderr)
         return 2
     githook.git("config", "teamloop.task", args.id)
@@ -31,12 +31,6 @@ def _task(args: argparse.Namespace) -> int:
     spool.append(redact.redact_obj(event))
     print(f"working on {args.id}" + (f": {args.title}" if args.title else ""))
     return 0
-
-
-def is_task_id(task_id: str) -> bool:
-    from teamloop.repo import TASK_ID
-
-    return bool(TASK_ID.fullmatch(task_id))
 
 
 def _status(_: argparse.Namespace) -> int:
@@ -79,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("pause", help="stop recording anything")
     sub.add_parser("resume", help="start recording again")
     sub.add_parser("status", help="show sharing state, spool and current task")
+    i = sub.add_parser("init", help="connect Claude Code (hooks + MCP) and the commit hook for this repo")
+    i.add_argument("--scope", choices=["local", "user"], default="local", help="local: this repo only (default); user: every repo")
+    i.add_argument("--dry-run", action="store_true")
+    sub.add_parser("doctor", help="check that everything is wired, with the fix for each problem")
+    sub.add_parser("mcp", help="run the MCP server (your coding tool starts this, not you)")
     args = ap.parse_args(argv)
 
     if args.cmd == "hook":
@@ -94,4 +93,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd in ("pause", "resume"):
         return _pause(args)
+    if args.cmd == "init":
+        from teamloop import init
+
+        return init.run(args.scope, args.dry_run)
+    if args.cmd == "doctor":
+        from teamloop import doctor
+
+        return doctor.run()
+    if args.cmd == "mcp":
+        from teamloop import mcp_server
+
+        return mcp_server.main()
     return _status(args)

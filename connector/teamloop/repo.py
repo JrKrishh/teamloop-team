@@ -10,6 +10,10 @@ from pathlib import Path
 TASK_ID = re.compile(r"[A-Z][A-Z0-9]*-\d+")
 
 
+def is_task_id(text: str) -> bool:
+    return bool(TASK_ID.fullmatch(text))
+
+
 @dataclass
 class Repo:
     root: Path
