@@ -15,7 +15,7 @@ Research behind this plan (read these for sources):
 
 ---
 
-## Status: 13 Oct 2026, about 02:00 IST (built overnight by Yang's agent)
+## Status: 13 Oct 2026, 01:20 IST (built overnight by Yang's agent)
 | Item | State | Where / evidence |
 |---|---|---|
 | M1 CLI: login, init, task, pause, doctor, hook shim + spool | **done** | `connector/` |
