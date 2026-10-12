@@ -3,8 +3,8 @@
 Read `PLAN.md` first. §5 is the scope contract, §15 is the schedule and §26 is the decision log. Don't add features outside §5.1 until the MVP is green.
 
 ## Layout
-- `connector/`: the `teamloop` CLI that runs on each developer's laptop: hook shim, spool, redaction, git trailer and, later, the summarizer and MCP server. Owned by Yang.
-- `hub/`: team server, built from the ccbridge relay. Owned by Sourabh. Not started.
+- `connector/`: the `teamloop` CLI on each developer's laptop: hook shim, spool, redaction, git trailer, MCP server, summarizer, sender. Owned by Yang.
+- `hub/`: team server, built from the ccbridge relay. Owned by Sourabh. Not started; the contract is in `docs/hub-api.md`.
 - `board/`: web board in the Hoodie design. Not started.
 - `docs/research/`: sources behind decisions. `docs/decisions/`: numbered decision records.
 

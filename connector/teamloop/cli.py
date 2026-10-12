@@ -1,4 +1,4 @@
-"""`teamloop` command line. login and daemon arrive with the hub."""
+"""`teamloop` command line. `login` arrives with the hub."""
 
 from __future__ import annotations
 
@@ -78,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--dry-run", action="store_true")
     sub.add_parser("doctor", help="check that everything is wired, with the fix for each problem")
     sub.add_parser("mcp", help="run the MCP server (your coding tool starts this, not you)")
+    sub.add_parser("send", help="summarize and send everything waiting in the spool, once")
+    sub.add_parser("daemon", help="keep sending in the background (every 5 s, backs off when the hub is down)")
     args = ap.parse_args(argv)
 
     if args.cmd == "hook":
@@ -105,4 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         from teamloop import mcp_server
 
         return mcp_server.main()
+    if args.cmd in ("send", "daemon"):
+        from teamloop import send
+
+        return send.main(once=args.cmd == "send")
     return _status(args)
