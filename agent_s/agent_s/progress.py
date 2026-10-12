@@ -80,7 +80,15 @@ def describe(e: dict) -> str | None:
         return "agent is waiting for its human"
     if kind == "session_end":
         return f"session ended ({f.get('reason')})"
-    return f"{kind}: {f}"  # future kinds (commit, pr, check) still show up
+    if kind == "pr":
+        return f"PR #{f.get('number')} {f.get('state')}{' (draft)' if f.get('draft') else ''}: {f.get('title', '')}"
+    if kind == "review":
+        return f"PR #{f.get('number')} review: {f.get('state')} by {f.get('reviewer')}"
+    if kind == "check":
+        return f"CI {f.get('name') or 'checks'}: {f.get('conclusion')}"
+    if kind == "commit":
+        return f"commit {f.get('sha')}: {f.get('message', '')}"
+    return f"{kind}: {f}"  # future kinds still show up
 
 
 def timeline(events: list[dict]) -> tuple[str, dict[str, str]]:
