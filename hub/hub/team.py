@@ -19,7 +19,11 @@ import threading
 import time
 from typing import Callable, Optional
 
+from pathlib import Path
+
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from agent_s import llm, progress, qa
@@ -53,6 +57,7 @@ KIND_RE = re.compile(r"^[a-z_]{1,32}$")
 TASK_RE = re.compile(r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
 ACTIVE_SECONDS = 300
 COOKIE = "teamloop_board"
+STATIC = Path(__file__).parent / "static"
 COOKIE_DAYS = 7
 
 
@@ -95,6 +100,13 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     secret = (os.getenv("HUB_SECRET") or secrets.token_hex(32)).encode()
     chat = chat or llm.chat_json
     failed_at: dict[tuple[str, str], float] = {}
+
+    # ---- the board page ----------------------------------------------------------------------
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        return FileResponse(STATIC / "board.html")
 
     # ---- board sign-in (cookie) -------------------------------------------------------------
     def _sign(room: str, expires: int) -> str:
@@ -173,6 +185,10 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
         for t in tasks:
             evs = events_for(room, t["task"], 200)
             titles = [e["facts"].get("title") for e in evs if e.get("kind") == "task_start" and e.get("facts", {}).get("title")]
+            if not titles:  # no task_start title (e.g. Codex without MCP): fall back to the branch, T-7-multiply -> "Multiply"
+                branch = next((e["branch"] for e in reversed(evs) if (e.get("branch") or "").startswith(t["task"] + "-")), "")
+                words = branch[len(t["task"]) + 1:].replace("-", " ").replace("_", " ").strip()
+                titles = [words[:1].upper() + words[1:]] if words else []
             snap = latest_snapshot(room, t["task"])
             last_block = max((e["ts"] for e in evs if e["kind"] == "blocked"), default="")
             last_move = max((e["ts"] for e in evs if e["kind"] in ("self_report", "turn_end") and e.get("status") != "blocked"),

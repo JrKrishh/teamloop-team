@@ -1,6 +1,7 @@
 """TeamLoop endpoints on the relay: events in, Agent S progress, board, sign-in, Q&A. Agent S's model is faked."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -111,3 +112,19 @@ def test_rooms_are_isolated(hub):
     a, b = member(client, "yang", "team-a"), member(client, "eve", "team-b")
     client.post("/v1/events", json={"events": golden("real_fix_add_done.json")}, headers=a)
     assert client.get("/v1/board", headers=b).json()["tasks"] == []
+
+
+def test_board_page_and_mascots_are_served(hub):
+    _, client = hub
+    page = client.get("/")
+    assert page.status_code == 200 and "TeamLoop" in page.text
+    assert not re.search(r"\.(innerHTML|outerHTML)\s*=|insertAdjacentHTML", page.text)  # peer text is untrusted
+    assert client.get("/static/mascot/agent-s/think.webp").headers["content-type"] == "image/webp"
+
+
+def test_untitled_task_takes_its_title_from_the_branch(hub):
+    _, client = hub
+    s = member(client, "sourabh")
+    e = {**golden("synthetic_early_sse.json")[2], "id": "f" * 32, "task": "T-7", "branch": "T-7-add-multiply"}
+    client.post("/v1/events", json={"events": [e]}, headers=s)
+    assert client.get("/v1/board", headers=s).json()["tasks"][0]["title"] == "Add multiply"

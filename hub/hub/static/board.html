@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TeamLoop Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Figtree:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Hoodie tokens from TeamLoop neatHack (ui/src/index.css) */
+:root{--bg:#F6F1E8;--bg2:#EFE7DA;--panel:#FFFCF6;--line:#E6DDCF;--line2:#CFC4B3;--text:#18171B;--muted:#6B655D;--faint:#A9A196;
+--brick:#A8443D;--ok:#2E8B57;--bad:#C2413A;--warn:#B7791F;--bar:#18171B;--claim:#A8443D;
+--ft:"Bricolage Grotesque","Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+--fb:Figtree,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--fm:"JetBrains Mono","Cascadia Mono",Consolas,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121114;--bg2:#17161A;--panel:#1F1D22;--line:#2C2A2F;--line2:#3A373E;
+--text:#F3ECE0;--muted:#A9A196;--faint:#6F6960;--brick:#F4B7B0;--ok:#4CC38A;--bad:#F07A70;--warn:#F2B32B;--bar:#F3ECE0;--claim:#F4B7B0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121114;--bg2:#17161A;--panel:#1F1D22;--line:#2C2A2F;--line2:#3A373E;
+--text:#F3ECE0;--muted:#A9A196;--faint:#6F6960;--brick:#F4B7B0;--ok:#4CC38A;--bad:#F07A70;--warn:#F2B32B;--bar:#F3ECE0;--claim:#F4B7B0;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 var(--fb)}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:20px;padding-block:18px 60px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;padding-bottom:16px;border-bottom:2px solid var(--text)}
+.brand{font:800 26px/1 var(--ft);letter-spacing:-.02em}
+.room{font:700 12px/1 var(--fm);letter-spacing:.06em;text-transform:uppercase;color:var(--brick)}
+.people{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+.person{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-weight:600;font-size:14px}
+.person img{width:30px;height:40px;object-fit:cover;object-position:top;border-radius:50%}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}.dot.on{background:var(--ok)}
+.updated{font:500 12px/1 var(--fm);color:var(--muted)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:28px;margin-top:22px}
+.tally{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;font:700 12px/1 var(--fm);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.tally b{color:var(--text);font-size:15px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card.blocked{border-color:var(--bad);box-shadow:inset 4px 0 0 var(--bad)}
+.head{display:flex;align-items:flex-start;gap:12px}
+.head img{width:54px;height:72px;object-fit:contain;flex:none}
+.id{font:700 12px/1 var(--fm);color:var(--brick);letter-spacing:.04em}
+.title{font:800 19px/1.2 var(--ft);margin:4px 0 0;text-wrap:balance;overflow-wrap:anywhere}
+.pill{margin-left:auto;flex:none;font:700 11px/1 var(--fm);letter-spacing:.05em;text-transform:uppercase;padding:5px 8px;border-radius:6px;border:1px solid currentColor}
+.pill.in_progress{color:var(--muted)}.pill.blocked{color:var(--bad)}.pill.done,.pill.review{color:var(--ok)}
+.meter{display:flex;flex-direction:column;gap:6px}
+.track{position:relative;height:10px;border-radius:5px;background:var(--bg2);overflow:visible}
+.fill{height:100%;border-radius:5px;background:var(--bar)}
+.claim{position:absolute;top:-4px;width:2px;height:18px;background:var(--claim)}
+.legend{display:flex;justify-content:space-between;gap:8px;font:500 12px/1.3 var(--fm);color:var(--muted);flex-wrap:wrap}
+.legend b{color:var(--text)}
+.lists{display:grid;gap:6px;font-size:14px}
+.row{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px}
+.row span:first-child{font:700 11px/1.6 var(--fm);letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+.row.blockers span:first-child{color:var(--bad)}
+.row ul{margin:0;padding:0;list-style:none}.row li{overflow-wrap:anywhere}
+.cite{font:500 11px var(--fm);color:var(--faint);margin-left:4px}
+.foot{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.chip{font:600 12px/1 var(--fb);padding:5px 8px;border-radius:6px;background:var(--bg2);color:var(--text)}
+details{font-size:13px}summary{cursor:pointer;color:var(--muted);font-weight:600}
+.recent{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:4px;font:500 12px/1.45 var(--fm);color:var(--muted)}
+.recent li{overflow-wrap:anywhere}.recent time{color:var(--faint);margin-right:6px}
+.empty{padding:40px 20px;text-align:center;color:var(--muted);border:1px dashed var(--line2);border-radius:14px}
+aside{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);align-self:start;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+aside .who{display:flex;gap:12px;align-items:center}
+aside img{width:60px;height:80px;object-fit:contain}
+aside h2{font:800 20px/1.1 var(--ft);margin:0}
+aside p{margin:2px 0 0;color:var(--muted);font-size:13px}
+form.ask{display:flex;gap:8px}
+input{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;min-width:0;flex:1}
+button{font:700 14px/1 var(--fb);color:var(--bg);background:var(--text);border:0;border-radius:9px;padding:10px 14px;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+.answers{display:flex;flex-direction:column-reverse;gap:10px;max-height:52vh;overflow:auto}
+.qa{border-top:1px solid var(--line);padding-top:10px}
+.qa .q{font-weight:700}.qa .a{margin-top:4px;overflow-wrap:anywhere}.qa .meta{font:500 11px/1.3 var(--fm);color:var(--faint);margin-top:4px}
+.qa.none .a{color:var(--muted)}
+.signin{max-width:420px;margin:60px auto;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
+.signin img{width:120px;height:160px;object-fit:contain}
+.signin form{display:flex;flex-direction:column;gap:10px;width:100%}
+.err{color:var(--bad);font-size:13px;min-height:1em}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}aside{position:static}.people{margin-left:0}.wrap{padding-inline:16px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><div class="brand">TeamLoop</div><div class="room" id="room">board</div></div>
+    <div class="people" id="people"></div>
+    <div class="updated" id="updated"></div>
+  </header>
+
+  <section class="signin" id="signin" hidden>
+    <img src="/static/mascot/agent-s/wave.webp" alt="">
+    <h1 class="title">Sign in to your team's board</h1>
+    <p style="color:var(--muted);margin:0">Use the room name and room token from your hub.</p>
+    <form id="signinForm">
+      <input id="roomIn" placeholder="Room, e.g. teamloop" autocomplete="off" required>
+      <input id="tokenIn" placeholder="Room token" type="password" autocomplete="off" required>
+      <button>Open board</button>
+      <div class="err" id="signinErr"></div>
+    </form>
+  </section>
+
+  <div class="layout" id="main" hidden>
+    <section>
+      <div class="tally" id="tally"></div>
+      <div class="grid" id="tasks"></div>
+    </section>
+    <aside>
+      <div class="who"><img src="/static/mascot/agent-s/think.webp" alt=""><div><h2>Ask Agent S</h2>
+        <p>Answers come only from your team's session events, with the evidence counted. No evidence, no answer.</p></div></div>
+      <form class="ask" id="askForm"><input id="question" maxlength="500" placeholder="How far is T-14? Anything blocked?" required><button id="askBtn">Ask</button></form>
+      <div class="answers" id="answers"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+// Peer text (titles, summaries, self-reports) is untrusted: everything goes in with textContent, never innerHTML.
+const COLOURS = ["green", "pink", "purple", "orange", "olive"];
+const TOOLS = {claude_code: "Claude Code", codex: "Codex", cursor: "Cursor"};
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+let last = "";
+
+function colour(name) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLOURS[h % COLOURS.length]; }
+function mascot(name, pose) { const i = el("img"); i.src = `/static/mascot/${colour(name)}/${pose}.webp`; i.alt = ""; return i; }
+function ago(t) { const s = Math.max(0, Date.now() / 1000 - t); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; }
+function clock(ts) { return ts ? ts.slice(11, 16) : ""; }
+
+function pose(task, members) {
+  if (task.status === "blocked") return "oops";
+  if ((task.progress || {}).percent >= 90) return "cheer";
+  const active = new Set(members.filter(m => m.active).map(m => m.name));
+  return task.members.some(m => active.has(m)) ? "idle" : "sleep";
+}
+
+function list(label, items, cls) {
+  if (!items || !items.length) return null;
+  const row = el("div", "row " + (cls || "")); row.append(el("span", null, label));
+  const ul = el("ul");
+  for (const it of items) { const li = el("li", null, it.text); li.append(el("span", "cite", `${it.evidence_ids.length} cited`)); ul.append(li); }
+  row.append(ul); return row;
+}
+
+function card(t, members) {
+  const c = el("article", "card" + (t.status === "blocked" ? " blocked" : ""));
+  const head = el("div", "head"); head.append(mascot(t.members[0] || "team", pose(t, members)));
+  const name = el("div"); name.style.minWidth = "0"; name.append(el("div", "id", t.task), el("h3", "title", t.title || t.task));
+  head.append(name, el("span", "pill " + t.status, t.status.replace("_", " "))); c.append(head);
+
+  const p = t.progress;
+  const meter = el("div", "meter"), track = el("div", "track"), fill = el("div", "fill");
+  fill.style.width = `${p ? p.percent : 0}%`; track.append(fill);
+  if (p && p.agent_says_percent != null) { const m = el("div", "claim"); m.style.left = `calc(${p.agent_says_percent}% - 1px)`; m.title = "the agent's own claim"; track.append(m); }
+  const legend = el("div", "legend");
+  const a = el("span"); a.append("Agent S ", el("b", null, p ? `${p.percent}%` : "estimating…")); if (p) a.append(` · ${p.confidence} confidence`);
+  legend.append(a);
+  if (p && p.agent_says_percent != null) legend.append(el("span", null, `agent says ${p.agent_says_percent}%`));
+  meter.append(track, legend); c.append(meter);
+
+  if (p) {
+    const lists = el("div", "lists");
+    for (const r of [list("Blocked", p.blockers, "blockers"), list("Done", p.done), list("Doing", p.doing), list("Next", p.next)]) if (r) lists.append(r);
+    if (lists.childNodes.length) c.append(lists);
+  }
+  const foot = el("div", "foot");
+  for (const m of t.members) foot.append(el("span", "chip", m));
+  for (const tool of t.tools) if (TOOLS[tool]) foot.append(el("span", "chip", TOOLS[tool]));
+  foot.append(el("span", null, `· ${ago(t.last_activity)} · ${t.events} events`)); c.append(foot);
+
+  if (t.recent.length) {
+    const d = el("details"); d.append(el("summary", null, "Recent activity"));
+    const ul = el("ul", "recent");
+    for (const r of t.recent.slice().reverse()) { const li = el("li"); li.append(el("time", null, clock(r.ts)), `${r.member}: ${r.line}`); ul.append(li); }
+    d.append(ul); c.append(d);
+  }
+  return c;
+}
+
+function render(b) {
+  $("room").textContent = `room · ${b.room}`;
+  const people = $("people"); people.replaceChildren();
+  for (const m of b.members) {
+    const p = el("div", "person"); p.append(mascot(m.name, m.active ? "idle" : "sleep"), el("span", null, m.name), el("span", "dot" + (m.active ? " on" : "")));
+    p.title = m.active ? "active in the last 5 min" : `last seen ${ago(m.last_activity)}`; people.append(p);
+  }
+  const counts = {in_progress: 0, blocked: 0};
+  for (const t of b.tasks) counts[t.status] = (counts[t.status] || 0) + 1;
+  const tally = $("tally"); tally.replaceChildren();
+  for (const [k, v] of [["tasks", b.tasks.length], ["in progress", counts.in_progress], ["blocked", counts.blocked]]) { const s = el("span"); s.append(el("b", null, String(v)), ` ${k}`); tally.append(s); }
+  const grid = $("tasks"); grid.replaceChildren();
+  if (!b.tasks.length) grid.append(el("div", "empty", "No task activity yet. Once a teammate runs `teamloop task T-<id>` and starts a session, their work shows up here."));
+  for (const t of b.tasks) grid.append(card(t, b.members));
+}
+
+async function load() {
+  try {
+    const r = await fetch("/v1/board", {credentials: "same-origin"});
+    if (r.status === 401 || r.status === 403) { $("main").hidden = true; $("signin").hidden = false; return; }
+    const b = await r.json();
+    $("signin").hidden = true; $("main").hidden = false;
+    const key = JSON.stringify(b.tasks) + JSON.stringify(b.members.map(m => [m.name, m.active]));
+    if (key !== last) { last = key; render(b); }
+    $("updated").textContent = `updated ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
+  } catch (e) { $("updated").textContent = "hub unreachable, retrying…"; }
+}
+
+$("signinForm").addEventListener("submit", async ev => {
+  ev.preventDefault(); $("signinErr").textContent = "";
+  const r = await fetch("/v1/board/login", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin",
+    body: JSON.stringify({room: $("roomIn").value.trim(), token: $("tokenIn").value})});
+  if (r.ok) { $("tokenIn").value = ""; load(); } else $("signinErr").textContent = "That room and token don't match.";
+});
+
+$("askForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const q = $("question").value.trim(); if (!q) return;
+  const btn = $("askBtn"); btn.disabled = true; btn.textContent = "Thinking";
+  const box = el("div", "qa"); box.append(el("div", "q", q)); const a = el("div", "a", "…"); box.append(a); $("answers").append(box);
+  try {
+    const r = await fetch("/v1/ask", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify({question: q})});
+    const out = await r.json();
+    if (!r.ok) { a.textContent = out.detail || "Agent S couldn't answer right now."; box.classList.add("none"); }
+    else {
+      a.textContent = out.answer;
+      if (!out.citations.length) box.classList.add("none");
+      box.append(el("div", "meta", out.citations.length ? `cites ${out.citations.length} event${out.citations.length > 1 ? "s" : ""} · ${out.model || ""}` : `no evidence · ${out.model || ""}`));
+    }
+  } catch (e) { a.textContent = "Couldn't reach the hub."; }
+  btn.disabled = false; btn.textContent = "Ask"; $("question").value = "";
+});
+
+load(); setInterval(load, 5000);
+</script>
+</body>
+</html>
