@@ -15,4 +15,5 @@ def teamloop_home(tmp_path, monkeypatch):
     home = tmp_path / "tl-home"
     monkeypatch.setenv("TEAMLOOP_HOME", str(home))
     monkeypatch.delenv("TEAMLOOP_TASK", raising=False)
+    monkeypatch.setenv("TEAMLOOP_SUMMARIZER", "off")  # tests never call a real model; they pass fakes
     return home

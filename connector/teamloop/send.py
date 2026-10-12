@@ -7,6 +7,8 @@ summary is attached. The hub API contract is in docs/hub-api.md.
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -24,7 +26,8 @@ def config() -> dict | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
 
-def prepare(record: dict, summarizer: Callable = summarize.summarize) -> dict:
+def prepare(record: dict, summarizer: Callable | None = None) -> dict:
+    summarizer = summarizer or summarize.summarize  # looked up per call, so it can be swapped
     out = spool.public(record)
     text = (record.get("local") or {}).get("text") or ""
     if record.get("kind") in SUMMARIZED and text.strip():
@@ -46,7 +49,7 @@ def _post(url: str, token: str, events: list[dict]) -> None:
             raise urllib.error.HTTPError(url, r.status, "hub refused the batch", r.headers, None)
 
 
-def send_once(post: Callable = _post, summarizer: Callable = summarize.summarize) -> tuple[int, str | None]:
+def send_once(post: Callable = _post, summarizer: Callable | None = None) -> tuple[int, str | None]:
     """Send one batch. Returns (events sent, error or None). Files are deleted only after the hub accepts them."""
     cfg = config()
     if not cfg:
@@ -64,18 +67,38 @@ def send_once(post: Callable = _post, summarizer: Callable = summarize.summarize
     return len(paths), None
 
 
-def daemon(every: float = 5.0) -> int:
-    backoff = every
-    while True:
+def my_turn(stale: float = 30.0) -> bool:
+    """One sender per laptop. sender.lock holds the sender's pid; its mtime is that sender's heartbeat.
+    A lost race only means a batch is sent twice, which the hub dedupes by event id."""
+    lock, me = spool.home() / "sender.lock", str(os.getpid())
+    try:
+        holder, age = lock.read_text(), time.time() - lock.stat().st_mtime
+    except OSError:
+        holder, age = None, 0.0
+    if holder not in (None, me) and age < stale:
+        return False
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(me)
+    return True
+
+
+def daemon(every: float = 5.0, log: Callable = print, stop: threading.Event | None = None) -> int:
+    """Send until stopped. Runs as `teamloop daemon`, or as a thread inside the MCP server (see mcp_server.main)."""
+    wait = stop.wait if stop else time.sleep
+    backoff, last_err = every, None
+    while not (stop and stop.is_set()):
+        if not my_turn():
+            wait(every)
+            continue
         sent, err = send_once()
-        if err:
-            print(time.strftime("%H:%M:%S"), err, flush=True)
-            backoff = min(backoff * 2, 300)
-        else:
-            if sent:
-                print(time.strftime("%H:%M:%S"), f"sent {sent}", flush=True)
-            backoff = every
-        time.sleep(0 if sent == BATCH else backoff)
+        if err and err != last_err:
+            log(f"{time.strftime('%H:%M:%S')} {err}")
+        if sent:
+            log(f"{time.strftime('%H:%M:%S')} sent {sent}")
+        backoff = min(backoff * 2, 300) if err else every
+        last_err = err
+        wait(0 if sent == BATCH else backoff)
+    return 0
 
 
 def main(once: bool) -> int:

@@ -8,6 +8,7 @@ It is still redacted, capped, and labelled as the agent's own estimate.
 from __future__ import annotations
 
 import os
+import threading
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -71,5 +72,17 @@ def mark_blocked(reason: str, needs: Literal["person", "decision", "access", "in
 
 
 def main() -> int:
+    """The MCP server lives as long as the coding session, so it also hosts the sender: no extra process to run.
+    stdout is the MCP protocol here, so the sender logs to ~/.teamloop/sender.log."""
+    from teamloop import send
+
+    def log(line: str) -> None:
+        try:
+            with open(spool.home() / "sender.log", "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            pass
+
+    threading.Thread(target=send.daemon, kwargs={"log": log, "stop": threading.Event()}, daemon=True).start()
     mcp.run()
     return 0

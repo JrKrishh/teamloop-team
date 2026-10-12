@@ -1,7 +1,9 @@
 """The privacy boundary (PLAN.md M9): what a real HTTP hub receives, checked against canary text."""
 
 import json
+import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -98,3 +100,28 @@ def test_parse_clips_validates_and_redacts():
 def test_off_means_no_model_call(monkeypatch):
     monkeypatch.setenv("TEAMLOOP_SUMMARIZER", "off")
     assert summarize.summarize("anything") is None
+
+
+def test_one_sender_per_laptop(teamloop_home):
+    assert send.my_turn() and send.my_turn()  # we hold it, and keep holding it
+    (teamloop_home / "sender.lock").write_text("999999")  # another live sender
+    assert not send.my_turn()
+    old = time.time() - 120
+    os.utime(teamloop_home / "sender.lock", (old, old))  # ...whose heartbeat stopped
+    assert send.my_turn()
+
+
+def test_daemon_thread_sends_and_stops(hub, monkeypatch):
+    monkeypatch.setattr(summarize, "summarize", fake_summary)
+    spool_turn()
+    stop, lines = threading.Event(), []
+    t = threading.Thread(target=send.daemon, kwargs={"every": 0.05, "log": lines.append, "stop": stop})
+    t.start()
+    for _ in range(100):
+        if not spool.pending():
+            break
+        time.sleep(0.05)
+    stop.set()
+    t.join(5)
+    assert spool.pending() == [] and not t.is_alive() and any("sent 2" in line for line in lines)
+    assert json.loads(hub.bodies[0])["events"][0]["summary_model"] == "fake"

@@ -51,3 +51,32 @@ def test_tools_record_self_reports(tmp_path, teamloop_home):
     assert all(e["task"] == "T-4" and e["tool"] == "mcp" for e in events)
     assert events[2]["report"] == {"reason": "need the hub URL", "needs": "info"}
     assert "report" in spool.public(events[1])  # self-reports are written for the team on purpose
+
+
+def test_mcp_server_hosts_the_sender(tmp_path, teamloop_home):
+    """No extra process: while the coding session's MCP server runs, the spool drains to the hub."""
+    from test_send import Hub
+
+    hub = Hub()
+    teamloop_home.mkdir(parents=True, exist_ok=True)
+    (teamloop_home / "config.json").write_text(json.dumps({"hub": hub.url, "token": "t", "member": "yang"}))
+    subprocess.run(["git", "init", "-q", "-b", "T-12-x"], cwd=tmp_path, check=True)
+    calls = [("report_progress", {"percent": 50, "done": ["a"], "doing": "b", "next_steps": ["c"]})]
+    params = StdioServerParameters(command=sys.executable, args=["-m", "teamloop", "mcp"], cwd=str(tmp_path),
+                                   env={**os.environ, "TEAMLOOP_HOME": str(teamloop_home), "TEAMLOOP_SUMMARIZER": "off"})
+
+    async def go(errlog):
+        async with stdio_client(params, errlog=errlog) as (r, w), ClientSession(r, w) as s:
+            await s.initialize()
+            await s.call_tool(*calls[0])
+            for _ in range(60):  # the sender thread polls every 5 s
+                if hub.bodies:
+                    break
+                await asyncio.sleep(0.25)
+
+    with open(teamloop_home.parent / "mcp-stderr.log", "w") as errlog:
+        asyncio.run(go(errlog))
+    hub.server.shutdown()
+    events = json.loads(hub.bodies[0])["events"]
+    assert events[0]["kind"] == "self_report" and events[0]["task"] == "T-12" and events[0]["member"] == "yang"
+    assert spool.pending() == []
