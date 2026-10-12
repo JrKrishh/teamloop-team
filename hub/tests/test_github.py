@@ -80,3 +80,11 @@ def test_github_is_not_a_team_member(hub):
     _, client, yang = hub
     deliver(client, "pull_request", fixture("pull_request_opened.json"))
     assert [m["name"] for m in client.get("/v1/board", headers=yang).json()["members"]] == []
+
+
+def test_ci_result_shows_on_the_pr(hub):
+    _, client, yang = hub
+    deliver(client, "pull_request", fixture("pull_request_opened.json"), "d-1")
+    assert deliver(client, "workflow_run", fixture("workflow_run_completed.json"), "d-2").json()["accepted"] == 1
+    task = client.get("/v1/board", headers=yang).json()["tasks"][0]
+    assert task["pr"]["checks"] == "success" and any(r["line"] == "CI ci: success" for r in task["recent"])
