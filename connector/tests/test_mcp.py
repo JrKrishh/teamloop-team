@@ -59,7 +59,8 @@ def test_mcp_server_hosts_the_sender(tmp_path, teamloop_home):
 
     hub = Hub()
     teamloop_home.mkdir(parents=True, exist_ok=True)
-    (teamloop_home / "config.json").write_text(json.dumps({"hub": hub.url, "token": "t", "member": "yang"}))
+    (teamloop_home / "config.json").write_text(json.dumps(
+        {"url": hub.url, "room": "team-room", "token": "t", "name": "yang", "identity_key": "k" * 32}))
     subprocess.run(["git", "init", "-q", "-b", "T-12-x"], cwd=tmp_path, check=True)
     calls = [("report_progress", {"percent": 50, "done": ["a"], "doing": "b", "next_steps": ["c"]})]
     params = StdioServerParameters(command=sys.executable, args=["-m", "teamloop", "mcp"], cwd=str(tmp_path),

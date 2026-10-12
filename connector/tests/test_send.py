@@ -14,17 +14,31 @@ CANARY = "CANARY-raw-agent-text-7f3a"
 
 
 class Hub:
+    """Stand-in hub speaking ccbridge auth: /v1/join hands out a session; /v1/events records what arrives."""
+
     def __init__(self, status=200):
-        self.bodies, self.auth, self.status = [], [], status
+        self.bodies, self.auth, self.sessions, self.joins, self.status = [], [], [], 0, status
+        self.expire_next = False
         hub = self
 
         class H(BaseHTTPRequestHandler):
             def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+                if self.path == "/v1/join":
+                    hub.joins += 1
+                    return self._reply(200, json.dumps({"session_id": f"sess-{hub.joins}"}).encode())
+                if hub.expire_next:
+                    hub.expire_next = False
+                    return self._reply(401, b"{}")
                 hub.auth.append(self.headers.get("Authorization"))
-                hub.bodies.append(self.rfile.read(int(self.headers["Content-Length"])).decode())
-                self.send_response(hub.status)
+                hub.sessions.append(self.headers.get("X-CCBridge-Session"))
+                hub.bodies.append(body)
+                self._reply(hub.status, b"{}")
+
+            def _reply(self, code, payload):
+                self.send_response(code)
                 self.end_headers()
-                self.wfile.write(b"{}")
+                self.wfile.write(payload)
 
             def log_message(self, *a):
                 pass
@@ -34,11 +48,15 @@ class Hub:
         self.url = f"http://127.0.0.1:{self.server.server_port}"
 
 
+def config(url):
+    return {"url": url, "room": "team-room", "token": "room-token", "name": "yang", "identity_key": "k" * 32}
+
+
 @pytest.fixture
 def hub(teamloop_home):
     h = Hub()
     teamloop_home.mkdir(parents=True, exist_ok=True)
-    (teamloop_home / "config.json").write_text(json.dumps({"hub": h.url, "token": "member-token", "member": "yang"}))
+    (teamloop_home / "config.json").write_text(json.dumps(config(h.url)))
     yield h
     h.server.shutdown()
 
@@ -66,7 +84,7 @@ def test_hub_gets_summary_never_local_text(hub):
     turn = by_kind(events, "turn_end")
     assert turn["summary"] == "Fixed add() so the test passes." and turn["status"] == "done"
     assert all(e["member"] == "yang" and e["task"] == "T-3" for e in events)
-    assert hub.auth == ["Bearer member-token"]
+    assert hub.auth == ["Bearer room-token"] and hub.sessions == ["sess-1"]
     assert spool.pending() == []  # sent events leave the spool
 
 
@@ -138,3 +156,34 @@ def test_spool_keeps_order_within_a_tick(monkeypatch):
     for k in kinds:
         spool.append(normalize.event(k, "claude_code", {}))
     assert [spool.read(p)["kind"] for p in spool.pending()] == kinds
+
+
+def test_expired_session_rejoins_once(hub):
+    spool_turn()
+    send.send_once(summarizer=fake_summary)
+    spool_turn()
+    hub.expire_next = True  # the hub restarted: the old session is gone
+    assert send.send_once(summarizer=fake_summary) == (2, None)
+    assert hub.joins == 2 and hub.sessions == ["sess-1", "sess-2"]
+
+
+def test_invite_round_trip_and_bad_invites():
+    from teamloop import login
+
+    inv = login.invite("https://hub.example.com/", "team-room", "tok")
+    assert login.decode(inv) == ("https://hub.example.com", "team-room", "tok")
+    for bad in ("nonsense", login.encode("ftp://x", "team-room", "t"), login.encode("https://x", "a b", "t")):
+        with pytest.raises(ValueError):
+            login.decode(bad)
+
+
+def test_login_joins_and_keeps_identity_on_relogin(hub, teamloop_home):
+    from teamloop import login
+
+    (teamloop_home / "config.json").unlink()
+    inv = login.encode(hub.url, "team-room", "room-token")
+    assert login.login(inv, "yang") == 0
+    first = json.loads((teamloop_home / "config.json").read_text())
+    assert login.login(inv, "yang") == 0
+    again = json.loads((teamloop_home / "config.json").read_text())
+    assert first["identity_key"] == again["identity_key"] and len(first["identity_key"]) >= 32

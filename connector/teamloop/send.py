@@ -41,12 +41,28 @@ def prepare(record: dict, summarizer: Callable | None = None) -> dict:
     return out
 
 
-def _post(url: str, token: str, events: list[dict]) -> None:
-    req = urllib.request.Request(url, json.dumps({"events": events}).encode(),
-                                 {"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        if r.status >= 300:
-            raise urllib.error.HTTPError(url, r.status, "hub refused the batch", r.headers, None)
+_session: dict[str, str] = {}
+
+
+def _post(cfg: dict, events: list[dict]) -> None:
+    """ccbridge auth: room token + the session from /v1/join. A 401 means the session expired or the hub
+    restarted: join again once and retry."""
+    from teamloop import login
+
+    for attempt in (1, 2):
+        if "id" not in _session:
+            _session["id"] = login.join(cfg)
+        req = urllib.request.Request(cfg["url"] + "/v1/events", json.dumps({"events": events}).encode(), {
+            "Content-Type": "application/json", "Authorization": f"Bearer {cfg['token']}",
+            "X-CCBridge-Room": cfg["room"], "X-CCBridge-Session": _session["id"]})
+        try:
+            with urllib.request.urlopen(req, timeout=20):
+                return
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and attempt == 1:
+                _session.pop("id", None)
+                continue
+            raise
 
 
 def send_once(post: Callable = _post, summarizer: Callable | None = None) -> tuple[int, str | None]:
@@ -58,8 +74,8 @@ def send_once(post: Callable = _post, summarizer: Callable | None = None) -> tup
     if not paths:
         return 0, None
     try:
-        events = [{**prepare(spool.read(p), summarizer), "member": cfg.get("member")} for p in paths]
-        post(cfg["hub"].rstrip("/") + "/v1/events", cfg["token"], events)
+        events = [{**prepare(spool.read(p), summarizer), "member": cfg.get("name")} for p in paths]
+        post(cfg, events)
     except Exception as e:  # noqa: BLE001 - keep the spool, report, retry later
         return 0, f"{type(e).__name__}: {e}"[:200]
     for p in paths:

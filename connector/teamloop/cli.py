@@ -1,4 +1,4 @@
-"""`teamloop` command line. `login` arrives with the hub."""
+"""`teamloop` command line."""
 
 from __future__ import annotations
 
@@ -78,6 +78,13 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--dry-run", action="store_true")
     sub.add_parser("doctor", help="check that everything is wired, with the fix for each problem")
     sub.add_parser("mcp", help="run the MCP server (your coding tool starts this, not you)")
+    lg = sub.add_parser("login", help="join your team's hub with the invite your lead shared")
+    lg.add_argument("invite")
+    lg.add_argument("--name", help="how you appear to the team (default: your OS user name)")
+    inv = sub.add_parser("invite", help="(lead) make an invite for a hub room")
+    inv.add_argument("--url", required=True)
+    inv.add_argument("--room", required=True)
+    inv.add_argument("--token", help="room token (default: a new random one)")
     sub.add_parser("send", help="summarize and send everything waiting in the spool, once")
     sub.add_parser("daemon", help="keep sending in the background (every 5 s, backs off when the hub is down)")
     args = ap.parse_args(argv)
@@ -107,6 +114,15 @@ def main(argv: list[str] | None = None) -> int:
         from teamloop import mcp_server
 
         return mcp_server.main()
+    if args.cmd == "login":
+        from teamloop import login
+
+        return login.login(args.invite, args.name)
+    if args.cmd == "invite":
+        from teamloop import login
+
+        print(login.invite(args.url, args.room, args.token))
+        return 0
     if args.cmd in ("send", "daemon"):
         from teamloop import send
 

@@ -2,8 +2,13 @@
 
 Drafted by Yang's agent from what the connector sends today. **Sourabh owns the hub, so change anything.** The connector side is `connector/teamloop/send.py`.
 
-## Auth
-`Authorization: Bearer <member token>`. The token is issued when a member joins, ccbridge style (team token + identity key → member). `teamloop login <invite>` stores `{hub, token, member}` in `~/.teamloop/config.json`.
+## Auth (ccbridge's, unchanged)
+1. `POST /v1/join` with `Authorization: Bearer <room token>` and body `{room, display_name, identity_key}`. The first join under a name binds it to that identity key.
+2. Every call after that sends `Authorization: Bearer <room token>`, `X-CCBridge-Room` and `X-CCBridge-Session`. A 401 means join again.
+
+`teamloop login <invite>` (ccbridge invite format) stores `{url, room, token, name, identity_key}` in `~/.teamloop/config.json`. The hub sets `member` from the session and ignores the body's value.
+
+The lead's browser uses `POST /v1/board/login {room, token}` instead. It sets an HttpOnly cookie, because EventSource can't send headers.
 
 ## POST /v1/events
 ```json
@@ -41,6 +46,12 @@ Drafted by Yang's agent from what the connector sends today. **Sourabh owns the 
 | `task_start` | `{title?}` |
 | `self_report` | `report: {percent, done[], doing, next[]}`, labelled "agent's own estimate" on the board |
 | `blocked` | `report: {reason, needs: person/decision/access/info}` |
+
+## Implemented in hub/team.py (13 Oct)
+- `POST /v1/events`: idempotent; refuses `local` (400); peer text goes through ccbridge `sanitize()`.
+- `GET /v1/board` (cookie or session): tasks with title, members, tools, status (blocked if the last `blocked` is newer than the last progress), the latest Agent S snapshot, and recent lines.
+- `POST /v1/ask {question}`: Agent S Q&A with citations, or 503 when the model is down.
+- **Agent S worker:** re-estimates a task once its events go quiet for `HUB_DEBOUNCE` seconds (default 30); after a failure it waits 60 s.
 
 ## Next (hub side)
 - `GET /v1/stream`: SSE for the board.
