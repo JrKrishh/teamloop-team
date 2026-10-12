@@ -48,6 +48,10 @@ def spool_turn(text=f"Fixed add(). {CANARY}"):
     spool.append({**normalize.event("tool", "claude_code", {"session_id": "s1"}, {"tool": "Edit", "file": "calc.py"}), "task": "T-3"})
 
 
+def by_kind(events, kind):
+    return next(e for e in events if e["kind"] == kind)
+
+
 def fake_summary(text, facts):
     assert CANARY in text  # the summarizer is the only thing that sees local text
     return {"summary": "Fixed add() so the test passes.", "status": "done", "model": "fake"}
@@ -59,7 +63,8 @@ def test_hub_gets_summary_never_local_text(hub):
     [body] = hub.bodies
     assert CANARY not in body and '"local"' not in body
     events = json.loads(body)["events"]
-    assert events[0]["summary"] == "Fixed add() so the test passes." and events[0]["status"] == "done"
+    turn = by_kind(events, "turn_end")
+    assert turn["summary"] == "Fixed add() so the test passes." and turn["status"] == "done"
     assert all(e["member"] == "yang" and e["task"] == "T-3" for e in events)
     assert hub.auth == ["Bearer member-token"]
     assert spool.pending() == []  # sent events leave the spool
@@ -78,7 +83,7 @@ def test_summarizer_failure_does_not_block_sending(hub):
 
     spool_turn()
     assert send.send_once(summarizer=broken) == (2, None)
-    event = json.loads(hub.bodies[0])["events"][0]
+    event = by_kind(json.loads(hub.bodies[0])["events"], "turn_end")
     assert event["summary_error"] == "TimeoutError" and "summary" not in event and CANARY not in hub.bodies[0]
 
 
@@ -124,4 +129,12 @@ def test_daemon_thread_sends_and_stops(hub, monkeypatch):
     stop.set()
     t.join(5)
     assert spool.pending() == [] and not t.is_alive() and any("sent 2" in line for line in lines)
-    assert json.loads(hub.bodies[0])["events"][0]["summary_model"] == "fake"
+    assert by_kind(json.loads(hub.bodies[0])["events"], "turn_end")["summary_model"] == "fake"
+
+
+def test_spool_keeps_order_within_a_tick(monkeypatch):
+    monkeypatch.setattr(spool.time, "time_ns", lambda: 1_791_830_000_000_000_000)  # a frozen, coarse clock
+    kinds = ["session_start", "tool", "turn_end", "session_end"]
+    for k in kinds:
+        spool.append(normalize.event(k, "claude_code", {}))
+    assert [spool.read(p)["kind"] for p in spool.pending()] == kinds

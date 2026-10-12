@@ -30,11 +30,16 @@ _EXIT = re.compile(r"^Exit code (\d+)")
 _WIN_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 
 
+def _now() -> str:
+    t = time.time()
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + f".{int(t * 1000) % 1000:03d}Z"
+
+
 def event(kind: str, tool: str, payload: dict, facts: dict | None = None, local: dict | None = None) -> dict:
     return {
         "v": 1,
         "id": uuid.uuid4().hex,
-        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "ts": _now(),
         "tool": tool,
         "session": payload.get("session_id"),
         "kind": kind,

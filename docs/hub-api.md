@@ -19,7 +19,7 @@ Drafted by Yang's agent from what the connector sends today. **Sourabh owns the 
 |---|---|---|
 | `v` | yes | 1 |
 | `id` | yes | uuid hex; dedupe key |
-| `ts` | yes | UTC, `2026-10-13T10:31:02Z` |
+| `ts` | yes | UTC with ms, `2026-10-13T10:31:02.123Z` |
 | `tool` | yes | `claude_code`, `mcp` (agent self-reports), `cli` (`teamloop task`); later `codex`, `cursor` |
 | `session` | | the tool's session id; `null` for `mcp`/`cli` (join those by member + time) |
 | `kind` | yes | see below |

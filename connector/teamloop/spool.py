@@ -5,10 +5,14 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import time
 from pathlib import Path
+
+# Windows clocks can tick every ~15 ms, so time alone can't order two events from one process.
+_seq = itertools.count()
 
 
 def home() -> Path:
@@ -26,7 +30,7 @@ def paused() -> bool:
 def append(record: dict) -> Path:
     d = spool_dir()
     d.mkdir(parents=True, exist_ok=True)
-    path = d / f"{time.time_ns()}-{record['id'][:8]}.json"
+    path = d / f"{time.time_ns():020d}-{os.getpid():07d}-{next(_seq):06d}-{record['id'][:8]}.json"
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, path)
