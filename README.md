@@ -2,7 +2,7 @@
 
 Live progress from every teammate's AI coding session (Claude Code, Codex, Cursor) on one board, without anyone typing a status update.
 
-> **Status: building.** Started 13 Oct 2026 for the Nebius × NVIDIA Global AI Hackathon. See [PLAN.md](PLAN.md).
+> **Status: building.** Started 13 Oct 2026 for the Nebius × NVIDIA Global AI Hackathon. **Live demo: https://teamloop.vercel.app**. See [PLAN.md](PLAN.md).
 
 ## How it works
 1. Each developer installs the `teamloop` connector. Their coding tool's hooks call it after every turn and tool call.

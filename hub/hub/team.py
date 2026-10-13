@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+import mimetypes
 import os
 import re
 import secrets
@@ -131,6 +132,7 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     posts = _Window(POSTS_PER_MINUTE, 60.0)  # per member; the connector sends a batch at most every few seconds
 
     # ---- the board page ----------------------------------------------------------------------
+    mimetypes.add_type("image/webp", ".webp")  # slim Linux images (Vercel) don't know it, and serve octet-stream
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @app.get("/", include_in_schema=False)
