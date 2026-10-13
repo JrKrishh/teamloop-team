@@ -51,6 +51,30 @@ def join(cfg: dict) -> str:
         return json.loads(r.read())["session_id"]
 
 
+_session: dict[str, str] = {}
+
+
+def request(cfg: dict, method: str, path: str, body: dict | None = None) -> dict:
+    """A hub call with ccbridge auth: room token + the session from /v1/join. A 401 means the session expired
+    or the hub restarted: join again once and retry."""
+    for attempt in (1, 2):
+        if "id" not in _session:
+            _session["id"] = join(cfg)
+        req = urllib.request.Request(cfg["url"] + path, json.dumps(body).encode() if body is not None else None, {
+            "Content-Type": "application/json", "Authorization": f"Bearer {cfg['token']}",
+            "X-CCBridge-Room": cfg["room"], "X-CCBridge-Session": _session["id"]}, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and attempt == 1:
+                _session.pop("id", None)
+                continue
+            raise
+    return {}
+
+
 def save(cfg: dict) -> None:
     path = spool.home() / "config.json"
     path.parent.mkdir(parents=True, exist_ok=True)

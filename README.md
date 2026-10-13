@@ -25,7 +25,7 @@ teamloop pause                    # record nothing until `teamloop resume`
 
 Codex asks you once to trust the repo's hooks (`codex`, then `/hooks`).
 
-Your agent gets three MCP tools: `task_start`, `report_progress` and `mark_blocked`. Commits get a `TeamLoop-Task:` trailer, even with `--no-verify`.
+Your agent gets four MCP tools: `task_start`, `report_progress`, `mark_blocked` and `get_team_status` (what teammates are doing). Commits get a `TeamLoop-Task:` trailer, even with `--no-verify`.
 
 ## Hub and board (works today)
 ```bash

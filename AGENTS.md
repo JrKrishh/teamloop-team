@@ -26,4 +26,4 @@ Read `PLAN.md` first. §5 is the scope contract, §15 is the schedule and §26 i
 Branch `T-<id>-slug`; run `teamloop task T-<id>` so the commit hook adds `TeamLoop-Task: T-<id>`. Don't add co-author or attribution lines.
 
 ## Progress reporting (MCP server: `teamloop mcp`, registered by `teamloop init`)
-Call `task_start` when you begin a task, `report_progress` after each meaningful step, and `mark_blocked` when you can't proceed.
+Call `task_start` when you begin a task, `report_progress` after each meaningful step, `mark_blocked` when you can't proceed, and `get_team_status` before starting work that might overlap a teammate's.

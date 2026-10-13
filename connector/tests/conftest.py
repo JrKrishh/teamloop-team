@@ -16,7 +16,7 @@ def teamloop_home(tmp_path, monkeypatch):
     monkeypatch.setenv("TEAMLOOP_HOME", str(home))
     monkeypatch.delenv("TEAMLOOP_TASK", raising=False)
     monkeypatch.setenv("TEAMLOOP_SUMMARIZER", "off")  # tests never call a real model; they pass fakes
-    from teamloop import send
+    from teamloop import login
 
-    send._session.clear()  # each test joins its own hub
+    login._session.clear()  # each test joins its own hub
     return home
