@@ -11,15 +11,23 @@ from pathlib import Path
 # event -> matcher (None for events that take no matcher)
 EVENTS = {"SessionStart": None, "PostToolUse": "*", "PostToolUseFailure": "*", "Notification": None,
           "Stop": None, "SubagentStop": None, "SessionEnd": None}
-TAG = "-m teamloop hook claude_code"
+TAG = "hook claude_code"
 
 
 def python() -> str:
     return Path(sys.executable).as_posix()  # forward slashes work in both bash and cmd
 
 
+def launcher() -> list[str]:
+    """How to start teamloop: the exe itself when frozen (teamloop.exe), else this Python with -m teamloop."""
+    if getattr(sys, "frozen", False):
+        return [Path(sys.executable).as_posix()]
+    return [python(), "-m", "teamloop"]
+
+
 def hook_command() -> str:
-    return f'"{python()}" {TAG}'
+    exe, *rest = launcher()
+    return " ".join([f'"{exe}"', *rest, TAG])
 
 
 def settings_path(scope: str, repo_root: Path | None) -> Path:
@@ -35,7 +43,8 @@ def load(path: Path) -> dict:
 
 
 def ours(hook: dict, tag: str = TAG) -> bool:
-    return tag in (hook.get("command") or "")
+    cmd = hook.get("command") or ""
+    return tag in cmd and "teamloop" in cmd.lower()
 
 
 def merge(settings: dict, command: str, events: dict = EVENTS, tag: str = TAG) -> list[str]:
@@ -83,6 +92,6 @@ def register_mcp(cwd: Path, scope: str) -> str:
         return "skipped MCP: the claude CLI is not on PATH"
     if mcp_registered(cwd):
         return "MCP server already registered"
-    r = subprocess.run([exe, "mcp", "add", "--scope", scope, "teamloop", "--", python(), "-m", "teamloop", "mcp"],
+    r = subprocess.run([exe, "mcp", "add", "--scope", scope, "teamloop", "--", *launcher(), "mcp"],
                        cwd=cwd, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
     return "registered MCP server 'teamloop'" if r.returncode == 0 else f"MCP registration failed: {r.stderr.strip()[:200]}"

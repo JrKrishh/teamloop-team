@@ -14,7 +14,7 @@ Read `PLAN.md` first. §5 is the scope contract, §15 is the schedule and §26 i
 - Before every commit: the tests pass.
 
 ## Rules that protect users (tests enforce them)
-1. **The hook never breaks a session.** No network, no subprocess, no stdout output, always exit 0. Errors go to `~/.teamloop/hook.log`.
+1. **The hook never breaks a session.** No network, no stdout output, always exit 0; errors go to `~/.teamloop/hook.log`. No subprocess, except one detached `teamloop send` at session end (the MCP-hosted sender exits with the session).
 2. **Free text from hooks lives only in `local`.** `facts` hold structured values only. MCP self-reports go in `report`: the agent writes them for the team on purpose, and they're redacted and capped at 5 items of 160 chars. Anything bound for the hub goes through `spool.public()`.
 3. **Redact before writing anything**, even to the local spool.
 4. **Never parse agent transcripts** (`transcript_path`). Vendors say the format is internal.

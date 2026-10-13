@@ -17,14 +17,15 @@ from teamloop import claude
 
 EVENTS = {"SessionStart": None, "PostToolUse": None, "PermissionRequest": None, "Stop": None,
           "SubagentStop": None, "SessionEnd": None}
-TAG = "-m teamloop hook codex"
+TAG = "hook codex"
 
 
 def hook_command() -> str:
-    py = claude.python()
-    if " " not in py:
-        return f"{py} {TAG}"
-    return f'& "{py}" {TAG}' if os.name == "nt" else f'"{py}" {TAG}'
+    exe, *rest = claude.launcher()
+    tail = " ".join([*rest, TAG])
+    if " " not in exe:
+        return f"{exe} {tail}"
+    return f'& "{exe}" {tail}' if os.name == "nt" else f'"{exe}" {tail}'
 
 
 def hooks_path(scope: str, repo_root: Path | None) -> Path:
@@ -53,7 +54,7 @@ def register_mcp() -> str:
         return "skipped: codex is not on PATH"
     if mcp_registered():
         return "MCP server already registered"
-    r = subprocess.run([exe, "mcp", "add", "teamloop", "--", claude.python(), "-m", "teamloop", "mcp"],
+    r = subprocess.run([exe, "mcp", "add", "teamloop", "--", *claude.launcher(), "mcp"],
                        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
     return "registered MCP server 'teamloop' (user-level ~/.codex/config.toml)" if r.returncode == 0 \
         else f"MCP registration failed: {r.stderr.strip()[:200]}"
