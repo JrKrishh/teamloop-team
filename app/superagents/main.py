@@ -19,7 +19,7 @@ import uvicorn
 from teamloop import spool
 
 from . import laptop, server, store
-from .runtime import superteam
+from .runtime import memory, superteam
 
 CLOUD = os.environ.get("TEAMLOOP_HUB", "https://teamloop.vercel.app")
 BG_DARK, BG_LIGHT = 0x00141112, 0x00E8F1F6  # COLORREF (0x00BBGGRR) of #121114 and #F6F1E8
@@ -102,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
                                     team=lambda: (laptop.status().get("team") or {}).get("id") if store.load().get("session") else None,
                                     repos=lambda: laptop.status()["repos"])
     state.runner.start()
+    memory.start_indexer()  # agents' recall over earlier chats and this laptop's coding sessions
 
     if args.browser or args.serve:
         print(f"Super Agents: {url}", flush=True)

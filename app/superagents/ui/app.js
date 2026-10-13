@@ -91,6 +91,7 @@ const TOOL_GROUPS = {
   files: {label: "Files", desc: "Read, search and write files in the repos connected on This laptop."},
   terminal: {label: "Terminal", desc: "Run shell commands on this laptop. Always asks first."},
   browser: {label: "Browser", desc: "Read web pages and show pages in the browser panel."},
+  memory: {label: "Memory", desc: "Remember notes, and search earlier chats and your coding sessions in every project on this laptop."},
 };
 const MAX_FILES = 5, MAX_FILE_BYTES = 200_000;
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ""}</svg>`;
@@ -930,6 +931,7 @@ function sparkline(history) {
 }
 function openDrawer(kicker, title, nodes, foot) {
   openedFrom = document.activeElement;
+  $("dFoot").classList.remove("compose");
   $("dId").textContent = kicker; $("dTitle").textContent = title;
   $("dBody").replaceChildren(...nodes); $("dBody").scrollTop = 0;
   $("dFoot").replaceChildren(...(foot || [])); $("dFoot").hidden = !(foot && foot.length);
@@ -1004,6 +1006,7 @@ const TAB_SUB = {
   agents: "Each agent has its own instructions, model, mode, skills, connectors and tools.",
   skills: "Skills teach agents a way of working. An agent reads a skill when the task calls for it; always-on skills are part of every message.",
   connectors: "Connectors are MCP servers, as in Claude Desktop. Give one to an agent and it can use that server's tools.",
+  memory: "Agents remember notes you or they save, and can search what happened before, across chats and projects.",
 };
 function showAgentTab(tab) {
   agentTab = tab;
@@ -1013,6 +1016,7 @@ function showAgentTab(tab) {
   if (tab === "agents") renderAgents();
   if (tab === "skills") renderSkills();
   if (tab === "connectors") renderConnectors();
+  if (tab === "memory") renderMemory();
 }
 for (const b of $("agentTabs").children) b.onclick = () => showAgentTab(b.dataset.tab);
 
@@ -1245,6 +1249,59 @@ function customCard() {
     addConnector(body, give.c.checked, msg);
   }, "plus"), msg);
   return box;
+}
+
+// ---- memory: notes, and recall over earlier chats and this laptop's coding sessions ---------------------------
+async function renderMemory() {
+  const box = $("tab-memory");
+  let m;
+  try { m = await api("/api/memory"); } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  const st = m.stats;
+  const intro = el("p", "intro", "Agents keep short notes (a preference, a decision, how a project works) and see them in every chat. They can also search what happened before: earlier chats here and your Claude Code and Codex sessions in every project on this laptop, the prompts and replies, never tool output. The index stays on this laptop; what a search finds goes to the model like any tool's result, with secrets hidden.");
+  const sw = el("div", "switch");
+  const words = el("div"); words.append(el("b", null, "Search my Claude Code and Codex sessions"),
+    el("small", null, m.settings.sessions ? `${st.session_passages.toLocaleString()} passages from ${st.sessions} sessions in ${st.projects} projects` +
+      (st.waiting_bytes > 0 ? ` · indexing, ${(st.waiting_bytes / 1e6).toFixed(0)} MB to go` : "") : "Off: agents search only notes and chats here."));
+  const tg = el("button", "toggle"); tg.type = "button"; tg.setAttribute("role", "switch"); tg.setAttribute("aria-checked", String(m.settings.sessions));
+  tg.setAttribute("aria-label", "Search my coding sessions");
+  tg.onclick = async () => { await api("/api/memory/settings", {method: "PUT", body: {sessions: !m.settings.sessions}}).catch(e => toast(e.message, true)); renderMemory(); };
+  sw.append(words, tg);
+  const search = el("form", "mem-search"); const q = inputEl({placeholder: "Search memory, e.g. how we fixed the SSE drops", autocomplete: "off"});
+  const results = el("div", "list");
+  search.append(q, btn("Search", "", null, "search")); search.lastChild.type = "submit";
+  search.addEventListener("submit", async e => {
+    e.preventDefault(); if (!q.value.trim()) return;
+    results.replaceChildren(el("p", "sub", "Searching…"));
+    try {
+      const r = await api(`/api/memory/search?q=${encodeURIComponent(q.value.trim())}`);
+      results.replaceChildren(...(r.hits.length ? r.hits.map(h => {
+        const it = el("div", "hit"); const when = h.at ? new Date(h.at * 1000).toLocaleDateString([], {month: "short", day: "numeric"}) : "";
+        it.append(el("span", "src", [{note: "note", chat: "chat", claude_code: "Claude Code", codex: "Codex"}[h.kind], h.project, h.kind !== "note" ? h.title : "", when].filter(Boolean).join(" · ")),
+          el("span", "txt", h.text)); return it;
+      }) : [el("p", "sub", "Nothing found.")]));
+    } catch (err) { results.replaceChildren(el("p", "err", err.message)); }
+  });
+  const add = el("form", "note-add"); const text = inputEl({placeholder: "A note every agent should know, e.g. Deploys go out on Fridays", maxLength: 600});
+  const scope = el("select"); scope.setAttribute("aria-label", "Which agents");
+  scope.append(Object.assign(el("option", null, "All agents"), {value: "all"}), ...S.agents.map(a => Object.assign(el("option", null, `Only ${a.name}`), {value: a.id})));
+  add.append(text, scope, btn("Add note", "primary", null, "plus")); add.lastChild.type = "submit";
+  add.addEventListener("submit", async e => {
+    e.preventDefault(); if (!text.value.trim()) return;
+    try { await api("/api/memory/notes", {method: "POST", body: {text: text.value.trim(), scope: scope.value}}); renderMemory(); }
+    catch (err) { toast(err.message, true); }
+  });
+  const notes = el("div", "list");
+  for (const n of m.notes.slice().reverse()) {
+    const it = el("div", "item"); const iic = el("span", "iic"); iic.append(ic("book"));
+    const w = el("div"); w.append(el("b", null, n.text));
+    const who = n.scope === "all" ? "all agents" : `only ${(S.agents.find(a => a.id === n.scope) || {}).name || n.scope}`;
+    w.append(el("small", null, `${n.id} · ${who} · saved by ${n.by || "you"} · ${ago(n.at)}`));
+    const ctl = el("div", "ctl"); ctl.append(btn("Forget", "ghost", async () => { await api(`/api/memory/notes/${n.id}`, {method: "DELETE"}).catch(() => {}); renderMemory(); }));
+    it.append(iic, w, ctl); notes.append(it);
+  }
+  if (!m.notes.length) notes.append(el("p", "sub", "No notes yet. Agents add them when you tell them something worth keeping; you can add your own."));
+  box.replaceChildren(intro, sw, el("p", "mem-stats", `${st.notes} notes · ${st.chats} chat turns searchable`), search, results,
+    el("h3", "section-title", "Notes"), add, notes);
 }
 
 // ---- the side panel: files, terminal, browser ----------------------------------------------------------------
@@ -1586,7 +1643,7 @@ function renderUsage() {
 // Super Team: prompts into teammates' coding sessions, by each owner's rules, all on record.
 const TOOL_LABEL = {claude_code: "Claude Code", codex: "Codex"};
 const P_STATUS = {pending: "waiting", approved: "allowed", running: "running", done: "answered", failed: "failed",
-  denied: "denied", cancelled: "cancelled", stopped: "stopped"};
+  denied: "denied", cancelled: "cancelled", stopped: "stopped", expired: "expired"};
 const INBOX = new Set();
 let promptBox = "all", promptTimer = null;
 async function checkInbox() {
@@ -1641,31 +1698,50 @@ function sessionRow(x) {
   const rules = x.mode === "off" ? `${x.owner.name} isn't taking prompts`
     : `${x.mode === "ask" ? `Asks ${x.owner.name} first` : "Runs automatically"} · ${x.access === "read" ? "read only" : "can edit"}`
       + (x.daily_tokens ? ` · you've used ${fmtTok(x.used_today)} of ${fmtTok(x.daily_tokens)} today` : "")
-      + (x.app_online ? "" : ` · ${x.owner.name}'s Super Agents is closed, so it waits`);
-  w.append(head, el("small", null, `${where} · ${x.turns} turn${x.turns === 1 ? "" : "s"} · ${x.active ? "now" : ago(x.last)}`), el("small", null, rules));
-  const send = btn("Prompt", "", () => promptComposer(it, x), "send"); send.disabled = x.mode === "off";
+      + (x.app_online ? "" : ` · ${x.owner.name}'s Super Agents is ${x.app_seen ? `offline since ${ago(x.app_seen)}` : "closed"}: prompts wait for it`);
+  const thread = x.thread ? ` · ${x.thread} prompt${x.thread === 1 ? "" : "s"} in the thread` : "";
+  w.append(head, el("small", null, `${where} · ${x.turns} turn${x.turns === 1 ? "" : "s"} · ${x.active ? "now" : ago(x.last)}${thread}`), el("small", null, rules));
+  const send = btn(x.thread ? "Open thread" : "Prompt", "", () => openThread(x.session), "send"); send.disabled = x.mode === "off" && !x.thread;
   const ctl = el("div", "ctl"); ctl.append(send); it.append(face, w, ctl); return it;
 }
-function promptComposer(row, x) {
-  const open = row.nextElementSibling;
-  if (open && open.classList.contains("sess-composer")) { open.remove(); return; }
-  const form = el("form", "sess-composer");
-  const ta = textareaEl({rows: 3, maxLength: 4000, placeholder: `Ask ${x.owner.name}'s session… e.g. What's left on ${x.task || "this task"}, and what's in the way?`});
-  const send = btn("Send", "primary", null, "send"); send.type = "submit";
-  const row2 = el("div", "row gap");
-  row2.append(el("span", "sub small", x.mode === "ask" ? `${x.owner.name} sees it and decides. It goes on the team's record under your name.`
-    : `${x.owner.name}'s rules run it right away. It goes on the team's record under your name.`), el("span", "grow"),
-    btn("Cancel", "ghost", () => form.remove()), send);
-  form.append(ta, row2);
-  form.addEventListener("submit", async e => {
-    e.preventDefault(); if (!ta.value.trim()) return; send.disabled = true;
-    try {
-      const p = await hub(withTeam("prompts"), {method: "POST", body: {session: x.session, prompt: ta.value.trim()}});
-      toast(p.status === "pending" ? `Sent. Waiting for ${x.owner.name} to allow it.` : `Sent. It runs on ${x.owner.name}'s laptop.`);
-      showTeamTab("prompts");
-    } catch (err) { toast(err.message, true); send.disabled = false; }
-  });
-  row.after(form); ta.focus();
+// A session's Super Team thread: saved on the hub, so it reads the same while the owner's laptop is closed; prompts sent
+// then wait and run when it's back, and each follow-up is answered with the thread so far.
+let threadTimer = null;
+async function openThread(session) {
+  let t;
+  try { t = await hub(withTeam(`sessions/${encodeURIComponent(session)}/thread`)); } catch (e) { return toast(e.message, true); }
+  const x = t.session, owner = x.owner.name;
+  const head = el("p", "thread-head");
+  head.append(el("b", null, `${owner}'s ${TOOL_LABEL[x.tool] || x.tool} session`), ` · ${[x.repo, x.branch, x.task].filter(Boolean).join(" · ") || "a repo"} · `,
+    x.app_online ? `${owner}'s Super Agents is open` : `${owner}'s Super Agents is ${x.app_seen ? `offline since ${ago(x.app_seen)}` : "closed"}: what you send waits and runs when it's back`);
+  const rules = x.mode === "off" ? `${owner} isn't taking prompts now` : `${x.mode === "ask" ? `${owner} allows each prompt` : "Runs by their rules"} · ${x.access === "read" ? "read only" : "can edit"}`;
+  const list = el("div", "thread");
+  for (const p of t.prompts) {
+    const q = el("div", "turn-q", p.prompt); q.append(el("small", null, `${p.yours ? "you" : p.from.name} · ${ago(p.created_at)}`));
+    const a = el("div", "turn-a");
+    if (p.result) { const md = el("div", "md"); renderMd(md, p.result); a.append(md); }
+    else a.append(el("span", "wait", p.status === "approved" && !x.app_online ? `queued: runs when ${owner}'s Super Agents is back`
+      : {pending: `waiting for ${owner} to allow it`, approved: "allowed, starting", running: "running…", denied: `${owner} denied it`,
+         cancelled: "cancelled", expired: "expired: it didn't run within a week", failed: "failed"}[p.status] || p.status));
+    a.append(el("span", "meta", [P_STATUS[p.status] || p.status, p.tokens ? `${fmtTok(p.tokens)} tokens` : ""].filter(Boolean).join(" · ")));
+    list.append(q, a);
+  }
+  if (!t.prompts.length) list.append(el("p", "sub", `Nothing yet. Ask ${owner}'s session something: it answers with everything that session knows.`));
+  const ta = textareaEl({rows: 2, maxLength: 4000, placeholder: t.prompts.length ? "Follow up…" : `Ask ${owner}'s session… e.g. What's left on ${x.task || "this task"}?`});
+  const send = btn("Send", "primary", async () => {
+    if (!ta.value.trim()) return; send.disabled = true;
+    try { await hub(withTeam("prompts"), {method: "POST", body: {session, prompt: ta.value.trim()}}); openThread(session); }
+    catch (e) { toast(e.message, true); send.disabled = false; }
+  }, "send");
+  ta.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send.click(); } });
+  const canSend = x.mode !== "off" && !x.mine;
+  openDrawer(`Super Team · ${rules}`, x.task ? `${owner} · ${x.task}` : `${owner}'s session`, [head, list], canSend ? [ta, send] : []);
+  $("dFoot").classList.add("compose");
+  $("dBody").scrollTop = $("dBody").scrollHeight;
+  if (canSend) ta.focus();
+  clearTimeout(threadTimer);
+  if (t.prompts.some(p => ["pending", "approved", "running"].includes(p.status)))
+    threadTimer = setTimeout(() => { if (!$("drawer").hidden && $("dTitle").textContent.startsWith(owner)) openThread(session); }, 5000);
 }
 async function loadPrompts() {
   const box = $("team-prompts");

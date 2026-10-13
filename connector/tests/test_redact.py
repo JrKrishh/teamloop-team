@@ -11,6 +11,9 @@ CANARIES = [
     "gsk_" + "g" * 50,
     "tvly-" + "h" * 30,
     "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop",
+    "sk_live_" + "i" * 24,
+    "rk_test_" + "j" * 24,
+    "whsec_" + "k" * 32,
 ]
 
 
@@ -18,6 +21,7 @@ def test_known_shapes_are_hidden():
     for secret in CANARIES:
         out = redact(f"value is {secret} ok")
         assert secret not in out and HIDDEN in out, secret
+    assert redact("pk_live_" + "p" * 24) == "pk_live_" + "p" * 24  # Stripe publishable keys are public
 
 
 def test_env_secrets_hidden_by_value(monkeypatch):

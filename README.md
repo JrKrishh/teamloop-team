@@ -15,16 +15,17 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 **Never shared:** prompts, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking.
 
 ## In the app
-- **Super Team.** Anyone on the team can prompt a teammate's live Claude Code or Codex session (the agent that has the context), by that owner's rules: off, ask each time, or automatic; read only or edit; a daily token limit per teammate. It runs on the owner's laptop as a copy of the session, and every prompt is on record: who asked what, who allowed it, what it used.
+- **Super Team.** Anyone on the team can prompt a teammate's live Claude Code or Codex session (the agent that has the context), by that owner's rules: off, ask each time, or automatic; read only or edit; a daily token limit per teammate. It runs on the owner's laptop as a copy of the session, and every prompt is on record: who asked what, who allowed it, what it used. Threads are saved, so a follow-up sent while the owner's laptop is closed waits and runs, as a follow-up, when it's back.
 - **Lead tools.** Agent S plans with deadlines, assigns work, and reviews code (a branch's diff, a GitHub pull request, or the author's own session), in Manual, Plan or Auto mode.
 - **Team usage.** A counter for the team's AI: tokens per task, per day, per tool (Claude Code, Codex, Super Agents) and per person, counted on each laptop from the agents' own logs. Leads see everyone; members see themselves.
 - **Agents with their own behaviour.** Agent S is built in; add a reviewer, a release manager, anyone: each with its own instructions, default Nemotron model and mode, skills, MCP connectors and tools.
+- **Memory.** Agents keep notes (yours or theirs) and recall what happened before: earlier chats and your own Claude Code and Codex sessions in every project on the laptop, through a local full-text index that never leaves it.
 - **Manual, Plan and Auto modes**, as in Claude Code (Shift+Tab). Manual asks before every change, Plan queues changes until you run the plan, Auto runs them with Undo. Shell commands always ask.
 - **Skills** in Claude Code's format, including importing your own. **Karpathy's coding guidelines** are on by default for every agent.
 - **Connectors**: any MCP server, by URL or command, with presets for GitHub, Context7, Filesystem and Memory.
 - **A side panel** with a file viewer for your connected repos, real terminals, and a browser for your dev server and docs.
 
-Chats with your agents are the one thing that leaves the laptop by design: to answer, a message and what its tools read go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).
+Chats with your agents are the one thing that leaves the laptop by design: to answer, a message and what its tools read (including what `recall` finds in your own past sessions) go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).
 
 ## Install on Windows
 1. Download `SuperAgents-windows-x64.zip` from https://teamloop.vercel.app (or [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest)) and unzip it.

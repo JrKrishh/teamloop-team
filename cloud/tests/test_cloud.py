@@ -509,7 +509,9 @@ def test_super_team_prompts_follow_the_owners_rules(app):
     assert asha.put("/v1/sessions/access", params=q, json={"mode": "auto", "access": "edit", "daily_tokens": 5000}).status_code == 200
     p2 = yang.post("/v1/prompts", params=q, json={"session": "sess-asha", "prompt": "Fix the typo in README"}).json()
     assert (p2["status"], p2["decided_by"], p2["access"]) == ("approved", "auto", "edit")
-    assert asha.post(f"/v1/prompts/{p2['id']}/claim", params=q).json()["budget"] == 800  # 5,000 less the 4,200 used today
+    claimed2 = asha.post(f"/v1/prompts/{p2['id']}/claim", params=q).json()
+    assert claimed2["budget"] == 800  # 5,000 less the 4,200 used today
+    assert claimed2["thread"] == [{"prompt": "What's left on T-22?", "result": "Two steps left."}]  # a follow-up knows the thread
     asha.post(f"/v1/prompts/{p2['id']}/finish", params=q, json={"status": "stopped", "result": "Stopped at the limit.", "tokens": 900})
     r = yang.post("/v1/prompts", params=q, json={"session": "sess-asha", "prompt": "One more"})
     assert r.status_code == 429 and "5,000" in r.json()["detail"]
@@ -527,6 +529,37 @@ def test_super_team_prompts_follow_the_owners_rules(app):
     assert sourabh.post(f"/v1/prompts/{p3['id']}/cancel", params=q).status_code == 409
     assert yang.get("/v1/usage", params=q).json()["prompted"] == [{"from": "yang", "to": "asha", "prompts": 2, "tokens": 5100}]
     assert asha.get("/v1/usage", params=q).json()["prompted"][0]["tokens"] == 5100
+
+
+def test_super_team_threads_outlast_a_closed_laptop(app, env):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha, sourabh = join(app, yang, team, "asha"), join(app, yang, team, "sourabh")
+    TestClient(app).post("/v1/events", json={"events": a_session(300, "sess-old") + a_session(310, "sess-new")},
+                         headers=connect(app, asha, team))
+    with psycopg.connect(env, autocommit=True) as c:  # one session from five days ago: the laptop's been closed since
+        c.execute("update events set received_at = now() - interval '5 days' where body->>'session' = 'sess-old'")
+    q = {"team": team}
+    assert {s["session"] for s in yang.get("/v1/sessions", params=q).json()["sessions"]} == {"sess-old", "sess-new"}
+    first = yang.post("/v1/prompts", params=q, json={"session": "sess-old", "prompt": "Where did you leave T-22?"}).json()
+    asha.post(f"/v1/prompts/{first['id']}/decide", params=q, json={"approve": True})
+    asha.post(f"/v1/prompts/{first['id']}/claim", params=q)
+    asha.post(f"/v1/prompts/{first['id']}/finish", params=q, json={"status": "done", "result": "At the permissions step.", "tokens": 10})
+    yang.post("/v1/prompts", params=q, json={"session": "sess-old", "prompt": "And after that?"})
+
+    thread = yang.get("/v1/sessions/sess-old/thread", params=q).json()
+    assert thread["session"]["owner"]["name"] == "asha" and thread["session"]["thread"] == 2
+    assert [(p["prompt"], p["status"]) for p in thread["prompts"]] == [("Where did you leave T-22?", "done"), ("And after that?", "pending")]
+    assert [s["thread"] for s in yang.get("/v1/sessions", params=q).json()["sessions"] if s["session"] == "sess-old"] == [2]
+    assert sourabh.get("/v1/sessions/sess-old/thread", params=q).json()["prompts"] == []  # not his thread
+    assert yang.get("/v1/sessions/sess-nope/thread", params=q).status_code == 404
+
+    # a prompt nobody ran within a week expires: it never runs late
+    with psycopg.connect(env, autocommit=True) as c:
+        c.execute("update session_prompts set created_at = now() - interval '8 days' where prompt = 'And after that?'")
+    late = next(p for p in yang.get("/v1/sessions/sess-old/thread", params=q).json()["prompts"] if p["prompt"] == "And after that?")
+    assert late["status"] == "expired" and asha.get("/v1/prompts/runnable", params=q).json()["prompts"] == []
+    assert asha.post(f"/v1/prompts/{late['id']}/decide", params=q, json={"approve": True}).status_code == 409
 
 
 def test_tasks_have_deadlines(app):

@@ -101,6 +101,15 @@ def test_edit_access_accepts_edits_and_a_budget_stops_the_run(tmp_path, repo):
     assert seen["stdin"].endswith("--help & del *")  # the prompt only ever travels on stdin
 
 
+def test_a_follow_up_carries_the_thread_so_far(tmp_path, repo):
+    cli = fake_cli(tmp_path, FAKE_CLAUDE, "claude")
+    superteam.run(prompt(prompt="And after the migration?", thread=[{"prompt": "What's left on T-22?", "result": "Two steps."}]),
+                  repo, cli, budget=None)
+    stdin = record(tmp_path)["stdin"]
+    assert "Earlier in this conversation with Yang:\n\nYang asked: What's left on T-22?\nThe answer was: Two steps." in stdin
+    assert stdin.endswith("And after the migration?")
+
+
 def test_a_run_that_takes_too_long_is_stopped(tmp_path, repo, monkeypatch):
     monkeypatch.setenv("FAKE_SLOW", "1")
     out = superteam.run(prompt(), repo, fake_cli(tmp_path, FAKE_CLAUDE, "claude"), budget=None, timeout=2)

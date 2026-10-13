@@ -7,6 +7,7 @@ window (thinking, text, tool cards with their state, the answer). Chats are kept
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import threading
 import time
@@ -16,6 +17,7 @@ from typing import Callable
 from teamloop import spool
 
 from . import agents as agent_store
+from . import memory
 from . import skills as skill_store
 from .mcpman import Manager, Tool
 from .tools import BY_NAME, BUILTINS, Builtin
@@ -26,8 +28,9 @@ BASE = """You are {name}, an agent in Super Agents, the app where a software tea
 developers do with AI coding agents. You work for {person} in the team "{team}" (members: {members}).
 
 The team is a Super Team: you can see teammates' coding sessions (team_sessions) and, by their rules, prompt them
-(prompt_session); deadlines are part of planning (create_task, set_deadline). Use tools to find things out and to act;
-don't guess. Claims about what the team did must come from team tools
+(prompt_session); deadlines are part of planning (create_task, set_deadline). When earlier chats or the person's coding
+sessions in any project might help, recall them; remember lasting facts the person tells you (never secrets). Use tools
+to find things out and to act; don't guess. Claims about what the team did must come from team tools
 (team_ask answers with citations); say so when there's no evidence. Keep answers short and concrete.
 Mode: {mode}. {mode_rule}"""
 MODE_RULES = {
@@ -43,6 +46,13 @@ PLAN_NUDGE = ("Now queue that plan: call the change tool for each step. In plan 
               "person to review; nothing runs yet. If the plan changes nothing, reply with just: No changes.")
 PLAN_CHECK = ("Queued so far: {queued}. Queue every step of your plan that isn't queued yet, and don't repeat these. "
               "If every step is queued, reply with just: All queued.")
+# Models also say "I'll keep that in mind" without saving anything; when the person asked them to remember, this asks
+# once for the remember call (the first answer stays the answer). A question ("remember when we...?") doesn't count.
+REMEMBER_ASK = re.compile(r"(?:^|[.!\n]\s*)(?:please\s+)?(?:remember|don['’]t forget|do not forget)\b(?![^.!?\n]*\?)", re.I)
+REMEMBER_NUDGE = ("You haven't saved that yet. Call remember now with each fact the person asked you to keep (never a "
+                  "secret), then reply with just: Saved.")
+# Citation marks some models leave in answers: 【{"cursor": 0, "loc": 0}】, 【3†source】.
+CITE_MARK = re.compile(r"\s?【(?:\{[^】]*\}|\d+†[^】]*)】")
 
 
 def chats_dir():
@@ -134,12 +144,24 @@ class Turn:
             text += f"\n\n## Skill: {s.name} (always on)\n{s.body()}"
         if later:
             text += "\n\n## More skills (read one with load_skill when it fits the task)\n" + "\n".join(f"- {s.name}: {s.description}" for s in later)
+        if self._on("memory"):
+            kept, size = [], 0
+            for n in reversed(memory.notes_for(self.agent["id"])):  # the newest, up to about 3,000 characters
+                size += len(n["text"]) + 12
+                if size > 3000:
+                    break
+                kept.append(f"- {n['id']}: {n['text']}")
+            if kept:
+                text += "\n\n## Memory (notes saved earlier: use them; forget or replace one when it's out of date)\n" + "\n".join(reversed(kept))
         if self.agent.get("instructions", "").strip():
             text += f"\n\n## Your instructions from {self.person}\n{self.agent['instructions'].strip()}"
         return text
 
+    def _on(self, group: str) -> bool:
+        return bool((self.agent.get("tools") or {}).get(group, True))  # a group added later is on for agents saved before it
+
     def _toolset(self) -> list[dict]:
-        groups = {g for g, on in (self.agent.get("tools") or {}).items() if on} | {"skills"}
+        groups = {g for g in agent_store.TOOL_GROUPS if self._on(g)} | {"skills"}
         self.tools = {b.name: b for b in BUILTINS if b.group in groups}
         if not self.skills:
             for name in ("load_skill", "read_skill_file"):
@@ -178,7 +200,7 @@ class Turn:
         content = self.message + "".join(f"\n\n[Imported file: {a['name']}]\n{a['text'][:60_000]}" for a in self.attachments)
         history = self.chat.get("messages", [])[-24:]
         messages = [{"role": "system", "content": self._system(board)}, *history, {"role": "user", "content": content}]
-        used, answer, model, plan_text = [], "", "", ""
+        used, answer, model, plan_text, kept = [], "", "", "", ""
         for _ in range(MAX_STEPS):
             if self.cancelled:
                 answer = answer or "Stopped."
@@ -200,7 +222,11 @@ class Turn:
                     nudge = PLAN_CHECK.format(queued=queued) if queued else PLAN_NUDGE
                     messages += [{"role": "assistant", "content": text}, {"role": "user", "content": nudge}]
                     continue
-                answer = plan_text or text or "Done."
+                if text and not kept and "remember" in self.tools and "remember" not in used and REMEMBER_ASK.search(self.message):
+                    kept = text
+                    messages += [{"role": "assistant", "content": text}, {"role": "user", "content": REMEMBER_NUDGE}]
+                    continue
+                answer = CITE_MARK.sub("", plan_text or kept or text) or "Done."
                 break
             messages.append({"role": "assistant", "content": step.get("content") or "", "tool_calls": calls})
             for call in calls:

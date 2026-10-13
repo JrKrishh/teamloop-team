@@ -834,10 +834,14 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         return int(conn.execute("select coalesce(sum(tokens), 0) as n from session_prompts where team_id = %s and from_user = %s"
                                 " and to_user = %s and created_at >= date_trunc('day', now())", (team_id, from_user, to_user)).fetchone()["n"])
 
+    PROMPT_DAYS = 7  # a prompt that hasn't run in a week expires instead of running late
+
     def prompt_view(r: dict, me: str) -> dict:
+        stale = r["status"] in ("pending", "approved") and r["created_at"] < datetime.now(timezone.utc) - timedelta(days=PROMPT_DAYS)
         return {"id": str(r["id"]), "from": {"id": str(r["from_user"]), "name": r["from_name"]},
                 "to": {"id": str(r["to_user"]), "name": r["to_name"]}, "session": r["session"], "tool": r["tool"],
-                "repo": r["repo"], "task": r["task"], "prompt": r["prompt"], "access": r["access"], "status": r["status"],
+                "repo": r["repo"], "task": r["task"], "prompt": r["prompt"], "access": r["access"],
+                "status": "expired" if stale else r["status"],
                 "decided_by": r["decided_by"], "tokens": int(r["tokens"] or 0), "result": r["result"],
                 "run_session": r["run_session"], "created_at": r["created_at"].timestamp(),
                 "finished_at": r["finished_at"].timestamp() if r["finished_at"] else None,
@@ -850,34 +854,62 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         team_id, _, role = team_scope(c, team, conn)
         return team_id, role
 
+    def session_card(r: dict, rules: dict, threads: dict, me: str, conn, team_id: str, now: float) -> dict:
+        uid = str(r["user_id"])
+        a = {**ACCESS, **rules.get(uid, {})}
+        seen = a["app_seen_at"].timestamp() if a["app_seen_at"] else 0
+        return {"session": r["session"], "tool": r["tool"], "owner": {"id": uid, "name": r["member"]}, "repo": r["repo"],
+                "branch": r["branch"], "task": r["task"], "last": float(r["last"]), "turns": int(r["turns"]),
+                "ended": bool(r["ended"]), "active": now - float(r["last"]) < ACTIVE_SECONDS, "mine": uid == me,
+                "mode": a["mode"], "access": a["access"], "daily_tokens": a["daily_tokens"],
+                "app_online": now - seen < 120, "app_seen": seen or None, "thread": threads.get(r["session"], 0),
+                "used_today": used_today(conn, team_id, me, uid) if uid != me else 0}
+
+    SESSION_SQL = ("select e.user_id, max(e.member) as member, e.body->>'session' as session, max(e.body->>'tool') as tool,"
+                   " max(e.body->>'repo') as repo, max(e.body->>'branch') as branch, max(e.task) as task,"
+                   " extract(epoch from max(e.received_at)) as last, count(*) filter (where e.kind = 'turn_end') as turns,"
+                   " bool_or(e.kind = 'session_end') as ended from events e join memberships m on m.team_id = e.team_id"
+                   " and m.user_id = e.user_id and m.removed_at is null where e.team_id = %s and e.body->>'tool' in"
+                   " ('claude_code', 'codex') and {where} group by e.user_id, e.body->>'session' order by last desc limit {limit}")
+
+    def thread_counts(conn, team_id: str, role: str, me: str) -> dict:
+        mine = "" if role == "lead" else " and (from_user = %s or to_user = %s)"
+        return {r["session"]: int(r["n"]) for r in conn.execute(
+            f"select session, count(*) as n from session_prompts where team_id = %s{mine} group by session",
+            (team_id,) if role == "lead" else (team_id, me, me))}
+
     @app.get("/v1/sessions")
     def team_sessions(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        """Teammates' coding sessions from the last day, each with its owner's rules for prompts."""
+        """Teammates' coding sessions from the last two weeks (a closed laptop doesn't hide them), each with its owner's
+        rules for prompts and how many prompts are in its thread."""
         team_id, role = session_scope(c, team, conn)
-        rows = conn.execute(
-            "select e.user_id, max(e.member) as member, e.body->>'session' as session, max(e.body->>'tool') as tool,"
-            " max(e.body->>'repo') as repo, max(e.body->>'branch') as branch, max(e.task) as task,"
-            " extract(epoch from max(e.received_at)) as last, count(*) filter (where e.kind = 'turn_end') as turns,"
-            " bool_or(e.kind = 'session_end') as ended from events e join memberships m on m.team_id = e.team_id"
-            " and m.user_id = e.user_id and m.removed_at is null where e.team_id = %s and e.received_at > now() - interval '1 day'"
-            " and e.body->>'session' is not null and e.body->>'tool' in ('claude_code', 'codex')"
-            " group by e.user_id, e.body->>'session' order by last desc limit 60", (team_id,)).fetchall()
+        rows = conn.execute(SESSION_SQL.format(where="e.received_at > now() - interval '14 days' and e.body->>'session' is not null",
+                                               limit=80), (team_id,)).fetchall()
         now = time.time()
         rules = {str(r["user_id"]): r for r in conn.execute(
             "select user_id, mode, access, daily_tokens, app_seen_at from session_access where team_id = %s", (team_id,))}
-        out = []
-        for r in rows:
-            uid = str(r["user_id"])
-            a = {**ACCESS, **rules.get(uid, {})}
-            seen = a["app_seen_at"].timestamp() if a["app_seen_at"] else 0
-            out.append({"session": r["session"], "tool": r["tool"], "owner": {"id": uid, "name": r["member"]}, "repo": r["repo"],
-                        "branch": r["branch"], "task": r["task"], "last": float(r["last"]), "turns": int(r["turns"]),
-                        "ended": bool(r["ended"]), "active": now - float(r["last"]) < ACTIVE_SECONDS, "mine": uid == c.person.id,
-                        "mode": a["mode"], "access": a["access"], "daily_tokens": a["daily_tokens"],
-                        "app_online": now - seen < 120,
-                        "used_today": used_today(conn, team_id, c.person.id, uid) if uid != c.person.id else 0})
+        threads = thread_counts(conn, team_id, role, c.person.id)
         mine = access_of(conn, team_id, c.person.id)
-        return {"sessions": out, "role": role, "me": {k: mine[k] for k in ("mode", "access", "daily_tokens")}}
+        return {"sessions": [session_card(r, rules, threads, c.person.id, conn, team_id, now) for r in rows], "role": role,
+                "me": {k: mine[k] for k in ("mode", "access", "daily_tokens")}}
+
+    @app.get("/v1/sessions/{session}/thread")
+    def session_thread(session: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """One session's Super Team thread: the session, and the prompts into it you may see, oldest first. It's saved,
+        so it reads the same while the owner's laptop is closed; prompts sent then wait and run when it's back."""
+        team_id, role = session_scope(c, team, conn)
+        me = c.person.id
+        r = conn.execute(SESSION_SQL.format(where="e.body->>'session' = %s", limit=1), (team_id, session)).fetchone()
+        mine = "" if role == "lead" else " and (from_user = %s or to_user = %s)"
+        rows = conn.execute(f"select * from session_prompts where team_id = %s and session = %s{mine} order by created_at limit 200",
+                            (team_id, session) if role == "lead" else (team_id, session, me, me)).fetchall()
+        if not r:
+            raise HTTPException(404, "No such session in this team")
+        rules = {str(x["user_id"]): x for x in conn.execute(
+            "select user_id, mode, access, daily_tokens, app_seen_at from session_access where team_id = %s and user_id = %s",
+            (team_id, r["user_id"]))}
+        return {"session": session_card(r, rules, {session: len(rows)}, me, conn, team_id, time.time()),
+                "prompts": [prompt_view(x, me) for x in rows], "role": role}
 
     @app.put("/v1/sessions/access")
     def set_access(body: AccessIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
@@ -942,7 +974,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         conn.execute("insert into session_access (team_id, user_id, app_seen_at) values (%s, %s, now()) on conflict"
                      " (team_id, user_id) do update set app_seen_at = now()", (team_id, c.person.id))
         rows = conn.execute("select * from session_prompts where team_id = %s and to_user = %s and status = 'approved'"
-                            " order by created_at limit 5", (team_id, c.person.id)).fetchall()
+                            " and created_at > now() - make_interval(days => %s) order by created_at limit 5",
+                            (team_id, c.person.id, PROMPT_DAYS)).fetchall()
         return {"prompts": [prompt_view(r, c.person.id) for r in rows]}
 
     def visible_prompt(conn, team_id: str, role: str, pid: str, me: str) -> dict:
@@ -970,8 +1003,9 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         team_id, role = session_scope(c, team, conn)
         visible_prompt(conn, team_id, role, pid, c.person.id)
         row = change_prompt(conn, team_id, pid, "status = %s, decided_by = 'owner', decided_at = now() where team_id = %s"
-                            " and id = %s and to_user = %s and status = 'pending'",
-                            ("approved" if body.approve else "denied", team_id, pid, c.person.id), "Only the session's owner can decide, once")
+                            " and id = %s and to_user = %s and status = 'pending' and created_at > now() - make_interval(days => %s)",
+                            ("approved" if body.approve else "denied", team_id, pid, c.person.id, PROMPT_DAYS),
+                            "Only the session's owner can decide, once, within a week")
         return prompt_view(row, c.person.id)
 
     @app.post("/v1/prompts/{pid}/cancel")
@@ -997,7 +1031,12 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             raise HTTPException(429, "That teammate's tokens for today are used up")
         row = change_prompt(conn, team_id, pid, "status = 'running', budget = %s where team_id = %s and id = %s and to_user = %s"
                             " and status = 'approved'", (budget, team_id, pid, c.person.id), "Not yours to run, or already running")
-        return {**prompt_view(row, c.person.id), "budget": budget}
+        earlier = conn.execute("select prompt, result from session_prompts where team_id = %s and session = %s and from_user = %s"
+                               " and status = 'done' and id <> %s order by created_at desc limit 3",
+                               (team_id, row["session"], row["from_user"], row["id"])).fetchall()
+        # the thread so far, so a follow-up is answered as a follow-up even though each run starts from the live session
+        return {**prompt_view(row, c.person.id), "budget": budget,
+                "thread": [{"prompt": e["prompt"], "result": (e["result"] or "")[:2000]} for e in reversed(earlier)]}
 
     @app.post("/v1/prompts/{pid}/finish")
     def finish_prompt(pid: str, body: FinishIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
