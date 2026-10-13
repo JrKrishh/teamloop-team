@@ -8,6 +8,7 @@ first, so one teammate's agent output can't steer Agent S or another agent.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -21,8 +22,9 @@ from typing import Callable, Optional
 
 from pathlib import Path
 
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
-from fastapi.responses import FileResponse
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -57,6 +59,8 @@ KIND_RE = re.compile(r"^[a-z_]{1,32}$")
 TASK_RE = re.compile(r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
 ACTIVE_SECONDS = 300
 COOKIE = "teamloop_board"
+MAX_STREAMS_PER_ROOM = 25
+STREAM_POLL_SECONDS = float(os.getenv("HUB_STREAM_POLL", "1"))
 STATIC = Path(__file__).parent / "static"
 COOKIE_DAYS = 7
 
@@ -227,6 +231,43 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     @app.get("/v1/board")
     def board(room: str = Depends(board_room)) -> dict:
         return build_board(room)
+
+    # ---- live board (SSE) -----------------------------------------------------------------------
+    streams: dict[str, int] = {}
+
+    def room_version(room: str) -> tuple:
+        """Changes when the room gets an event or a snapshot, and once a minute (so 'active' dots age out)."""
+        with lock:
+            ev = conn.execute("SELECT MAX(rowid) FROM events WHERE room = ?", (room,)).fetchone()[0]
+            sn = conn.execute("SELECT MAX(rowid) FROM snapshots WHERE room = ?", (room,)).fetchone()[0]
+        return ev, sn, int(time.time() // 60)
+
+    @app.get("/v1/stream")
+    async def stream(request: Request, room: str = Depends(board_room)) -> StreamingResponse:
+        if streams.get(room, 0) >= MAX_STREAMS_PER_ROOM:
+            raise HTTPException(429, "Too many open boards for this room")
+
+        async def events():
+            streams[room] = streams.get(room, 0) + 1
+            last, quiet = None, 0.0
+            try:
+                while not await request.is_disconnected():
+                    version = await run_in_threadpool(room_version, room)
+                    if version != last:
+                        last = version
+                        board = await run_in_threadpool(build_board, room)
+                        yield f"event: board\ndata: {json.dumps(board, ensure_ascii=False)}\n\n"
+                        quiet = 0.0
+                    elif quiet >= 15:
+                        yield ": keep-alive\n\n"  # proxies (HF Spaces) drop silent connections
+                        quiet = 0.0
+                    await asyncio.sleep(STREAM_POLL_SECONDS)
+                    quiet += STREAM_POLL_SECONDS
+            finally:
+                streams[room] -= 1
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.post("/v1/ask")
     def ask(req: AskIn, room: str = Depends(board_room)) -> dict:
