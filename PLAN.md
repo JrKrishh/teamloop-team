@@ -23,12 +23,12 @@ Research behind this plan (read these for sources):
 | M3 Claude Code + Codex connectors | **done**, from real payloads | `tests/fixtures/hooks/{claude_code,codex}` |
 | M4 commit trailer | **done**, dogfooded on every commit here | `githook.py` |
 | M5 hub: events, progress, members, live board | **done**: SSE push, rate limits, size caps, retention | `hub/` (ccbridge relay + `team.py`) |
-| M6 Agent S: summaries, progress, Q&A | **done** on local qwen3:4b; **Nemotron not run yet (no key)** | `agent_s/`, eval 4/4 progress, 5/5 Q&A |
+| M6 Agent S: summaries, progress, Q&A, digest | **done on Nemotron** (Token Factory): progress 4/4, Q&A 5/5 and 0 uncited on 3 runs; Ultra digest works | `agent_s/`, `docs/research/nemotron-20261013.md` |
 | M7 board | **done** (Hoodie colours, mascots, Ask panel, public demo room) | `hub/hub/static/board.html`, `docs/demo/` |
 | M8 GitHub | **done** as a webhook receiver; GitHub App not created yet (needs Yang's account) | `hub/hub/github.py`, PR #1 fixtures |
 | M9 privacy test | **done**: canary text never reaches the hub DB | `connector/tests/test_send.py`, `hub/tests/test_e2e.py` |
 | Deploy (demo URL) | Dockerfile + guide ready; **not deployed** (needs Yang's HF account; image not built locally) | `Dockerfile`, `docs/deploy.md` |
-| Nebius credits + smoke test | **blocked on Yang's bank card** | `scripts/smoke_nebius.py` |
+| Nebius key + smoke test | **done**: all 3 Nemotron IDs live; thinking-off honoured (0 reasoning tokens on Lightning); JSON and tool calls work | `docs/research/smoke-20261013.md` |
 | Outside teams (≥3) | **not started**: the real risk now | §20 |
 | S2 daily digest | **done** (big model; every line cited; 10-min cache) | `agent_s/digest.py`, board "Today's digest" |
 | S1 Cursor, S3 blocker pings, S5 Tavily | not started | |

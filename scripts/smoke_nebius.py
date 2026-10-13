@@ -36,11 +36,14 @@ def check(name, model, **kw):
         msg = r.choices[0].message
         text = msg.content or ""
         ok = "tool call" if msg.tool_calls else ("valid json" if _json(text) else "NOT json")
-        leak = "<think>" in text or "reasoning" in (getattr(msg, "model_extra", None) or {})
-        return [name, f"{(time.perf_counter() - t):.1f}s", ok, "yes" if leak else "no",
+        # Token Factory returns reasoning in its own field (reasoning_content); only <think> in the content is a leak.
+        leak = "<think>" in text
+        details = getattr(r.usage, "completion_tokens_details", None)
+        thought = getattr(details, "reasoning_tokens", None) or 0
+        return [name, f"{(time.perf_counter() - t):.1f}s", ok, "yes" if leak else "no", str(thought),
                 f"{r.usage.prompt_tokens}/{r.usage.completion_tokens}", text[:80].replace("\n", " ")]
     except Exception as e:  # noqa: BLE001 - a failed check is a result
-        return [name, f"{(time.perf_counter() - t):.1f}s", "ERROR", "-", "-", str(e)[:80]]
+        return [name, f"{(time.perf_counter() - t):.1f}s", "ERROR", "-", "-", "-", str(e)[:80]]
 
 
 def _json(text):
@@ -53,7 +56,7 @@ def _json(text):
 
 def main():
     ids = {m.id for m in nb.models.list().data}
-    rows = [["model id present", "", ", ".join(f"{k}={'yes' if v in ids else 'NO'}" for k, v in MODELS.items()), "", "", ""]]
+    rows = [["model id present", "", ", ".join(f"{k}={'yes' if v in ids else 'NO'}" for k, v in MODELS.items()), "", "", "", ""]]
     msgs = [{"role": "system", "content": "Summarize this coding-agent turn for a team lead in one sentence."},
             {"role": "user", "content": TURN}]
     fmt = {"type": "json_schema", "json_schema": SUMMARY}
@@ -63,7 +66,7 @@ def main():
     rows.append(check("super tool call", MODELS["super"], tools=TOOL, tool_choice="auto",
                       messages=[{"role": "user", "content": "How far is task T-14? Use the tools."}]))
     rows.append(check("ultra plain", MODELS["ultra"], messages=msgs))
-    head = ["check", "time", "result", "reasoning leaked", "tokens in/out", "sample"]
+    head = ["check", "time", "result", "reasoning in content", "reasoning tokens", "tokens in/out", "sample"]
     table = "\n".join("| " + " | ".join(r) + " |" for r in [head, ["---"] * len(head), *rows])
     print(table)
     out = Path(__file__).resolve().parents[1] / "docs" / "research" / f"smoke-{time.strftime('%Y%m%d')}.md"
