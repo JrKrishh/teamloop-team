@@ -505,7 +505,7 @@ Each row is **step → verify**. Y = Yang, S = Sourabh.
 - **Coordination:** ccbridge stays the agent-to-agent channel until our own `ask_team` replaces it.
 - **Git:** `main` is protected. Feature branches are `T-<id>-slug` and PRs are reviewed by the other person. Every commit carries the `TeamLoop-Task:` trailer (our own hook).
 - **Daily, 10 min:** read the board, not a status meeting. Decisions go in `docs/decisions/NNN-title.md`.
-- **Ownership:** Yang owns the connector, Agent S, the eval and the video. Sourabh owns the hub, GitHub App, board, deploy and Devpost text. Either can pick up the other's work.
+- **Ownership:** Yang owns the connector, Agent S, the eval and the video. **Since 13 Oct, Yang (through Yang's agent) also owns the hub, board and GitHub integration, because Sourabh has been unreachable since 12 Oct 20:40.** Sourabh can take any of it back. Deploy and Devpost text are unassigned until Sourabh replies. Either can pick up the other's work.
 
 ---
 

@@ -205,15 +205,32 @@ function render(b) {
   for (const t of b.tasks) grid.append(card(t, b.members));
 }
 
+// Live updates come over SSE (/v1/stream); polling stays as a slow safety net, and takes over if the stream dies.
+let stream = null, pollTimer = null;
+function poll(ms) { clearInterval(pollTimer); pollTimer = setInterval(load, ms); }
+
+function show(b, live) {
+  $("signin").hidden = true; $("main").hidden = false;
+  const key = JSON.stringify(b.tasks) + JSON.stringify(b.members.map(m => [m.name, m.active]));
+  if (key !== last) { last = key; render(b); }
+  const at = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+  $("updated").textContent = live ? `live · ${at}` : `updated ${at}`;
+}
+
+function openStream() {
+  if (stream || !window.EventSource) return;
+  stream = new EventSource("/v1/stream");
+  stream.addEventListener("board", ev => show(JSON.parse(ev.data), true));
+  stream.onopen = () => poll(30000);
+  stream.onerror = () => { if (stream && stream.readyState === EventSource.CLOSED) { stream = null; poll(5000); } };
+}
+
 async function load() {
   try {
     const r = await fetch("/v1/board", {credentials: "same-origin"});
     if (r.status === 401 || r.status === 403) { $("main").hidden = true; $("signin").hidden = false; return; }
-    const b = await r.json();
-    $("signin").hidden = true; $("main").hidden = false;
-    const key = JSON.stringify(b.tasks) + JSON.stringify(b.members.map(m => [m.name, m.active]));
-    if (key !== last) { last = key; render(b); }
-    $("updated").textContent = `updated ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"})}`;
+    show(await r.json(), false);
+    openStream();
   } catch (e) { $("updated").textContent = "hub unreachable, retrying…"; }
 }
 
@@ -242,7 +259,7 @@ $("askForm").addEventListener("submit", async ev => {
   btn.disabled = false; btn.textContent = "Ask"; $("question").value = "";
 });
 
-load(); setInterval(load, 5000);
+load(); poll(5000);
 </script>
 </body>
 </html>
