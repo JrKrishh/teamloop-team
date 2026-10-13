@@ -137,8 +137,8 @@ dl.settings dd{margin:0;overflow-wrap:anywhere}
 .acct{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 select{font:600 14px/1.2 var(--fb);color:var(--text);background:var(--panel);border:1px solid var(--line2);border-radius:9px;padding:8px 10px;max-width:240px}
 .signin select{max-width:none;width:100%}
-button.google{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:var(--panel);color:var(--text);border:1px solid var(--line2);padding:12px 14px}
-button.google svg{width:18px;height:18px}
+button.oauth{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:var(--panel);color:var(--text);border:1px solid var(--line2);padding:12px 14px}
+button.oauth svg{width:18px;height:18px}
 .or{display:flex;align-items:center;gap:10px;width:100%;color:var(--faint);font:700 11px/1 var(--fm);letter-spacing:.06em;text-transform:uppercase}
 .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
 button.linkish{all:unset;cursor:pointer;color:var(--brick);font-weight:600;font-size:14px;text-align:center}
@@ -175,7 +175,7 @@ button.linkish:hover,button.linkish:focus-visible{text-decoration:underline}
     <img src="/static/mascot/agent-s/wave.webp" alt="">
     <h1 class="title" id="csTitle">Sign in to TeamLoop</h1>
     <p class="note" id="csNote">Your team's live progress, straight from their Claude Code and Codex sessions.</p>
-    <button type="button" class="google" id="googleBtn"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Continue with Google</button>
+    <button type="button" class="oauth" id="githubBtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Continue with GitHub</button>
     <div class="or">or with email</div>
     <form id="emailForm">
       <input id="nameIn" placeholder="Your name, as teammates will see it" autocomplete="name" maxlength="64" hidden>
@@ -365,7 +365,7 @@ function openStream() {
 }
 
 async function load() {
-  if (cloud && (document.hidden || !$("panel").hidden || !$("cloudSignin").hidden)) return;
+  if (cloud && (!$("panel").hidden || !$("cloudSignin").hidden)) return;
   try {
     const r = await fetch(api("/v1/board"), {credentials: "same-origin"});
     if (cloud && (r.status === 401 || r.status === 403)) { me = await getMe(); return route(); }  // signed out, or removed from the team
@@ -698,10 +698,10 @@ $("teamPick").onchange = () => {
 };
 $("signInBtn").onclick = () => showSignin(null, null, "/");
 $("signOut").onclick = async () => { try { await post("/v1/logout"); } catch (e) { /* signed out anyway */ } location.replace("/"); };
-$("googleBtn").onclick = async () => {
+$("githubBtn").onclick = async () => {
   $("csErr").textContent = "";
-  try { const c = await supa(); const {error} = await c.auth.signInWithOAuth({provider: "google", options: {redirectTo: `${location.origin}/auth`}}); if (error) throw error; }
-  catch (e) { $("csErr").textContent = e.message || "Google sign-in isn't available right now."; }
+  try { const c = await supa(); const {error} = await c.auth.signInWithOAuth({provider: "github", options: {redirectTo: `${location.origin}/auth`}}); if (error) throw error; }
+  catch (e) { $("csErr").textContent = e.message || "GitHub sign-in isn't available right now."; }
 };
 $("modeBtn").onclick = () => {
   signUp = !signUp; $("nameIn").hidden = !signUp; $("nameIn").required = signUp; $("csErr").textContent = "";
@@ -732,7 +732,7 @@ $("inviteLinkBtn").onclick = async () => {
   $("inviteOut").hidden = false; b.disabled = false;
 };
 
-async function authPage() {  // back from Google (or an email confirmation): supabase-js trades ?code= for a session on load
+async function authPage() {  // back from GitHub (or an email confirmation): supabase-js trades ?code= for a session on load
   panel("Signing you in…", "");
   try {
     const {data, error} = await (await supa()).auth.getSession();
@@ -760,11 +760,11 @@ async function boot() {
   try { const r = await fetch("/v1/config"); if (r.ok) { const c = await r.json(); if (c.mode === "cloud") cloud = c; } } catch (e) { /* room mode */ }
   if (!cloud) { load(); poll(5000); return; }
   $("demo").textContent = "Public demo with a sample team. The events are scripted in the exact shapes TeamLoop records; the progress, done/next lists and answers come from the real Agent S. Sign in to start your own team's board.";
-  $("inviteNote").textContent = "Make a link and send it. It works for 7 days and up to 20 people; they sign in with Google or email.";
+  $("inviteNote").textContent = "Make a link and send it. It works for 7 days and up to 20 people; they sign in with GitHub or email.";
   $("inviteForm").hidden = true; $("inviteLinkBtn").hidden = false;
   if (location.pathname === "/auth") return authPage();
   me = await getMe(); await route();
-  poll(15000);  // each read may run Agent S; hidden tabs and open panels skip their turn
+  clearInterval(pollTimer); pollTimer = setInterval(() => { if (!document.hidden) load(); }, 15000);  // hidden windows skip their turn
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 }
 boot();

@@ -243,8 +243,11 @@ def test_supabase_user_reads_the_auth_server(monkeypatch):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
             seen.update(path=self.path, apikey=self.headers["apikey"], auth=self.headers["Authorization"])
-            ok = self.headers["Authorization"] == "Bearer good"
-            body = json.dumps({"id": "u1", "email": "yang@example.com", "user_metadata": {"full_name": "Yang R"}} if ok else {})
+            users = {"Bearer good": {"id": "u1", "email": "yang@example.com", "user_metadata": {"full_name": "Yang R"}},
+                     # a GitHub account without a display name
+                     "Bearer github": {"id": "u2", "email": "y@example.com", "user_metadata": {"user_name": "JrKrishh"}}}
+            ok = self.headers["Authorization"] in users
+            body = json.dumps(users.get(self.headers["Authorization"], {}))
             self.send_response(200 if ok else 401)
             self.end_headers()
             self.wfile.write(body.encode())
@@ -259,6 +262,7 @@ def test_supabase_user_reads_the_auth_server(monkeypatch):
         monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test")
         assert auth.supabase_user("good") == auth.Person("u1", "yang@example.com", "Yang R")
         assert seen == {"path": "/auth/v1/user", "apikey": "sb_publishable_test", "auth": "Bearer good"}
+        assert auth.supabase_user("github").name == "JrKrishh"
         with pytest.raises(PermissionError):
             auth.supabase_user("bad")
     finally:

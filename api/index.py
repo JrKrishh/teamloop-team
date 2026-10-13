@@ -1,6 +1,6 @@
 """Vercel entry point: one Python serverless function (docs/deploy.md, docs/cloud.md).
 
-With DATABASE_URL set (Supabase Postgres), this is the cloud hub: Google or email sign-in, teams, invite links,
+With DATABASE_URL set (Supabase Postgres), this is the cloud hub: GitHub or email sign-in, teams, invite links,
 `teamloop login`. Without it, the self-hosted hub serves the public demo from /tmp SQLite, which is per instance
 and re-seeds on every cold start.
 """

@@ -1,6 +1,6 @@
 """Who is asking. Three kinds of caller:
 
-- a person in a browser or the app window: signed in with Supabase (Google or email/password) once, then a hub
+- a person in a browser or the app window: signed in with Supabase (GitHub or email/password) once, then a hub
   session cookie (HttpOnly) carries them;
 - a connector (`teamloop` CLI, hooks, MCP server): a `tl_` token from the device flow, bound to one person in
   one team;
@@ -49,5 +49,7 @@ def supabase_user(access_token: str) -> Person:
         raise PermissionError(f"Supabase refused the sign-in ({e.code})") from None
     meta = u.get("user_metadata") or {}
     email = u.get("email")
-    name = (meta.get("full_name") or meta.get("name") or (email or "").split("@")[0] or "someone").strip()[:64]
+    # GitHub accounts may have no display name: then the GitHub username, then the email's local part
+    name = (meta.get("full_name") or meta.get("name") or meta.get("user_name") or meta.get("preferred_username")
+            or (email or "").split("@")[0] or "someone").strip()[:64]
     return Person(id=u["id"], email=email, name=name)

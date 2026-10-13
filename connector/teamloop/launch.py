@@ -4,7 +4,7 @@
 2. A self-hosted hub is already running here: open its board.
 3. This machine is a lead with a self-hosted hub (it has hub settings): start the hub, which opens the board.
 4. This laptop joined a self-hosted hub: open that board.
-5. Nothing set up yet: sign in (Google or email) and connect this laptop, then open the board.
+5. Nothing set up yet: sign in (GitHub or email) and connect this laptop, then open the board.
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ Live progress from every teammate's AI coding session (Claude Code, Codex, Curso
 ## Install on Windows (teamloop.exe, no Python needed)
 1. Unzip `teamloop-0.2.0-windows-x64.zip` from [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest) (CI's `exe` job builds it; locally: `pyinstaller packaging/teamloop.spec`).
 2. Run `powershell -ExecutionPolicy Bypass -File install.ps1` in that folder. It copies to `%LOCALAPPDATA%\TeamLoop`, adds it to your PATH, and makes Start-menu and desktop shortcuts.
-3. Open **TeamLoop** from the Start menu. The first time, it asks you to sign in (Google or email) in its own window and connects this laptop to your team. After that it opens your team's board.
+3. Open **TeamLoop** from the Start menu. The first time, it asks you to sign in (GitHub or email) in its own window and connects this laptop to your team. After that it opens your team's board.
 4. In each repo you work in: `teamloop init`, then `teamloop task T-1 "..."`.
 
 **Lead:** sign in at https://teamloop.vercel.app, create a team, and send teammates an invite link from the Team tab. How the accounts work: [docs/cloud.md](docs/cloud.md).

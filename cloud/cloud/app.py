@@ -187,7 +187,7 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
     # ---- sign-in -----------------------------------------------------------------------------------
     @app.post("/v1/session")
     def session(body: SessionIn, response: Response, conn=Depends(db)) -> dict:
-        """Trade a Supabase access token (from Google or email/password sign-in) for a hub session cookie."""
+        """Trade a Supabase access token (from GitHub or email/password sign-in) for a hub session cookie."""
         try:
             person = auth.supabase_user(body.access_token)
         except PermissionError as e:

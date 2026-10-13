@@ -137,7 +137,7 @@ def _call(url: str, method: str = "GET", body: dict | None = None) -> dict:
 
 def device_login(hub: str, open_url=None, sleep=time.sleep) -> int:
     """`teamloop login` without an invite: sign in on the cloud hub in a browser window, like `gh auth login`.
-    The CLI shows a code, the person approves it on the web (Google or email sign-in), the CLI gets a token once."""
+    The CLI shows a code, the person approves it on the web (GitHub or email sign-in), the CLI gets a token once."""
     from teamloop import window
 
     open_url = open_url or window.open_app
@@ -148,7 +148,7 @@ def device_login(hub: str, open_url=None, sleep=time.sleep) -> int:
         print(f"Couldn't reach TeamLoop at {hub}: {e}")
         return 1
     print(f"Your code: {start['user_code']}")
-    print(f"Approve it in the window that opens (sign in with Google or email): {start['verify_url']}")
+    print(f"Approve it in the window that opens (sign in with GitHub or email): {start['verify_url']}")
     open_url(start["verify_url"])
     deadline = time.time() + start.get("expires_in", 900)
     while time.time() < deadline:

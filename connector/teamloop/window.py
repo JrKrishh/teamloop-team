@@ -1,5 +1,6 @@
 """TeamLoop in its own window: Edge or Chrome in app mode (no tabs, no address bar), with the default browser as
-the fallback. A real browser rather than an embedded webview, because Google refuses sign-in inside webviews."""
+the fallback. A real browser rather than an embedded webview: Edge is on every Windows machine, and the person's
+existing GitHub sign-in carries over, so signing in to TeamLoop is one click."""
 
 from __future__ import annotations
 
