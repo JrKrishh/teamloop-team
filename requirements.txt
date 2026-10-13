@@ -1,3 +1,4 @@
 # For the Vercel deploy (api/index.py). Local development installs the packages instead (see README).
 fastapi>=0.110
 pydantic>=2.5
+psycopg[binary]>=3.2

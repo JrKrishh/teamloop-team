@@ -78,9 +78,12 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--dry-run", action="store_true")
     sub.add_parser("doctor", help="check that everything is wired, with the fix for each problem")
     sub.add_parser("mcp", help="run the MCP server (your coding tool starts this, not you)")
-    lg = sub.add_parser("login", help="join your team's hub with the invite your lead shared")
-    lg.add_argument("invite")
-    lg.add_argument("--name", help="how you appear to the team (default: your OS user name)")
+    lg = sub.add_parser("login", help="sign in and connect this laptop to your team (or join a self-hosted hub with an invite)")
+    lg.add_argument("invite", nargs="?", help="only for a self-hosted hub: the invite your lead shared")
+    lg.add_argument("--name", help="self-hosted hub only: how you appear to the team (default: your OS user name)")
+    lg.add_argument("--hub", help="the cloud hub to sign in to (default: $TEAMLOOP_HUB or https://teamloop.vercel.app)")
+    ap_ = sub.add_parser("app", help="open the board in its own window")
+    ap_.add_argument("--url", help="a different board URL")
     inv = sub.add_parser("invite", help="(lead) make an invite for a hub room")
     inv.add_argument("--url", required=True)
     inv.add_argument("--room", required=True)
@@ -126,9 +129,15 @@ def main(argv: list[str] | None = None) -> int:
 
         return mcp_server.main()
     if args.cmd == "login":
-        from teamloop import login
+        from teamloop import login, window
 
-        return login.login(args.invite, args.name)
+        if args.invite:
+            return login.login(args.invite, args.name)
+        return login.device_login(args.hub or window.CLOUD)
+    if args.cmd == "app":
+        from teamloop import window
+
+        return window.run(args.url)
     if args.cmd == "invite":
         from teamloop import login
 

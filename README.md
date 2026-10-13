@@ -13,10 +13,14 @@ Live progress from every teammate's AI coding session (Claude Code, Codex, Curso
 **Never shared:** prompts, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking.
 
 ## Install on Windows (teamloop.exe, no Python needed)
-1. Unzip `teamloop-0.1.1-windows-x64.zip` (CI's `exe` job builds it; locally: `pyinstaller packaging/teamloop.spec`).
-2. Run `powershell -ExecutionPolicy Bypass -File install.ps1` in that folder. It copies to `%LOCALAPPDATA%\TeamLoop` and adds it to your PATH.
-3. **Teammate:** `teamloop login <invite>`, then `teamloop init` in your repo and `teamloop task T-1 "..."`.
-4. **Lead (self-hosted):** `teamloop hub`. It creates your room, a room token and a lead key, keeps data in `~/.teamloop/hub/`, opens the board, and prints the teammate invite. For teammates elsewhere, run `cloudflared tunnel --url http://localhost:8799`, then `teamloop hub --public-url <that URL>`.
+1. Unzip `teamloop-0.2.0-windows-x64.zip` from [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest) (CI's `exe` job builds it; locally: `pyinstaller packaging/teamloop.spec`).
+2. Run `powershell -ExecutionPolicy Bypass -File install.ps1` in that folder. It copies to `%LOCALAPPDATA%\TeamLoop`, adds it to your PATH, and makes Start-menu and desktop shortcuts.
+3. Open **TeamLoop** from the Start menu. The first time, it asks you to sign in (GitHub or email) in its own window and connects this laptop to your team. After that it opens your team's board.
+4. In each repo you work in: `teamloop init`, then `teamloop task T-1 "..."`.
+
+**Lead:** sign in at https://teamloop.vercel.app, create a team, and send teammates an invite link from the Team tab. How the accounts work: [docs/cloud.md](docs/cloud.md).
+
+**Self-hosted instead:** `teamloop hub` runs the board on your machine with a room token and lead key (data in `~/.teamloop/hub/`), and prints the invite teammates pass to `teamloop login <invite>`. For teammates elsewhere, run `cloudflared tunnel --url http://localhost:8799`, then `teamloop hub --public-url <that URL>`.
 
 The same exe is the hook handler and the MCP server, so `init` points Claude Code and Codex at it. **Hooks cost about 0.4 s per tool call** with the exe (Python startup), against about 0.17 s when installed with pip.
 

@@ -133,6 +133,19 @@ dl.settings dd{margin:0;overflow-wrap:anywhere}
 .role{font:700 11px/1 var(--fm);letter-spacing:.06em;text-transform:uppercase;margin-left:8px;padding:3px 6px;border-radius:5px;border:1px solid var(--line2);color:var(--muted)}
 @media (max-width:600px){dl.settings{grid-template-columns:minmax(0,1fr);gap:0}dl.settings dd{margin-bottom:8px}}
 .invite pre{font-variant-ligatures:none;margin:0;background:var(--bg2);border-radius:9px;padding:10px 12px;font:500 12.5px/1.5 var(--fm);overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+/* cloud mode: accounts and teams */
+.acct{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+select{font:600 14px/1.2 var(--fb);color:var(--text);background:var(--panel);border:1px solid var(--line2);border-radius:9px;padding:8px 10px;max-width:240px}
+.signin select{max-width:none;width:100%}
+button.oauth{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:var(--panel);color:var(--text);border:1px solid var(--line2);padding:12px 14px}
+button.oauth svg{width:18px;height:18px}
+.or{display:flex;align-items:center;gap:10px;width:100%;color:var(--faint);font:700 11px/1 var(--fm);letter-spacing:.06em;text-transform:uppercase}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+button.linkish{all:unset;cursor:pointer;color:var(--brick);font-weight:600;font-size:14px;text-align:center}
+button.linkish:hover,button.linkish:focus-visible{text-decoration:underline}
+.pbody{display:flex;flex-direction:column;gap:10px;width:100%}
+.code{font:700 28px/1 var(--fm);letter-spacing:.14em;padding:14px;border:1px dashed var(--line2);border-radius:10px;background:var(--panel)}
+.note{color:var(--muted);margin:0;overflow-wrap:anywhere}
 @media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}aside{position:static}.people{margin-left:0}.wrap{padding-inline:16px}}
 </style>
 </head>
@@ -142,6 +155,8 @@ dl.settings dd{margin:0;overflow-wrap:anywhere}
     <div><div class="brand">TeamLoop</div><div class="room"><span id="room">board</span><span class="role" id="role" hidden></span></div></div>
     <div class="people" id="people"></div>
     <div class="updated" id="updated"></div>
+    <div class="acct" id="acct" hidden><select id="teamPick" aria-label="Team"></select><button type="button" class="ghost small" id="signOut">Sign out</button></div>
+    <button type="button" class="small" id="signInBtn" hidden>Sign in</button>
   </header>
 
   <section class="signin" id="signin" hidden>
@@ -156,14 +171,39 @@ dl.settings dd{margin:0;overflow-wrap:anywhere}
     </form>
   </section>
 
+  <section class="signin" id="cloudSignin" hidden>
+    <img src="/static/mascot/agent-s/wave.webp" alt="">
+    <h1 class="title" id="csTitle">Sign in to TeamLoop</h1>
+    <p class="note" id="csNote">Your team's live progress, straight from their Claude Code and Codex sessions.</p>
+    <button type="button" class="oauth" id="githubBtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Continue with GitHub</button>
+    <div class="or">or with email</div>
+    <form id="emailForm">
+      <input id="nameIn" placeholder="Your name, as teammates will see it" autocomplete="name" maxlength="64" hidden>
+      <input id="emailIn" type="email" placeholder="Email" autocomplete="email" required>
+      <input id="pwIn" type="password" placeholder="Password (8+ characters)" autocomplete="current-password" minlength="8" required>
+      <button id="emailBtn">Sign in</button>
+      <button type="button" class="linkish" id="modeBtn">New here? Create an account</button>
+      <div class="err" id="csErr"></div>
+    </form>
+  </section>
+
+  <section class="signin" id="panel" hidden>
+    <img id="panelImg" src="/static/mascot/agent-s/wave.webp" alt="">
+    <h1 class="title" id="panelTitle"></h1>
+    <p class="note" id="panelText"></p>
+    <div class="pbody" id="panelBody"></div>
+    <div class="err" id="panelErr"></div>
+  </section>
+
   <p class="demo" id="demo" hidden>Public demo with a sample team. The events are scripted in the exact shapes TeamLoop records; the progress, done/next lists and answers come from the real Agent S. Your own team's board is private to your room.</p>
   <nav class="tabs" id="tabs" hidden><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="team">Team</button></nav>
   <section id="teamView" hidden>
     <div class="people-grid" id="members"></div>
     <section class="invite" id="invite">
       <h3>Invite a teammate</h3>
-      <p>Paste your room token. The invite is built here in your browser; nothing is sent anywhere.</p>
+      <p id="inviteNote">Paste your room token. The invite is built here in your browser; nothing is sent anywhere.</p>
       <form id="inviteForm"><input id="inviteToken" type="password" placeholder="Room token" autocomplete="off" required><button>Make invite</button></form>
+      <div><button type="button" id="inviteLinkBtn" hidden>Make invite link</button></div>
       <div id="inviteOut" hidden>
         <div class="section-label">Send them this, then they run the commands below</div>
         <pre id="inviteText"></pre>
@@ -284,7 +324,7 @@ function card(t, members) {
 }
 
 function render(b) {
-  $("room").textContent = `room · ${b.room}`; currentRoom = b.room;
+  $("room").textContent = `${cloud && !b.demo ? "team" : "room"} · ${b.room}`; currentRoom = b.room;
   $("demo").hidden = !b.demo;
   const people = $("people"); people.replaceChildren();
   for (const m of b.members) {
@@ -296,7 +336,9 @@ function render(b) {
   const tally = $("tally"); tally.replaceChildren();
   for (const [k, v] of [["tasks", b.tasks.length], ["in progress", counts.in_progress], ["blocked", counts.blocked], ["in review", counts.review], ["done", counts.done]]) { const s = el("span"); s.append(el("b", null, String(v)), ` ${k}`); tally.append(s); }
   const grid = $("tasks"); grid.replaceChildren();
-  if (!b.tasks.length) grid.append(el("div", "empty", "No task activity yet. Once a teammate runs `teamloop task T-<id>` and starts a session, their work shows up here."));
+  if (!b.tasks.length) grid.append(el("div", "empty", cloud
+    ? "No task activity yet. Each teammate installs TeamLoop, runs `teamloop login`, then `teamloop init` in their repo; their sessions show up here."
+    : "No task activity yet. Once a teammate runs `teamloop task T-<id>` and starts a session, their work shows up here."));
   for (const t of b.tasks) grid.append(card(t, b.members));
 }
 
@@ -323,10 +365,14 @@ function openStream() {
 }
 
 async function load() {
+  if (cloud && (!$("panel").hidden || !$("cloudSignin").hidden)) return;
   try {
-    const r = await fetch("/v1/board", {credentials: "same-origin"});
+    const r = await fetch(api("/v1/board"), {credentials: "same-origin"});
+    if (cloud && (r.status === 401 || r.status === 403)) { me = await getMe(); return route(); }  // signed out, or removed from the team
     if (r.status === 401 || r.status === 403) { $("main").hidden = true; $("signin").hidden = false; return; }
-    show(await r.json(), false);
+    const b = await r.json();
+    show(b, false);
+    if (cloud) { $("role").textContent = b.role; $("role").hidden = !me.user; if (!b.demo) refresh(); return; }  // no SSE on Vercel: polling only
     if (!me) { const m = await fetch("/v1/me", {credentials: "same-origin"}); if (m.ok) { me = await m.json(); $("role").textContent = me.role; $("role").hidden = false; } }
     openStream();
   } catch (e) { $("updated").textContent = "hub unreachable, retrying…"; }
@@ -343,7 +389,7 @@ $("digestBtn").addEventListener("click", async () => {
   const btn = $("digestBtn"), box = $("digest");
   btn.disabled = true; btn.textContent = "Writing the digest"; box.hidden = false; box.replaceChildren(el("div", "meta", "…"));
   try {
-    const r = await fetch("/v1/digest", {credentials: "same-origin"});
+    const r = await fetch(api("/v1/digest"), {credentials: "same-origin"});
     const d = await r.json();
     box.replaceChildren();
     if (!r.ok) { box.append(el("div", "meta", d.detail || "Agent S couldn't write the digest right now.")); }
@@ -367,7 +413,7 @@ $("askForm").addEventListener("submit", async ev => {
   const btn = $("askBtn"); btn.disabled = true; btn.textContent = "Thinking";
   const box = el("div", "qa"); box.append(el("div", "q", q)); const a = el("div", "a", "…"); box.append(a); $("answers").append(box);
   try {
-    const r = await fetch("/v1/ask", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify({question: q})});
+    const r = await fetch(api("/v1/ask"), {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify({question: q})});
     const out = await r.json();
     if (!r.ok) { a.textContent = out.detail || "Agent S couldn't answer right now."; box.classList.add("none"); }
     else {
@@ -415,7 +461,7 @@ function highlight(ids) {
 async function openTask(task, ids) {
   openedFrom = document.activeElement;
   try {
-    const r = await fetch(`/v1/tasks/${encodeURIComponent(task)}`, {credentials: "same-origin"});
+    const r = await fetch(api(`/v1/tasks/${encodeURIComponent(task)}`), {credentials: "same-origin"});
     if (!r.ok) return;
     const d = await r.json();
     $("dId").textContent = d.task; $("dTitle").textContent = d.title || d.task;
@@ -467,16 +513,17 @@ function showView(v) {
 function manage(m) {  // lead only: remove (with an in-page confirm) or restore
   const box = el("div", "manage");
   const act = async (method, path) => { const r = await fetch(path, {method, credentials: "same-origin"}); if (r.ok) loadTeam(); };
+  const base = cloud ? `/v1/teams/${encodeURIComponent(currentTeam)}/members/${encodeURIComponent(m.user_id)}` : `/v1/members/${encodeURIComponent(m.name)}`;
   if (m.removed) {
     const b = el("button", "ghost small", "Restore"); b.type = "button";
-    b.onclick = () => act("POST", `/v1/members/${encodeURIComponent(m.name)}/restore`); box.append(b);
+    b.onclick = () => act("POST", `${base}/restore`); box.append(b);
     return box;
   }
   const b = el("button", "ghost small", "Remove"); b.type = "button";
   b.onclick = () => {
     box.replaceChildren(el("div", "sub", `Remove ${m.name}? Their updates stop; their history stays.`));
     const yes = el("button", "small danger", "Remove"); yes.type = "button";
-    yes.onclick = () => act("DELETE", `/v1/members/${encodeURIComponent(m.name)}`);
+    yes.onclick = () => act("DELETE", base);
     const no = el("button", "ghost small", "Cancel"); no.type = "button"; no.onclick = () => box.replaceChildren(b);
     box.append(yes, no); yes.focus();
   };
@@ -484,9 +531,10 @@ function manage(m) {  // lead only: remove (with an in-page confirm) or restore
 }
 
 async function loadSettings() {
-  const r = await fetch("/v1/settings", {credentials: "same-origin"}); if (!r.ok) return;
+  const r = await fetch(api("/v1/settings"), {credentials: "same-origin"}); if (!r.ok) return;
   const s = await r.json(); const dl = $("settingsList"); dl.replaceChildren();
-  const rows = [["Lead key", s.lead_key_set ? "set: members sign in with the room token" : "not set: anyone with the room token is lead"],
+  const rows = cloud ? [["Team", s.room], ["Members", String(s.members)], ["Agent S model", s.agent_s_model], ["Keep events", `${s.retention_days} days`],
+    ["Rate limit", `${s.posts_per_minute} batches per member per minute`]] : [["Lead key", s.lead_key_set ? "set: members sign in with the room token" : "not set: anyone with the room token is lead"],
     ["Agent S model", s.agent_s_model], ["GitHub repos", s.github_repos.length ? s.github_repos.join(", ") : "none linked"],
     ["GitHub webhook secret", s.github_secret_set ? "set" : "not set"], ["Blocker pings", s.notify_webhook_set ? "on" : "off"],
     ["Keep events", `${s.retention_days} days`], ["Rate limit", `${s.posts_per_minute} batches per member per minute`]];
@@ -494,7 +542,7 @@ async function loadSettings() {
 }
 
 async function loadTeam() {
-  const r = await fetch("/v1/team", {credentials: "same-origin"}); if (!r.ok) return;
+  const r = await fetch(api("/v1/team"), {credentials: "same-origin"}); if (!r.ok) return;
   const t = await r.json();
   const lead = t.role === "lead" && !t.demo;
   $("invite").hidden = !lead; $("settingsBox").hidden = !lead;
@@ -505,14 +553,15 @@ async function loadTeam() {
   for (const m of t.members) {
     const card = el("article", "member" + (m.removed ? " removed" : "")); card.append(mascot(m.name, m.removed || !m.active ? "sleep" : "idle"));
     const body = el("div"); body.style.minWidth = "0";
-    body.append(el("h3", null, m.name), el("div", "sub", m.removed ? "removed by the lead" : m.active ? "active now" : `last seen ${ago(m.last_activity)}`));
+    const seen = m.removed ? "removed by the lead" : m.active ? "active now" : m.last_activity ? `last seen ${ago(m.last_activity)}` : "no sessions yet";
+    body.append(el("h3", null, m.name), el("div", "sub", m.email ? `${seen} · ${m.email}` : seen));
     const chips = el("div", "foot"); for (const tool of m.tools) chips.append(el("span", "chip", TOOLS[tool])); body.append(chips);
     const ul = el("ul");
     for (const task of m.tasks.slice(0, 6)) {
       const li = el("li"); const b = el("button", "link"); b.type = "button"; b.onclick = () => openTask(task.task);
       b.append(el("span", "t", task.task)); li.append(b, el("span", "cite", ` ${ago(task.last_activity)}`)); ul.append(li);
     }
-    body.append(ul); if (lead) body.append(manage(m)); card.append(body); grid.append(card);
+    body.append(ul); if (lead && !(cloud && m.user_id === me.user.id)) body.append(manage(m)); card.append(body); grid.append(card);
   }
 }
 
@@ -533,7 +582,192 @@ $("copyInvite").onclick = async () => {
   setTimeout(() => { $("copyInvite").textContent = "Copy setup"; }, 2500);
 };
 
-load(); poll(5000);
+// ---- cloud mode (Vercel + Supabase): accounts, teams, invite links, approving `teamloop login` ----
+// The self-hosted hub has no /v1/config, so it stays in room mode above.
+const SUPABASE_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js";
+const DEFAULT_HUB = "https://teamloop.vercel.app";
+const keep = {get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+              set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private window: memory only */ } }};
+const once = {get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+              set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { /* fine */ } }};
+let cloud = null, sb = null, signUp = false, currentTeam = keep.get("tl_team");
+
+function api(path) { return cloud && me && me.user && currentTeam ? `${path}${path.includes("?") ? "&" : "?"}team=${encodeURIComponent(currentTeam)}` : path; }
+function setTeam(id) { currentTeam = id; keep.set("tl_team", id); }
+let refreshedAt = 0;
+async function refresh() {  // Agent S re-estimates stale tasks; the board itself never waits for it
+  if (Date.now() - refreshedAt < 30000) return;
+  refreshedAt = Date.now();
+  try { const r = await fetch(api("/v1/refresh"), {method: "POST", credentials: "same-origin"}); if (r.ok && (await r.json()).updated) load(); }
+  catch (e) { /* next turn */ }
+}
+async function getMe() { return (await fetch("/v1/me", {credentials: "same-origin"})).json(); }
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin", body: JSON.stringify(body || {})});
+  let d = {}; try { d = await r.json(); } catch (e) { /* empty body */ }
+  if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "That didn't work; try again.");
+  return d;
+}
+async function supa() {
+  if (sb) return sb;
+  await new Promise((ok, bad) => { const s = document.createElement("script"); s.src = SUPABASE_JS; s.onload = ok; s.onerror = () => bad(new Error("Couldn't load sign-in; check your connection.")); document.head.append(s); });
+  sb = window.supabase.createClient(cloud.supabase_url, cloud.supabase_key, {auth: {flowType: "pkce", persistSession: true, detectSessionInUrl: true}});
+  return sb;
+}
+async function exchange(session) {  // a Supabase sign-in becomes the hub's own session cookie; the Supabase tokens are dropped
+  await post("/v1/session", {access_token: session.access_token});
+  try { await sb.auth.signOut({scope: "local"}); } catch (e) { /* the cookie is what counts */ }
+  const next = once.get("tl_next") || "/";
+  location.replace(next.startsWith("/") && !next.startsWith("//") ? next : "/");
+}
+
+function hideAll() { for (const id of ["signin", "cloudSignin", "panel", "main", "teamView", "tabs", "demo"]) $(id).hidden = true; }
+function showSignin(title, note, next) {
+  once.set("tl_next", next || (location.pathname === "/auth" ? "/" : location.pathname + location.search));
+  hideAll(); $("csTitle").textContent = title || "Sign in to TeamLoop";
+  $("csNote").textContent = note || "Your team's live progress, straight from their Claude Code and Codex sessions.";
+  $("cloudSignin").hidden = false; $("signInBtn").hidden = true;
+}
+function panel(title, text, pose) {
+  hideAll(); $("panelTitle").textContent = title; $("panelText").textContent = text || ""; $("panelErr").textContent = "";
+  $("panelImg").src = `/static/mascot/agent-s/${pose || "wave"}.webp`; $("panelBody").replaceChildren(); $("panel").hidden = false;
+  return $("panelBody");
+}
+function createTeamForm(after) {
+  const f = el("form", "pbody"), name = el("input"), b = el("button", null, "Create team");
+  name.placeholder = "Team name, e.g. Payments squad"; name.maxLength = 80; name.required = true; f.append(name, b);
+  f.onsubmit = async ev => {
+    ev.preventDefault(); b.disabled = true;
+    try { setTeam((await post("/v1/teams", {name: name.value.trim()})).id); me = await getMe(); after(); }
+    catch (e) { $("panelErr").textContent = e.message; b.disabled = false; }
+  };
+  return f;
+}
+
+async function joinPage(tok) {
+  const inv = await (await fetch(`/v1/invites/${encodeURIComponent(tok)}`)).json();
+  if (!inv.valid) { panel("This invite link has expired", "Invite links last 7 days and 20 people. Ask your lead for a new one.", "think"); return; }
+  if (!me.user) { showSignin(`Join ${inv.team} on TeamLoop`, "Sign in first; you'll come straight back here to join."); return; }
+  if (me.teams.some(t => t.id === inv.team_id)) {
+    const go = el("button", null, "Open the board"); go.type = "button";
+    go.onclick = () => { setTeam(inv.team_id); history.replaceState(null, "", "/"); route(); };
+    panel(`You're already in ${inv.team}`, "").append(go); return;
+  }
+  const body = panel(`Join ${inv.team}`, `You're signed in as ${me.user.email || me.user.name}; you'll join as a ${inv.role}.`);
+  const b = el("button", null, `Join ${inv.team}`); b.type = "button"; body.append(b);
+  b.onclick = async () => {
+    b.disabled = true;
+    try { setTeam((await post(`/v1/invites/${encodeURIComponent(tok)}/accept`)).team.id); history.replaceState(null, "", "/"); me = await getMe(); route(); }
+    catch (e) { $("panelErr").textContent = e.message; b.disabled = false; }
+  };
+}
+
+async function devicePage() {
+  const code = (new URLSearchParams(location.search).get("code") || "").toUpperCase();
+  if (!me.user) { showSignin("Connect TeamLoop on your laptop", "Sign in to approve `teamloop login`."); return; }
+  const live = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code) && (await (await fetch(`/v1/device/${code}`, {credentials: "same-origin"})).json()).valid;
+  if (!live) { panel("That code has expired", "Run `teamloop login` in your terminal again; it opens a fresh page.", "think"); return; }
+  if (!me.teams.length) {
+    panel("Create your team first", "Then approve this laptop. Joining someone else's team? Open their invite link first.").append(createTeamForm(devicePage));
+    return;
+  }
+  const body = panel("Connect this laptop?", `Approve only if your terminal shows this code. Its coding sessions will report to the team you pick, as ${me.user.name}.`);
+  const pick = el("select"); pick.setAttribute("aria-label", "Team");
+  for (const t of me.teams) { const o = el("option", null, t.name); o.value = t.id; pick.append(o); }
+  pick.value = currentTeam || ""; if (!pick.value) pick.value = me.teams[0].id;
+  const b = el("button", null, "Approve"); b.type = "button"; body.append(el("div", "code", code), pick, b);
+  b.onclick = async () => {
+    b.disabled = true;
+    try { const d = await post("/v1/device/approve", {user_code: code, team: pick.value}); panel("Laptop connected", `Your terminal is now reporting to ${d.team}. You can close this window.`, "cheer"); }
+    catch (e) { $("panelErr").textContent = e.message; b.disabled = false; }
+  };
+}
+
+function teamPicker() {
+  const pick = $("teamPick"); pick.replaceChildren();
+  for (const t of me.teams) { const o = el("option", null, t.name); o.value = t.id; pick.append(o); }
+  const add = el("option", null, "+ New team"); add.value = "+new"; pick.append(add);
+  pick.value = currentTeam;
+}
+$("teamPick").onchange = () => {
+  const v = $("teamPick").value;
+  if (v !== "+new") { setTeam(v); route(); return; }
+  const body = panel("Create a team", "You'll be its lead; invite teammates from the Team tab.");
+  const back = el("button", "ghost", "Back to the board"); back.type = "button"; back.onclick = route;
+  body.append(createTeamForm(route), back);
+};
+$("signInBtn").onclick = () => showSignin(null, null, "/");
+$("signOut").onclick = async () => { try { await post("/v1/logout"); } catch (e) { /* signed out anyway */ } location.replace("/"); };
+$("githubBtn").onclick = async () => {
+  $("csErr").textContent = "";
+  try { const c = await supa(); const {error} = await c.auth.signInWithOAuth({provider: "github", options: {redirectTo: `${location.origin}/auth`}}); if (error) throw error; }
+  catch (e) { $("csErr").textContent = e.message || "GitHub sign-in isn't available right now."; }
+};
+$("modeBtn").onclick = () => {
+  signUp = !signUp; $("nameIn").hidden = !signUp; $("nameIn").required = signUp; $("csErr").textContent = "";
+  $("emailBtn").textContent = signUp ? "Create account" : "Sign in";
+  $("modeBtn").textContent = signUp ? "Have an account? Sign in" : "New here? Create an account";
+  $("pwIn").autocomplete = signUp ? "new-password" : "current-password";
+};
+$("emailForm").addEventListener("submit", async ev => {
+  ev.preventDefault(); $("csErr").textContent = ""; const btn = $("emailBtn"); btn.disabled = true;
+  try {
+    const c = await supa(), email = $("emailIn").value.trim(), password = $("pwIn").value;
+    const {data, error} = signUp
+      ? await c.auth.signUp({email, password, options: {data: {full_name: $("nameIn").value.trim()}, emailRedirectTo: `${location.origin}/auth`}})
+      : await c.auth.signInWithPassword({email, password});
+    if (error) throw error;
+    if (data.session) await exchange(data.session);
+    else $("csErr").textContent = "Check your inbox: confirm your email, then sign in here.";
+  } catch (e) { $("csErr").textContent = e.message || "That didn't work; try again."; }
+  btn.disabled = false;
+});
+$("inviteLinkBtn").onclick = async () => {
+  const b = $("inviteLinkBtn"); b.disabled = true;
+  try {
+    const d = await post(`/v1/teams/${encodeURIComponent(currentTeam)}/invites`, {role: "member"});
+    const hub = location.origin === DEFAULT_HUB ? "" : ` --hub ${location.origin}`;
+    $("inviteText").textContent = `Join ${d.team} on TeamLoop: ${d.url}\n\nThen on your laptop:\n1. Install TeamLoop: https://github.com/JrKrishh/teamloop-team/releases/latest\n2. teamloop login${hub}\n3. cd <your repo>\n4. teamloop init`;
+  } catch (e) { $("inviteText").textContent = e.message; }
+  $("inviteOut").hidden = false; b.disabled = false;
+};
+
+async function authPage() {  // back from GitHub (or an email confirmation): supabase-js trades ?code= for a session on load
+  panel("Signing you in…", "");
+  try {
+    const {data, error} = await (await supa()).auth.getSession();
+    if (error || !data.session) throw error || new Error("The sign-in didn't finish; try again.");
+    await exchange(data.session);
+  } catch (e) { showSignin(null, null, once.get("tl_next") || "/"); $("csErr").textContent = e.message; }
+}
+
+async function route() {
+  const path = location.pathname;
+  $("acct").hidden = !me.user; $("signInBtn").hidden = !!me.user;
+  $("teamPick").hidden = !(me.user && me.teams.length);
+  if (me.user && me.teams.length) { if (!me.teams.some(t => t.id === currentTeam)) setTeam(me.teams[0].id); teamPicker(); }
+  if (path.startsWith("/join/")) return joinPage(decodeURIComponent(path.slice(6)));
+  if (path === "/device") return devicePage();
+  if (me.user && !me.teams.length) {
+    panel(`Welcome, ${me.user.name}`, "Create your team. Joining someone else's? Open the invite link they sent you.").append(createTeamForm(route));
+    return;
+  }
+  hideAll(); last = ""; refreshedAt = 0; showView(view);
+  $("tabs").hidden = false; $("tasks").replaceChildren(el("div", "empty", "Loading the board…")); load();
+}
+
+async function boot() {
+  try { const r = await fetch("/v1/config"); if (r.ok) { const c = await r.json(); if (c.mode === "cloud") cloud = c; } } catch (e) { /* room mode */ }
+  if (!cloud) { load(); poll(5000); return; }
+  $("demo").textContent = "Public demo with a sample team. The events are scripted in the exact shapes TeamLoop records; the progress, done/next lists and answers come from the real Agent S. Sign in to start your own team's board.";
+  $("inviteNote").textContent = "Make a link and send it. It works for 7 days and up to 20 people; they sign in with GitHub or email.";
+  $("inviteForm").hidden = true; $("inviteLinkBtn").hidden = false;
+  if (location.pathname === "/auth") return authPage();
+  me = await getMe(); await route();
+  clearInterval(pollTimer); pollTimer = setInterval(() => { if (!document.hidden) load(); }, 15000);  // hidden windows skip their turn
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+}
+boot();
 </script>
 </body>
 </html>
