@@ -89,3 +89,21 @@ def test_init_wires_codex_when_installed(project, monkeypatch):
     assert not cmd.startswith('"')  # Codex runs hooks through PowerShell on Windows: a leading quote fails silently
     assert ".codex" not in subprocess.run(["git", "status", "--porcelain"], cwd=project, capture_output=True, text=True).stdout
     assert [r for r in doctor.checks(project) if r[0] == "fail"] == []
+
+
+def test_no_command_explains_how_to_start(tmp_path, monkeypatch, capsys):
+    from teamloop import cli, launch
+
+    monkeypatch.setattr(launch, "_hub_running", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda *a: "")
+    assert cli.main([]) == 0
+    assert "teamloop hub" in capsys.readouterr().out
+
+
+def test_no_command_opens_a_running_hub(monkeypatch):
+    from teamloop import cli, launch
+
+    opened = []
+    monkeypatch.setattr(launch, "_hub_running", lambda: True)
+    monkeypatch.setattr(launch.webbrowser, "open", opened.append)
+    assert cli.main([]) == 0 and opened == ["http://localhost:8799"]

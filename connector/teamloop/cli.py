@@ -61,7 +61,7 @@ def _pause(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="teamloop", description="Your AI coding session's progress, shared with your team as summaries.")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")  # no command = open the board (double-click, Start menu)
     h = sub.add_parser("hook", help="called by your coding tool's hooks; reads the event on stdin")
     h.add_argument("tool", choices=["claude_code", "codex"])
     t = sub.add_parser("task", help="set the task this repo is working on, e.g. `teamloop task T-14 \"Add SSE\"`")
@@ -95,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("send", help="summarize and send everything waiting in the spool, once")
     sub.add_parser("daemon", help="keep sending in the background (every 5 s, backs off when the hub is down)")
     args = ap.parse_args(argv)
+    if args.cmd is None:
+        from teamloop import launch
+
+        return launch.run()
 
     if args.cmd == "hook":
         from teamloop import hook

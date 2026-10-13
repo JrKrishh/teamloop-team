@@ -21,7 +21,7 @@
 > Thanks! It's one Windows program (no Python needed). Releases: https://github.com/JrKrishh/teamloop-team/releases
 >
 > **Lead, once:**
-> 1. Download `teamloop-0.1.0-windows-x64.zip`, unzip it, and run `install.ps1` in that folder (`powershell -ExecutionPolicy Bypass -File install.ps1`).
+> 1. Download `teamloop-0.1.1-windows-x64.zip`, unzip it, and run `install.ps1` in that folder (`powershell -ExecutionPolicy Bypass -File install.ps1`).
 > 2. Run `teamloop hub`. It opens your board and prints a lead key and an invite. Data stays on your machine.
 > 3. For teammates on other machines: `cloudflared tunnel --url http://localhost:8799`, then restart with `teamloop hub --public-url <the https URL it prints>`, and share the new invite.
 >
