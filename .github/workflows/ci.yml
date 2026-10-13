@@ -56,8 +56,18 @@ jobs:
           python-version: "3.12"
       - run: pip install -e agent_s -e hub -e cloud pytest httpx
       - run: cd cloud && python -m pytest -q
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e connector -e "app[dev]"
+      - run: git config --global user.email ci@example.com && git config --global user.name ci
+      - run: cd app && python -m pytest -q
   exe:
-    # teamloop.exe for Windows: on demand (Actions tab) or on a version tag, not every push
+    # Super Agents for Windows (SuperAgents.exe + teamloop.exe): on demand (Actions tab) or on a version tag
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
@@ -65,11 +75,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e connector -e agent_s -e hub pyinstaller
+      - run: pip install -e connector -e agent_s -e hub -e app pyinstaller
       - run: pyinstaller packaging/teamloop.spec --distpath dist --workpath build/pyi --noconfirm
       - run: dist/teamloop/teamloop.exe status
-      - run: Copy-Item packaging/install.ps1 dist/teamloop/; Compress-Archive -Path dist/teamloop -DestinationPath teamloop-windows-x64.zip
+      - run: if (-not (Test-Path dist/teamloop/SuperAgents.exe)) { throw "SuperAgents.exe missing" }
+      - run: |
+          Copy-Item packaging/install.ps1, "packaging/Install Super Agents.cmd" dist/teamloop/
+          Rename-Item dist/teamloop SuperAgents
+          Compress-Archive -Path dist/SuperAgents -DestinationPath SuperAgents-windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: teamloop-windows-x64
-          path: teamloop-windows-x64.zip
+          name: SuperAgents-windows-x64
+          path: SuperAgents-windows-x64.zip

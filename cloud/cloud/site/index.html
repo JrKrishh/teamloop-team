@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Agents</title>
+<meta name="description" content="Your team's AI agents, on one page. Live progress from every teammate's Claude Code and Codex sessions, and Agent S answers with the evidence.">
+<meta property="og:title" content="Super Agents">
+<meta property="og:description" content="Your team's AI agents, on one page.">
+<meta property="og:image" content="/site/og.png">
+<link rel="icon" href="/site/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400..700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{--paper:#F6F1E8;--paper2:#EFE7DA;--card:#FFFCF6;--ink:#18171B;--ink2:#2B2930;--muted:#6B655D;--faint:#A39B90;--line:#E2D8C8;
+  --brick:#A8443D;--brick2:#C2554C;--face:#F4E6D8;--ok:#2E8B57;
+  --ft:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;--fb:Figtree,"Segoe UI",system-ui,sans-serif;--fm:"JetBrains Mono",Consolas,monospace;
+  --ease:cubic-bezier(.2,.8,.2,1)}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 var(--fb);-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{width:min(1180px,100% - 40px);margin-inline:auto}
+/* header */
+.top{position:sticky;top:0;z-index:10;background:rgba(246,241,232,.86);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid transparent;transition:border-color .2s}
+.top.scrolled{border-color:var(--line)}
+.top .wrap{display:flex;align-items:center;gap:28px;height:68px}
+.brand{display:flex;align-items:center;gap:10px;font:800 20px/1 var(--ft);letter-spacing:-.025em;text-decoration:none}
+.brand svg{width:34px;height:34px}
+.nav{display:flex;gap:24px;margin-left:auto;font-weight:600;font-size:15px}
+.nav a{text-decoration:none;color:var(--muted)}.nav a:hover{color:var(--ink)}
+.btn{display:inline-flex;align-items:center;gap:10px;height:48px;padding:0 22px;border-radius:14px;background:var(--ink);color:var(--paper);font-weight:700;font-size:16px;text-decoration:none;border:0;transition:transform .15s var(--ease),background .15s}
+.btn:hover{background:#000;transform:translateY(-1px)}
+.btn.small{height:40px;padding:0 16px;font-size:14.5px;border-radius:12px}
+.btn svg{width:18px;height:18px}
+.ghost{display:inline-flex;align-items:center;gap:8px;font-weight:700;text-decoration:none;color:var(--ink);border-bottom:2px solid var(--brick);padding-bottom:2px}
+/* hero */
+.hero{padding:72px 0 0;text-align:center}
+.eyebrow{font:500 12.5px/1 var(--fm);letter-spacing:.16em;text-transform:uppercase;color:var(--brick)}
+h1{font:800 clamp(44px,7vw,86px)/.98 var(--ft);letter-spacing:-.045em;margin:18px auto 22px;max-width:14ch;text-wrap:balance}
+.lede{font-size:20px;color:var(--muted);max-width:60ch;margin:0 auto 32px;text-wrap:pretty}
+.cta{display:flex;flex-direction:column;align-items:center;gap:14px}
+.meta{font:500 13px var(--fm);color:var(--faint);letter-spacing:.02em}
+.stage{position:relative;margin:86px auto 0;width:min(1120px,100%)}
+.cast{position:absolute;left:50%;top:-74px;transform:translateX(-50%);display:flex;align-items:flex-end;gap:4px;z-index:2}
+.cast span{display:block;animation:bob 3.4s ease-in-out infinite}
+.cast span:nth-child(2){animation-delay:-1.2s}.cast span:nth-child(3){animation-delay:-2.3s}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.agent .eyes{transform-box:fill-box;transform-origin:50% 50%;animation:blink 5.5s ease-in-out infinite}
+.cast span:nth-child(2) .eyes{animation-delay:-2s}.cast span:nth-child(3) .eyes{animation-delay:-3.7s}
+@keyframes blink{0%,46%,50%,100%{transform:none}48%{transform:scaleY(.1)}}
+.window{position:relative;border-radius:18px;overflow:hidden;background:#111013;box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 50px 100px -40px rgba(60,35,20,.55),0 18px 40px -20px rgba(60,35,20,.35);border:1px solid #2A2830}
+.window img{display:block;width:100%;height:auto}
+.chrome{display:flex;align-items:center;gap:8px;height:34px;padding:0 14px;background:#161519;border-bottom:1px solid #2A2830;font:600 12.5px var(--fb);color:#A39B90}
+.chrome i{width:11px;height:11px;border-radius:50%;background:#2E2C33}
+.chrome b{margin-left:8px;color:#F3ECE0;font-weight:600}
+/* sections */
+section.block{padding:120px 0 0}
+.kicker{font:500 12.5px/1 var(--fm);letter-spacing:.16em;text-transform:uppercase;color:var(--brick);margin-bottom:14px}
+h2{font:800 clamp(34px,4.6vw,56px)/1.02 var(--ft);letter-spacing:-.04em;margin:0 0 18px;max-width:18ch;text-wrap:balance}
+.sub{color:var(--muted);font-size:18.5px;max-width:58ch;margin:0}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:26px;display:grid;gap:10px;align-content:start}
+.step .n{font:500 13px var(--fm);color:var(--brick)}
+.step h3{font:750 22px/1.2 var(--ft);margin:0;letter-spacing:-.02em}
+.step p{margin:0;color:var(--muted);font-size:16px}
+.step code{font:500 14px var(--fm);background:var(--paper2);padding:2px 7px;border-radius:7px}
+.split{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:56px;align-items:center}
+.ticks{list-style:none;padding:0;margin:26px 0 0;display:grid;gap:14px}
+.ticks li{display:grid;grid-template-columns:26px 1fr;gap:10px;font-size:17px}
+.ticks li::before{content:"";width:18px;height:18px;margin-top:4px;border-radius:6px;background:var(--brick) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FFF8F2' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/13px no-repeat}
+.ticks b{font-weight:700}
+.privacy{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:40px}
+.col{border-radius:22px;padding:28px;border:1px solid var(--line);background:var(--card)}
+.col.never{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.col h3{font:750 21px var(--ft);margin:0 0 14px;letter-spacing:-.02em}
+.col ul{margin:0;padding-left:20px;display:grid;gap:8px}
+.col.never li::marker{content:"✕  ";color:#E07A6E}
+.open{margin:120px 0 0;padding:56px;border-radius:28px;background:var(--ink);color:var(--paper);display:grid;grid-template-columns:1fr auto;gap:28px;align-items:center;position:relative;overflow:hidden}
+.open h2{color:var(--paper);max-width:22ch}
+.open .sub{color:#BDB4A8}
+.open .btn{background:var(--paper);color:var(--ink)}.open .btn:hover{background:#fff}
+.open .ghost{color:var(--paper)}
+footer{padding:56px 0 64px;color:var(--faint);font-size:14.5px}
+footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+@media (max-width:900px){.nav{display:none}.steps,.split,.privacy,.open{grid-template-columns:1fr}.open{padding:32px}.cast{top:-54px}.cast svg{transform:scale(.75)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Super Agents home"><svg viewBox="0 0 100 100" aria-hidden="true"><path fill="#A8443D" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/><ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/><ellipse fill="#18171B" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse fill="#18171B" cx="61.5" cy="62" rx="6.2" ry="7.8"/></svg>Super Agents</a>
+    <nav class="nav"><a href="#how">How it works</a><a href="#agent">Agent S</a><a href="#privacy">Privacy</a><a href="https://github.com/JrKrishh/teamloop-team">GitHub</a></nav>
+    <a class="btn small dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-windows-x64.zip">Download</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div class="eyebrow">For teams that code with AI agents</div>
+      <h1>Your team's AI agents, on one page.</h1>
+      <p class="lede">Every teammate's Claude Code and Codex sessions, turned into live progress per task. Ask Agent S what's done, what's next and what's stuck, and see the sessions behind every answer.</p>
+      <div class="cta">
+        <a class="btn dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-windows-x64.zip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>Download for Windows</a>
+        <div class="meta">Free · Open source (MIT) · Windows 10 and 11</div>
+      </div>
+      <div class="stage">
+        <div class="cast" id="cast" aria-hidden="true"></div>
+        <div class="window"><div class="chrome"><i></i><i></i><i></i><b>Super Agents</b></div><img src="/site/app-board.webp" width="1280" height="820" alt="The Super Agents board: four tasks with Agent S progress, done and next lists, and who is working on what"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="how">
+    <div class="wrap">
+      <div class="kicker">How it works</div>
+      <h2 class="reveal">Nobody types a status update.</h2>
+      <p class="sub reveal">Super Agents sits on each laptop next to the coding agents you already use. It notices the work as it happens and keeps everyone's board current.</p>
+      <div class="steps">
+        <div class="step reveal"><span class="n">01</span><h3>Install and sign in</h3><p>Download the app and continue with GitHub. Create your team, or join with the link your lead sends.</p></div>
+        <div class="step reveal"><span class="n">02</span><h3>Connect your repos</h3><p>Pick a folder. Super Agents wires Claude Code and Codex hooks into personal files that stay out of git.</p></div>
+        <div class="step reveal"><span class="n">03</span><h3>Code as usual</h3><p>Each session reports a one-line summary and facts: files changed, tests passed or failed, commits, PRs.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="agent">
+    <div class="wrap split">
+      <div>
+        <div class="kicker">Agent S</div>
+        <h2 class="reveal">Ask anything. Get the evidence.</h2>
+        <p class="sub reveal">Agent S runs on NVIDIA Nemotron. It answers only from your team's session events, and every answer points to the events it comes from.</p>
+        <ul class="ticks reveal">
+          <li><span><b>"What's blocked?"</b> Blockers, with the sessions that show them.</span></li>
+          <li><span><b>Progress you can trust.</b> "Done" needs a merged PR, passing tests or a commit, not just the agent's word.</span></li>
+          <li><span><b>A daily digest</b> for the lead: shipped, in progress, blocked, at risk.</span></li>
+        </ul>
+      </div>
+      <div class="window reveal"><div class="chrome"><i></i><i></i><i></i><b>Agent S</b></div><img src="/site/app-answer.webp" width="1280" height="820" loading="lazy" alt="Agent S answering what is blocked, with the two cited session events expanded"></div>
+    </div>
+  </section>
+
+  <section class="block" id="privacy">
+    <div class="wrap">
+      <div class="kicker">Privacy</div>
+      <h2 class="reveal">Summaries leave the laptop. Code never does.</h2>
+      <p class="sub reveal">The summary is written on each laptop. You can pause sharing with one switch, and leads see work, not people: no rankings, no time tracking.</p>
+      <div class="privacy">
+        <div class="col reveal"><h3>What's shared</h3><ul><li>A one-line summary of each agent turn</li><li>Facts: files changed, test results, commits, PRs</li><li>The task you're on and which coding tool</li></ul></div>
+        <div class="col never reveal"><h3>Never shared</h3><ul><li>Your prompts and the agent's replies</li><li>Tool output, file contents and diffs</li><li>Keystrokes, screenshots, time tracking</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="open reveal">
+      <div>
+        <div class="kicker">Open source</div>
+        <h2>Built in the open, on NVIDIA Nemotron.</h2>
+        <p class="sub">MIT licensed. Made for the Nebius × NVIDIA Global AI Hackathon; Agent S runs on Nemotron through Nebius Token Factory.</p>
+      </div>
+      <div class="cta"><a class="btn dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-windows-x64.zip">Download for Windows</a><a class="ghost" href="https://github.com/JrKrishh/teamloop-team">Read the source →</a></div>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap"><span>Super Agents · Agent S · the TeamLoop hub</span><span>Credits: <a href="https://github.com/sourabhnirvani/ccbridge">ccbridge</a> by Sourabh · MIT</span></div></footer>
+
+<script>
+const HOOD = "M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z";
+for (const [hood, size] of [["#3E9B6B", 74], ["#C2554C", 100], ["#8E6BD8", 74]]) {
+  const s = document.createElement("span");
+  s.innerHTML = `<svg class="agent" width="${size}" height="${size}" viewBox="0 0 100 100"><path fill="${hood}" d="${HOOD}"/><ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/><g class="eyes"><ellipse fill="#18171B" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse fill="#18171B" cx="61.5" cy="62" rx="6.2" ry="7.8"/><circle fill="#fff" cx="40.9" cy="58.6" r="2.1"/><circle fill="#fff" cx="63.9" cy="58.6" r="2.1"/></g></svg>`;
+  document.getElementById("cast").append(s);
+}
+const bar = document.getElementById("top");
+addEventListener("scroll", () => bar.classList.toggle("scrolled", scrollY > 8), {passive: true});
+const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), {threshold: .15});
+document.querySelectorAll(".reveal").forEach(n => io.observe(n));
+</script>
+</body>
+</html>

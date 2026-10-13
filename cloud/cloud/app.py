@@ -35,6 +35,7 @@ from hub.team import ID_RE, KIND_RE, MAX_EVENT_BYTES, TASK_RE, clean
 from . import __version__, auth
 
 STATIC = Path(hub.__file__).parent / "static"
+SITE = Path(__file__).parent / "site"
 DEMO_FILE = Path(hub.__file__).parent / "demo" / "demo.json"
 ACTIVE_SECONDS = 300
 DEBOUNCE_SECONDS = 30
@@ -95,7 +96,9 @@ def caller(request: Request, conn=Depends(db), authorization: Optional[str] = He
             raise HTTPException(401, "This connector isn't signed in any more; run `teamloop login` again")
         conn.execute("update connector_tokens set last_used_at = now() where token_hash = %s", (h,))
         return Caller(auth.Person(str(row["user_id"]), row["email"], row["name"]), "connector", str(row["team_id"]))
-    tok = request.cookies.get(auth.SESSION_COOKIE)
+    # the desktop app sends its session as a bearer token; browsers send the cookie
+    bearer = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer s_") else None
+    tok = bearer or request.cookies.get(auth.SESSION_COOKIE)
     if tok:
         row = conn.execute("select user_id, email, name from hub_sessions where token_hash = %s and expires_at > now()",
                            (auth.digest(tok),)).fetchone()
@@ -189,10 +192,22 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
     mimetypes.add_type("image/webp", ".webp")
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
+    # The website is the landing page and invite links; the product is the Super Agents app. /auth and /device stay
+    # for `teamloop login` from a terminal (the device flow signs in on the web).
+    app.mount("/site", StaticFiles(directory=SITE), name="site")
+
+    def landing() -> FileResponse:
+        return FileResponse(SITE / "index.html")
+
+    def invite_page(token: str) -> FileResponse:
+        return FileResponse(SITE / "join.html")
+
     def page() -> FileResponse:
         return FileResponse(STATIC / "board.html")
 
-    for path in ("/", "/auth", "/device", "/join/{token}"):
+    app.add_api_route("/", landing, include_in_schema=False)
+    app.add_api_route("/join/{token}", invite_page, include_in_schema=False)
+    for path in ("/auth", "/device"):
         app.add_api_route(path, page, include_in_schema=False)
 
     @app.get("/healthz")
@@ -205,9 +220,8 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
                 "supabase_key": os.environ.get("SUPABASE_PUBLISHABLE_KEY")}
 
     # ---- sign-in -----------------------------------------------------------------------------------
-    @app.post("/v1/session")
-    def session(body: SessionIn, response: Response, conn=Depends(db)) -> dict:
-        """Trade a Supabase access token (from GitHub or email/password sign-in) for a hub session cookie."""
+    def new_session(body: SessionIn, conn) -> tuple[str, auth.Person]:
+        """Trade a Supabase access token (from GitHub or email/password sign-in) for a hub session."""
         try:
             person = auth.supabase_user(body.access_token)
         except PermissionError as e:
@@ -216,13 +230,27 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
         conn.execute("insert into hub_sessions (token_hash, user_id, email, name, expires_at) values (%s, %s, %s, %s, %s)",
                      (auth.digest(tok), person.id, person.email, person.name,
                       datetime.now(timezone.utc) + timedelta(days=auth.SESSION_DAYS)))
+        return tok, person
+
+    @app.post("/v1/session")
+    def session(body: SessionIn, response: Response, conn=Depends(db)) -> dict:
+        tok, person = new_session(body, conn)
         response.set_cookie(auth.SESSION_COOKIE, tok, max_age=auth.SESSION_DAYS * 86400, httponly=True, samesite="lax",
                             secure=os.getenv("HUB_SECURE_COOKIE", "1") != "0")
         return {"user": {"id": person.id, "email": person.email, "name": person.name}}
 
+    @app.post("/v1/app/session")
+    def app_session(body: SessionIn, conn=Depends(db)) -> dict:
+        """The desktop app's sign-in: the same session, handed back as a bearer token instead of a cookie."""
+        tok, person = new_session(body, conn)
+        return {"token": tok, "expires_in": auth.SESSION_DAYS * 86400,
+                "user": {"id": person.id, "email": person.email, "name": person.name}}
+
     @app.post("/v1/logout")
-    def logout(request: Request, response: Response, conn=Depends(db)) -> dict:
-        tok = request.cookies.get(auth.SESSION_COOKIE)
+    def logout(request: Request, response: Response, conn=Depends(db),
+               authorization: Optional[str] = Header(default=None)) -> dict:
+        bearer = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer s_") else None
+        tok = bearer or request.cookies.get(auth.SESSION_COOKIE)
         if tok:
             conn.execute("delete from hub_sessions where token_hash = %s", (auth.digest(tok),))
         response.delete_cookie(auth.SESSION_COOKIE)
@@ -367,6 +395,19 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
                      (auth.digest(tok), c.person.id, team_id, f"teamloop, approved {time.strftime('%Y-%m-%d')}"))
         return {"ok": True, "team": name}
 
+    @app.post("/v1/teams/{team}/connector")
+    def connector_token(team: str, body: DeviceStartIn, request: Request, c: Caller = Depends(caller),
+                        conn=Depends(db)) -> dict:
+        """The desktop app connects its laptop to a team in one step: a connector token for this person and team,
+        the same kind `teamloop login` gets, for the hooks and the MCP server on this machine."""
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        team_id, name, _ = team_scope(c, team, conn)
+        tok = auth.new_token("tl_")
+        conn.execute("insert into connector_tokens (token_hash, user_id, team_id, label) values (%s, %s, %s, %s)",
+                     (auth.digest(tok), c.person.id, team_id, f"{body.label or 'Super Agents app'}, {time.strftime('%Y-%m-%d')}"))
+        return {"token": tok, "team": {"id": team_id, "name": name}, "name": c.person.name, "url": base_url(request)}
+
     # ---- events in (connector) ---------------------------------------------------------------------
     @app.post("/v1/events")
     def post_events(body: EventsIn, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
@@ -479,6 +520,19 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
                 "history": [{"at": float(h["at"]), "percent": h["body"].get("percent"), "agent_says": h["body"].get("agent_says_percent")}
                             for h in reversed(history)],
                 "timeline": cards.timeline(evs)}
+
+    @app.get("/v1/events")
+    def cited_events(ids: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """The events behind an answer's citations (at most 20), oldest first, each with its one-line description."""
+        wanted = [i for i in ids.split(",") if ID_RE.match(i)][:20]
+        if team == "demo" or (c.kind == "anon" and not team):
+            evs = [e for e in demo.events() if e["id"] in wanted]
+        else:
+            rows = conn.execute("select body from events where team_id = %s and id = any(%s) order by ts",
+                                (team_scope(c, team, conn)[0], wanted)).fetchall() if wanted else []
+            evs = [r["body"] for r in rows]
+        return {"events": [{"id": e["id"], "ts": e.get("ts"), "member": e.get("member"), "tool": e.get("tool"),
+                            "task": e.get("task"), "kind": e.get("kind"), "line": progress.describe(e)} for e in evs]}
 
     @app.get("/v1/team")
     def team_view(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:

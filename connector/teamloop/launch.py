@@ -1,4 +1,4 @@
-"""`teamloop` with no command, which is what a double-click or the Start-menu shortcut runs: open the board.
+"""`teamloop` with no command: open Super Agents, the app. Without the app (a bare pip install of the connector):
 
 1. This laptop is signed in to the cloud hub: open the team's board in its own window.
 2. A self-hosted hub is already running here: open its board.
@@ -33,6 +33,9 @@ def _pause() -> None:
 
 
 def run() -> int:
+    if window.super_agents():  # the app does sign-in, teams and this laptop's setup
+        print("Opening Super Agents.")
+        return 0
     from teamloop import send
 
     cfg = send.config() or {}

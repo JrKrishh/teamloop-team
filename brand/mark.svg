@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Super Agents">
+  <path fill="#18171B" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/>
+  <ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/>
+  <ellipse fill="#18171B" cx="38.5" cy="62" rx="6.2" ry="7.8"/>
+  <ellipse fill="#18171B" cx="61.5" cy="62" rx="6.2" ry="7.8"/>
+  <circle fill="#FFFFFF" cx="40.9" cy="58.6" r="2.1"/>
+  <circle fill="#FFFFFF" cx="63.9" cy="58.6" r="2.1"/>
+</svg>

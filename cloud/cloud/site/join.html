@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Agents invite</title>
+<link rel="icon" href="/site/icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700..800&family=Figtree:wght@400..700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{--paper:#F6F1E8;--card:#FFFCF6;--ink:#18171B;--muted:#6B655D;--faint:#A39B90;--line:#E2D8C8;--brick:#A8443D}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--paper);color:var(--ink);font:17px/1.6 Figtree,"Segoe UI",system-ui,sans-serif;padding:24px}
+main{width:min(560px,100%);background:var(--card);border:1px solid var(--line);border-radius:26px;padding:36px;display:grid;gap:18px;box-shadow:0 40px 80px -40px rgba(60,35,20,.4)}
+.cast{display:flex;align-items:flex-end;gap:3px}
+h1{font:800 34px/1.08 "Bricolage Grotesque","Segoe UI",sans-serif;letter-spacing:-.035em;margin:0}
+p{margin:0;color:var(--muted)}
+ol{margin:0;padding-left:22px;display:grid;gap:10px}
+ol b{color:var(--ink)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:48px;padding:0 20px;border-radius:14px;background:var(--ink);color:var(--paper);font-weight:700;text-decoration:none;border:0;font-size:16px;cursor:pointer}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;font:500 13px "JetBrains Mono",monospace;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--paper);color:var(--ink)}
+.copy{background:var(--brick)}
+.small{font-size:14px;color:var(--faint)}
+</style>
+</head>
+<body>
+<main>
+  <div class="cast" id="cast" aria-hidden="true"></div>
+  <h1 id="title">You're invited to Super Agents</h1>
+  <p id="lead">Your lead uses Super Agents to see the team's AI coding work in one place.</p>
+  <ol>
+    <li><b>Download Super Agents</b> for Windows and install it.</li>
+    <li><b>Continue with GitHub</b> (or email) in the app.</li>
+    <li>Choose <b>Join a team</b> and paste this link:</li>
+  </ol>
+  <div class="row"><input id="link" readonly aria-label="Invite link"><button class="btn copy" id="copy" type="button">Copy</button></div>
+  <a class="btn" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-windows-x64.zip">Download for Windows</a>
+  <p class="small" id="note">Invite links work for 7 days.</p>
+</main>
+<script>
+const HOOD = "M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z";
+for (const [hood, n] of [["#3E9B6B", 46], ["#C2554C", 60], ["#8E6BD8", 46]]) {
+  const s = document.createElement("span");
+  s.innerHTML = `<svg width="${n}" height="${n}" viewBox="0 0 100 100"><path fill="${hood}" d="${HOOD}"/><ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/><ellipse fill="#18171B" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse fill="#18171B" cx="61.5" cy="62" rx="6.2" ry="7.8"/></svg>`;
+  document.getElementById("cast").append(s);
+}
+const link = document.getElementById("link");
+link.value = location.href;
+const tok = location.pathname.split("/").pop();
+fetch(`/v1/invites/${encodeURIComponent(tok)}`).then(r => r.json()).then(inv => {
+  if (inv.valid) {
+    document.getElementById("title").textContent = `You're invited to ${inv.team}`;
+    document.getElementById("lead").textContent = `${inv.team} uses Super Agents to see the team's AI coding work in one place. You'll join as a ${inv.role}.`;
+  } else {
+    document.getElementById("title").textContent = "This invite has expired";
+    document.getElementById("lead").textContent = "Invite links work for 7 days and up to 20 people. Ask your lead for a new one.";
+  }
+}).catch(() => {});
+document.getElementById("copy").onclick = async () => {
+  const b = document.getElementById("copy");
+  try { await navigator.clipboard.writeText(link.value); b.textContent = "Copied"; } catch (e) { link.select(); b.textContent = "Press Ctrl+C"; }
+  setTimeout(() => { b.textContent = "Copy"; }, 2200);
+};
+</script>
+</body>
+</html>

@@ -117,6 +117,15 @@ def test_no_command_opens_the_cloud_board_when_signed_in(monkeypatch, teamloop_h
     opened = []
     teamloop_home.mkdir(parents=True, exist_ok=True)
     (teamloop_home / "config.json").write_text(json.dumps({"mode": "cloud", "url": "https://example.test", "token": "tl_x"}))
+    monkeypatch.setattr(launch.window, "super_agents", lambda: False)
     monkeypatch.setattr(launch, "_hub_running", lambda: True)  # even with a self-hosted hub around
     monkeypatch.setattr(launch.window, "open_app", opened.append)
     assert cli.main([]) == 0 and opened == ["https://example.test"]
+
+
+def test_no_command_opens_the_super_agents_app_when_it_is_here(monkeypatch, capsys):
+    from teamloop import cli, launch, login
+
+    monkeypatch.setattr(launch.window, "super_agents", lambda: True)
+    monkeypatch.setattr(login, "device_login", lambda hub: (_ for _ in ()).throw(AssertionError("the app signs in")))
+    assert cli.main([]) == 0 and "Opening Super Agents" in capsys.readouterr().out

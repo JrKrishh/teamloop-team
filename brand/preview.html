@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Super Agents brand preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;600&display=swap">
+<style>
+:root{--ink:#18171B;--cream:#F6F1E8;--paper:#FFFCF6;--brick:#A8443D;--face:#F4E6D8;--blush:#E9A6A0}
+body{margin:0;background:#ECE6DC;font:15px/1.4 Figtree,system-ui,sans-serif;color:var(--ink);padding:24px;display:grid;gap:28px}
+.row{display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+.tile{width:160px;height:160px;border-radius:36px;display:grid;place-items:center}
+.lock{display:flex;align-items:center;gap:14px;font:800 40px/1 "Bricolage Grotesque",sans-serif;letter-spacing:-.03em}
+.dark{background:#121114;color:var(--cream);padding:24px;border-radius:16px}
+h2{font:600 13px Figtree;text-transform:uppercase;letter-spacing:.08em;color:#6B655D;margin:0}
+</style>
+</head>
+<body>
+<h2>Mark</h2>
+<div class="row" id="marks"></div>
+<h2>App icon tiles</h2>
+<div class="row" id="tiles"></div>
+<h2>Small sizes</h2>
+<div class="row" id="small"></div>
+<h2>Lockups</h2>
+<div class="row"><div class="lock" id="lockLight"></div></div>
+<div class="row dark"><div class="lock" id="lockDark"></div></div>
+<template id="mark">
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Super Agents">
+  <!-- hood: dome with the mascot's curled tip at the top right -->
+  <path class="hood" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/>
+  <!-- face opening -->
+  <ellipse class="face" cx="50" cy="61" rx="30" ry="27"/>
+  <!-- eyes -->
+  <ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/>
+  <ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/>
+  <circle class="glint" cx="40.9" cy="58.6" r="2.1"/>
+  <circle class="glint" cx="63.9" cy="58.6" r="2.1"/>
+</svg>
+</template>
+<script>
+const tpl = document.getElementById("mark").content;
+function mark(size, hood, face, eye, glint) {
+  const s = tpl.cloneNode(true).querySelector("svg");
+  s.setAttribute("width", size); s.setAttribute("height", size);
+  s.querySelector(".hood").setAttribute("fill", hood);
+  s.querySelector(".face").setAttribute("fill", face);
+  s.querySelectorAll(".eye").forEach(e => e.setAttribute("fill", eye));
+  s.querySelectorAll(".glint").forEach(e => e.setAttribute("fill", glint));
+  return s;
+}
+const V = [["#18171B", "#F4E6D8", "#18171B", "#FFFFFF"], ["#A8443D", "#F4E6D8", "#18171B", "#FFFFFF"], ["#18171B", "#18171B", "#F6F1E8", "#18171B"]];
+for (const v of V) document.getElementById("marks").append(mark(140, ...v));
+const T = [["#A8443D", ...V[0]], ["#F6F1E8", ...V[0]], ["#18171B", "#F6F1E8", "#F4E6D8", "#18171B", "#FFFFFF"], ["#18171B", ...V[1]]];
+for (const [bg, ...v] of T) { const t = document.createElement("div"); t.className = "tile"; t.style.background = bg; t.append(mark(116, ...v)); document.getElementById("tiles").append(t); }
+for (const n of [16, 24, 32, 48, 64]) { const t = document.createElement("div"); t.style.cssText = `width:${n * 1.25}px;height:${n * 1.25}px;border-radius:${n * .28}px;background:#A8443D;display:grid;place-items:center`; t.append(mark(n, ...V[0])); document.getElementById("small").append(t); }
+const L = document.getElementById("lockLight"); L.append(mark(56, ...V[0]), "Super Agents");
+const D = document.getElementById("lockDark"); D.append(mark(56, "#F6F1E8", "#18171B", "#F6F1E8", "#18171B"), "Super Agents");
+</script>
+</body>
+</html>

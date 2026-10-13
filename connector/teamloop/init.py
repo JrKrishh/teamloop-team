@@ -38,12 +38,14 @@ def _wire(label: str, path: Path, command: str, events: dict, tag: str, dry_run:
     return changes
 
 
-def run(scope: str = "local", dry_run: bool = False) -> int:
-    found = repo.find(Path.cwd())
+def run(scope: str = "local", dry_run: bool = False, where: Path | None = None) -> int:
+    """`where` is the folder to connect (the desktop app passes the one you picked); the CLI uses the current one."""
+    where = where or Path.cwd()
+    found = repo.find(where)
     if scope == "local" and found is None:
         print("Not in a git repo. cd into your project, or use `teamloop init --scope user` for every repo.")
         return 2
-    root = found.root if found else Path.cwd()
+    root = found.root if found else where
     repo_root = found.root if found else None
 
     targets = [("Claude Code", claude.settings_path(scope, repo_root), claude.hook_command(), claude.EVENTS, claude.TAG,
