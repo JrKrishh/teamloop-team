@@ -135,6 +135,12 @@ def test_the_runner_claims_runs_and_reports(tmp_path, repo):
     assert runner.poll_once() == 4
     finished = {path.split("/")[3]: body for method, path, body, query in calls if path.endswith("/finish")}
     assert finished["p1"]["status"] == "done" and finished["p1"]["tokens"] == 2165
+    leaky = superteam.Runner(call, team=lambda: "team-1", repos=lambda: [])
+    leaky.run_one = lambda p: {"status": "done", "tokens": 1, "result": "Found it: STRIPE_SECRET_KEY=sk_live_abcdef1234567890 in .env"}
+    calls.clear()
+    leaky.poll_once()
+    answers = [body["result"] for method, path, body, query in calls if path.endswith("/finish")]
+    assert answers and all("sk_live_abcdef1234567890" not in a and "[hidden]" in a for a in answers)  # never on the record
     assert finished["p2"]["status"] == "failed" and "(mobile) isn't connected in Asha's Super Agents" in finished["p2"]["result"]
     assert finished["p3"]["result"] == "Codex isn't installed here."
     assert finished["p4"]["result"] == "That session id doesn't look right"

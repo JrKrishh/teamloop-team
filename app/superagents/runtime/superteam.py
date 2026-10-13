@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from teamloop import claude, codex, spool
+from teamloop import claude, codex, redact, spool
 
 POLL_SECONDS = 15
 TIMEOUT = 600
@@ -253,7 +253,8 @@ class Runner:
                 out = self.run_one(claimed)
             finally:
                 self.current = None
-            out["result"] = (out.get("result") or "")[:RESULT_MAX]
+            # the answer goes on the team's record: secrets in it are hidden first, as in every event this laptop sends
+            out["result"] = redact.redact(out.get("result") or "")[:RESULT_MAX]
             self.call("POST", f"/v1/prompts/{p['id']}/finish", out, {"team": team})
             done += 1
         return done
