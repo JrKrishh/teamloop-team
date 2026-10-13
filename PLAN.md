@@ -27,7 +27,7 @@ Research behind this plan (read these for sources):
 | M7 board | **done**: Hoodie colours, mascots, Ask, digest, public demo; **task drawer** (full timeline, progress over time, citations highlight their events); **Team view** with an in-browser invite builder | `hub/hub/static/board.html`, `docs/demo/` |
 | M8 GitHub | **done** as a webhook receiver; GitHub App not created yet (needs Yang's account) | `hub/hub/github.py`, PR #1 fixtures |
 | M9 privacy test | **done**: canary text never reaches the hub DB | `connector/tests/test_send.py`, `hub/tests/test_e2e.py` |
-| Deploy (demo URL) | Dockerfile + guide ready; **not deployed** (needs Yang's HF account; image not built locally) | `Dockerfile`, `docs/deploy.md` |
+| Deploy (demo URL) | **live: https://teamloop.vercel.app** (Vercel Hobby, public demo room, live stream works). Ask and digest need `NEBIUS_API_KEY` added in Vercel by Yang | `api/index.py`, `vercel.json`, `docs/deploy.md` |
 | Nebius key + smoke test | **done**: all 3 Nemotron IDs live; thinking-off honoured (0 reasoning tokens on Lightning); JSON and tool calls work | `docs/research/smoke-20261013.md` |
 | Outside teams (≥3) | **not started**: the real risk now | §20 |
 | Roles (§12.3) | **done**: lead key per room (invite, remove/restore members, settings); members see the board; demo visitors are viewers; signed role in the cookie | `hub/hub/team.py`, `hub/tests/test_roles.py` |
@@ -620,6 +620,7 @@ Decisions this plan already makes. Each one can be overturned at sign-off. After
 | D6 | **Nemotron routing:** Lightning, then Super, then Ultra, all on Token Factory | About $6 at runtime; meets the NVIDIA-model rule; shows routing to judges | One big model for everything |
 | D7 | **No embeddings** in the MVP | A team's events fit in 256K of context | Vector search from day 1 |
 | D8 | Host on **HF Spaces free**, not Nebius Serverless | Serverless has no free tier: about $200 to stay up until 15 Dec | Serverless Endpoint |
+| D8b | **Demo on Vercel Hobby** (free) instead of HF Spaces *(13 Oct)* | HF refused to create a Docker Space without PRO (HTTP 402: Docker/Gradio Spaces on cpu-basic need a subscription). Vercel is free and already connected; the hub runs as one serverless function; the demo re-seeds per instance. Real teams need the persistent store first (Render free or Vercel + Supabase) | HF PRO ($9/month) |
 | D9 | MVP = **Claude Code + Codex**; Cursor is S1 | The two tools we use daily; that's enough for a cross-tool demo | All 4 tools at once |
 | D10 | **GitHub App**, not repo webhooks | One install covers many repos, and permissions are scoped | Per-repo webhooks |
 | D11 | Separate repo, **MIT**; credit ccbridge and TeamLoop | The rules need an OSS licence; neatHack stays frozen | Build inside `sourabhnirvani/teamloop` |
