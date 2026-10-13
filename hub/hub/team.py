@@ -247,6 +247,45 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     def board(room: str = Depends(board_room)) -> dict:
         return build_board(room)
 
+    @app.get("/v1/tasks/{task}")
+    def task_detail(task: str, room: str = Depends(board_room)) -> dict:
+        """One task's full timeline and Agent S's estimates over time, for the board's detail panel."""
+        if not TASK_RE.match(task):
+            raise HTTPException(400, "Not a task id")
+        evs = events_for(room, task, 400)
+        if not evs:
+            raise HTTPException(404, "No activity for this task")
+        with lock:
+            snaps = [json.loads(r["body"]) | {"at": r["created_at"]} for r in conn.execute(
+                "SELECT body, created_at FROM snapshots WHERE room = ? AND task = ? ORDER BY created_at", (room, task))]
+        card = next((t for t in build_board(room)["tasks"] if t["task"] == task), {})
+        return {**{k: card.get(k) for k in ("task", "title", "status", "pr", "members", "tools", "progress")},
+                "history": [{"at": s["at"], "percent": s.get("percent"), "agent_says": s.get("agent_says_percent")}
+                            for s in snaps][-20:],
+                "timeline": [{"id": e["id"], "ts": e.get("ts"), "member": e["member"], "tool": e.get("tool"),
+                              "kind": e["kind"], "line": progress.describe(e)} for e in reversed(evs) if progress.describe(e)]}
+
+    @app.get("/v1/team")
+    def team_view(room: str = Depends(board_room)) -> dict:
+        """Members with their tools and tasks, for the board's Team view."""
+        now = time.time()
+        with lock:
+            rows = conn.execute(
+                "SELECT member, task, MAX(received_at) AS last, GROUP_CONCAT(DISTINCT json_extract(body, '$.tool')) AS tools"
+                " FROM events WHERE room = ? AND member != 'github' GROUP BY member, task", (room,)).fetchall()
+        people: dict[str, dict] = {}
+        for r in rows:
+            p = people.setdefault(r["member"], {"name": r["member"], "last_activity": 0.0, "tools": set(), "tasks": []})
+            p["last_activity"] = max(p["last_activity"], r["last"])
+            p["tools"] |= {t for t in (r["tools"] or "").split(",") if t in ("claude_code", "codex", "cursor")}
+            if r["task"]:
+                p["tasks"].append({"task": r["task"], "last_activity": r["last"]})
+        out = []
+        for p in sorted(people.values(), key=lambda p: -p["last_activity"]):
+            p["tasks"].sort(key=lambda t: -t["last_activity"])
+            out.append({**p, "tools": sorted(p["tools"]), "active": now - p["last_activity"] < ACTIVE_SECONDS})
+        return {"room": room, "demo": room == demo_room, "members": out}
+
     # ---- live board (SSE) -----------------------------------------------------------------------
     streams: dict[str, int] = {}
 

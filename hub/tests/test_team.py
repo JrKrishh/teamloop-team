@@ -181,3 +181,29 @@ def test_digest_is_cited_and_cached(hub):
     first = c.get("/v1/digest", headers=s).json()
     again = c.get("/v1/digest", headers=s).json()
     assert first["blocked"][0]["text"] == "T-11 needs DB rights" and first == again and calls == ["digest"]
+
+
+def test_task_detail_timeline_and_history(hub):
+    import time
+
+    app, client = hub
+    yang = member(client, "yang")
+    client.post("/v1/events", json={"events": golden("real_fix_add_done.json")}, headers=yang)
+    app.state.refresh_progress(time.time() + 31)
+    d = client.get("/v1/tasks/T-3", headers=yang).json()
+    assert d["task"] == "T-3" and d["progress"]["percent"] == 95 and len(d["history"]) == 1  # no title: the agent gave none
+    assert d["timeline"][0]["ts"] >= d["timeline"][-1]["ts"]  # newest first
+    cited = d["progress"]["done"][0]["evidence_ids"][0]
+    assert cited in {e["id"] for e in d["timeline"]}  # every citation points at a visible event
+    assert client.get("/v1/tasks/T-999", headers=yang).status_code == 404
+    assert client.get("/v1/tasks/not-a-task", headers=yang).status_code == 400
+
+
+def test_team_view_lists_people_tools_and_tasks(hub):
+    _, client = hub
+    yang, sourabh = member(client, "yang"), member(client, "sourabh")
+    client.post("/v1/events", json={"events": golden("real_fix_add_done.json")}, headers=yang)
+    client.post("/v1/events", json={"events": golden("real_codex_multiply_done.json")}, headers=sourabh)
+    team = {m["name"]: m for m in client.get("/v1/team", headers=yang).json()["members"]}
+    assert team["yang"]["tools"] == ["claude_code"] and team["sourabh"]["tools"] == ["codex"]
+    assert [t["task"] for t in team["yang"]["tasks"]] == ["T-3"] and team["yang"]["active"] is True
