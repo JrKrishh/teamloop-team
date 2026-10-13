@@ -27,7 +27,7 @@ These four switch it on. They need your Supabase and GitHub accounts, and step 4
    - Authorization callback URL: `https://ntsprbjtdnwhcrgxltem.supabase.co/auth/v1/callback`
 
    Register it, then *Generate a new client secret*. Paste the Client ID and the secret into **Supabase → Authentication → Sign In / Providers → GitHub** and enable it.
-4. **Database URL for Vercel:** Supabase → *Connect* → *Transaction pooler* (port 6543), with your database password filled in. Then, from the repo folder:
+4. **Database URL for Vercel:** first set a database password you know: Supabase → *Project Settings* → *Database* → *Reset database password*. (The project was created through the API, so nobody knows its first password. Letters and digits only, or the URL needs `%`-encoding.) Then Supabase → *Connect* → *Transaction pooler* (port 6543), and replace `[YOUR-PASSWORD]` with it. From the repo folder:
    ```bash
    vercel env add DATABASE_URL production
    ```

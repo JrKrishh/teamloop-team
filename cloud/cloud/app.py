@@ -43,18 +43,38 @@ CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ23456789"  # no vowels: device codes never 
 
 
 # ---- request plumbing -----------------------------------------------------------------------------
+class _LazyConn:
+    """Connects on first use, so signed-out visitors (the demo) never touch the database: the demo stays up if the
+    database is down, and public page views don't spend the pooler's connections."""
+
+    def __init__(self) -> None:
+        self.conn: Optional[psycopg.Connection] = None
+
+    def execute(self, *args, **kwargs):
+        if self.conn is None:
+            self.conn = psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row, prepare_threshold=None,
+                                        connect_timeout=10)
+        return self.conn.execute(*args, **kwargs)
+
+    def commit(self) -> None:
+        if self.conn is not None:
+            self.conn.commit()
+
+
 def db():
     """One short-lived connection per request: on Vercel any request may land on a fresh instance. Supabase's
     transaction pooler doesn't support prepared statements, hence prepare_threshold=None."""
-    conn = psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row, prepare_threshold=None, connect_timeout=10)
+    lazy = _LazyConn()
     try:
-        yield conn
-        conn.commit()
+        yield lazy
+        lazy.commit()
     except Exception:
-        conn.rollback()
+        if lazy.conn is not None:
+            lazy.conn.rollback()
         raise
     finally:
-        conn.close()
+        if lazy.conn is not None:
+            lazy.conn.close()
 
 
 @dataclass(frozen=True)
