@@ -27,7 +27,7 @@ Research behind this plan (read these for sources):
 | M7 board | **done**: Hoodie colours, mascots, Ask, digest, public demo; **task drawer** (full timeline, progress over time, citations highlight their events); **Team view** with an in-browser invite builder | `hub/hub/static/board.html`, `docs/demo/` |
 | M8 GitHub | **done** as a webhook receiver; GitHub App not created yet (needs Yang's account) | `hub/hub/github.py`, PR #1 fixtures |
 | M9 privacy test | **done**: canary text never reaches the hub DB | `connector/tests/test_send.py`, `hub/tests/test_e2e.py` |
-| Deploy (demo URL) | **live: https://teamloop.vercel.app** (Vercel Hobby, public demo room, live stream works). Ask and digest need `NEBIUS_API_KEY` added in Vercel by Yang | `api/index.py`, `vercel.json`, `docs/deploy.md` |
+| Deploy (demo URL) | **live: https://teamloop.vercel.app** (Vercel Hobby, public demo room, live stream works). Ask and digest live on Nemotron (Super ~2 s, Ultra digest ~4 s) | `api/index.py`, `vercel.json`, `docs/deploy.md` |
 | Nebius key + smoke test | **done**: all 3 Nemotron IDs live; thinking-off honoured (0 reasoning tokens on Lightning); JSON and tool calls work | `docs/research/smoke-20261013.md` |
 | Outside teams (≥3) | **not started**: the real risk now | §20 |
 | Roles (§12.3) | **done**: lead key per room (invite, remove/restore members, settings); members see the board; demo visitors are viewers; signed role in the cookie | `hub/hub/team.py`, `hub/tests/test_roles.py` |
