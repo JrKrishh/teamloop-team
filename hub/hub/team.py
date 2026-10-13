@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from agent_s import digest, llm, progress, qa
 
+from . import notify
 from .safety import ROOM_RE, sanitize
 
 log = logging.getLogger("teamloop.hub")
@@ -176,10 +177,12 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
                 raise HTTPException(413, f"An event is over {MAX_EVENT_BYTES} bytes")
             rows.append((e["id"], who.room, who.display_name, task, e["kind"], str(e.get("ts", ""))[:32], stored, now))
         with lock:
-            accepted = sum(conn.execute("INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", r).rowcount
-                           for r in rows)
+            new = [r for r in rows if conn.execute("INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", r).rowcount]
             conn.commit()
-        return {"accepted": accepted, "duplicates": len(rows) - accepted}
+        for r in new:  # only new events, so a redelivered batch never pings twice
+            if r[4] == "blocked":
+                notify.blocked(r[1], json.loads(r[6]))
+        return {"accepted": len(new), "duplicates": len(rows) - len(new)}
 
     # ---- reads --------------------------------------------------------------------------------
     def events_for(room: str, task: Optional[str] = None, limit: int = 400) -> list[dict]:
