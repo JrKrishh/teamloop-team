@@ -187,3 +187,13 @@ def test_login_joins_and_keeps_identity_on_relogin(hub, teamloop_home):
     assert login.login(inv, "yang") == 0
     again = json.loads((teamloop_home / "config.json").read_text())
     assert first["identity_key"] == again["identity_key"] and len(first["identity_key"]) >= 32
+
+
+def test_batches_stay_under_the_hub_body_limit(hub):
+    big = "x" * 1400  # each event about 1.6 KB once wrapped
+    for _ in range(50):
+        spool.append({**normalize.event("self_report", "mcp", {}), "task": "T-3", "report": {"done": [big[:150]] * 5,
+                      "doing": big[:150], "next": [big[:150]] * 5, "percent": 10}})
+    sent, err = send.send_once(summarizer=fake_summary)
+    assert err is None and 0 < sent < 50 and len(hub.bodies[0].encode()) < 64 * 1024
+    assert len(spool.pending()) == 50 - sent  # the rest waits for the next batch
