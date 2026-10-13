@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, laptop, store, supa
+from . import __version__, laptop, shares, store, supa
 from .runtime import agents as agent_store
 from .runtime import browser
 from .runtime import loop as runtime_loop
@@ -41,7 +41,7 @@ from .runtime import tools as runtime_tools
 UI = Path(__file__).parent / "ui"
 # what the UI may ask the hub for, through /api/cloud/<path>
 CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events|usage"
-                         r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)"
+                         r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)|shares|shares/[0-9a-f-]{36}"
                          r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40}"
                          r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread"
                          r"|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?)$")
@@ -239,6 +239,19 @@ class UrlBody(BaseModel):
 class SiteIn(BaseModel):
     site: str = Field(min_length=1, max_length=253)
     allowed: bool = True
+
+
+class ShareSendIn(BaseModel):
+    team: str = Field(min_length=36, max_length=36)
+    to: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=1000)
+    paths: list[str] = Field(default_factory=list, max_length=10)  # files in connected repos (the Files panel)
+    files: list[dict] = Field(default_factory=list, max_length=10)  # [{name, data: base64}] picked in the window
+
+
+class ShareTakeIn(BaseModel):
+    team: str = Field(min_length=36, max_length=36)
+    repo: str = Field(default="", max_length=200)
 
 
 IMAGES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
@@ -742,6 +755,28 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
             raise HTTPException(400, "Only http and https pages")
         (state.open_window or open_url)(body.url)
         return {"ok": True}
+
+    # ---- Super Team → Files: share files (read here, uploaded straight to storage), save what's shared with you -----
+    @app.post("/api/shares/send")
+    def share_send(body: ShareSendIn) -> dict:
+        import base64
+
+        try:
+            files = [(Path(p).name, runtime_tools.resolve(p).read_bytes()) for p in body.paths]
+            files += [(str(f.get("name") or "file"), base64.b64decode(str(f.get("data") or ""), validate=True)) for f in body.files]
+            return shares.send(team_hub(body.team), files, body.to, body.note)
+        except (ValueError, PermissionError, OSError, RuntimeError, urllib.error.URLError) as e:
+            raise HTTPException(400, str(e)[:500]) from None
+
+    @app.post("/api/shares/{sid}/take")
+    def share_take(sid: str, body: ShareTakeIn) -> dict:
+        """Save a share's files into a repo's inbox, or check out the branch it hands over."""
+        if not re.fullmatch(r"[0-9a-f-]{36}", sid):
+            raise HTTPException(404, "No such share")
+        try:
+            return runtime_tools.take(team_hub(body.team), sid, body.repo)
+        except (ValueError, PermissionError, OSError, RuntimeError, urllib.error.URLError) as e:
+            raise HTTPException(400, str(e)[:500]) from None
 
     # ---- the agent browser: the person's live view of the browser they share with their agents ---------------------
     @app.get("/api/browser/state")

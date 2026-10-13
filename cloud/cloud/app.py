@@ -36,6 +36,7 @@ from hub.relay import _Window
 from hub.team import ID_RE, KIND_RE, MAX_EVENT_BYTES, TASK_RE, clean
 
 from . import __version__, auth
+from . import blobs as blobstore
 
 STATIC = Path(hub.__file__).parent / "static"
 SITE = Path(__file__).parent / "site"
@@ -167,6 +168,32 @@ class RepoLinkIn(BaseModel):
     url: str = Field(min_length=10, max_length=300)
 
 
+SHARE_DAYS, SHARE_FILES, SHARE_MAX_BYTES, TEAM_SHARE_BYTES = 14, 10, 25 * 1024 * 1024, 300 * 1024 * 1024
+
+
+class ShareFileIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    size: int = Field(ge=0, le=SHARE_MAX_BYTES)
+    sha256: str = Field(pattern="^[0-9a-f]{64}$")
+
+
+class ShareIn(BaseModel):
+    to: Optional[str] = Field(default=None, max_length=120)  # a teammate's name or id; none for the whole team
+    note: str = Field(default="", max_length=1000)
+    files: list[ShareFileIn] = Field(default_factory=list, max_length=SHARE_FILES)
+    repo: Optional[str] = Field(default=None, max_length=300)  # a branch handed over: its repo and branch
+    branch: Optional[str] = Field(default=None, max_length=200, pattern=r"^[A-Za-z0-9._/-]+$")
+
+
+def clean_file_name(name: str) -> str:
+    """Just a file's name: never a path, no characters Windows can't keep, no leading dots or spaces."""
+    base = re.split(r"[\\/]", name)[-1]
+    base = re.sub(r"[\x00-\x1f<>:\"|?*]", "_", base).strip(" .")
+    if not base:
+        raise HTTPException(400, f"{name!r} isn't a file name")
+    return base[:120]
+
+
 GITHUB_REPO = re.compile(r"^(?:https://github\.com/|git@github\.com:)([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?/?$")
 
 
@@ -254,9 +281,10 @@ class AgentIn(BaseModel):
 
 
 # ---- the app --------------------------------------------------------------------------------------
-def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None) -> FastAPI:
+def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None, blobs=None) -> FastAPI:
     chat = chat or llm.chat_json
     chat_step = chat_step or llm.chat_tools
+    store = blobs if blobs is not None else blobstore.from_env()  # where shared files live (blobs.py)
     app = FastAPI(title="TeamLoop cloud", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     posts = _Window(60, 60.0)
     asks = _Window(30, 600.0)
@@ -444,6 +472,158 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         conn.execute("delete from team_repos where team_id = %s and url = %s", (team_id, github_url(url)))
         return repos_of(conn, team_id, "lead", c)
 
+    # ---- Super Team → Files: files and branches teammates share ---------------------------------------
+    # The record (who shared what with whom, who saved it) is the team's, like prompts: the lead sees it all. The
+    # files are only for the sender and the people they were shared with, through 5-minute links, for 14 days.
+    def share_view(r: dict, me: str) -> dict:
+        to = str(r["to_user"]) if r["to_user"] else None
+        return {"id": str(r["id"]), "kind": r["kind"], "from": {"id": str(r["from_user"]), "name": r["from_name"]},
+                "to": {"id": to, "name": r["to_name"]} if to else None, "note": r["note"], "repo": r["repo"], "branch": r["branch"],
+                "files": [{"n": i, "name": f["name"], "size": f["size"]} for i, f in enumerate(r["files"])],
+                "status": r["status"], "saved_by": r["saved_by"], "created_at": r["created_at"].timestamp(),
+                "expires_at": r["expires_at"].timestamp(), "mine": str(r["from_user"]) == me,
+                "for_me": to == me or (to is None and str(r["from_user"]) != me),
+                "can_get": str(r["from_user"]) == me or to in (None, me)}
+
+    def visible_share(conn, team_id: str, role: str, sid: str, me: str) -> dict:
+        r = conn.execute("select * from shares where team_id = %s and id = %s", (team_id, _uuid_or_400(sid))).fetchone()
+        if not r or (role != "lead" and me not in (str(r["from_user"]), str(r["to_user"])) and r["to_user"] is not None):
+            raise HTTPException(404, "No such share")
+        return r
+
+    def sweep_shares(conn, team_id: str) -> None:
+        """No cron on Vercel Hobby: shares past their 14 days lose their files when someone next lists them."""
+        gone = conn.execute("update shares set status = 'expired' where team_id = %s and status in ('uploading', 'ready')"
+                            " and expires_at < now() returning files", (team_id,)).fetchall()
+        paths = [f["path"] for r in gone for f in r["files"]]
+        if paths and store:
+            try:
+                store.delete(paths)
+            except (OSError, urllib.error.URLError):
+                pass  # the bucket's own lifetime rules are the backstop
+
+    @app.post("/v1/shares")
+    def create_share(body: ShareIn, request: Request, team: Optional[str] = None, c: Caller = Depends(caller),
+                     conn=Depends(db)) -> dict:
+        team_id, _, _ = team_scope(c, team, conn)
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        if bool(body.files) == bool(body.branch):
+            raise HTTPException(400, "Share files, or a branch")
+        if body.files and not store:
+            raise HTTPException(503, "File sharing isn't set up on this hub yet (it needs SUPABASE_SECRET_KEY)")
+        to = None
+        if body.to:
+            who = body.to.strip()
+            to = conn.execute("select user_id, name from memberships where team_id = %s and removed_at is null and"
+                              " (user_id::text = %s or lower(name) = lower(%s))", (team_id, who, who)).fetchone()
+            if not to or str(to["user_id"]) == c.person.id:
+                raise HTTPException(400, f"{who} isn't a teammate here")
+        names = [clean_file_name(f.name) for f in body.files]
+        if len(set(n.lower() for n in names)) != len(names):
+            raise HTTPException(400, "Two files have the same name")
+        size = sum(f.size for f in body.files)
+        if body.files:
+            sweep_shares(conn, team_id)
+            held = conn.execute("select coalesce(sum((f->>'size')::bigint), 0) as n from shares, jsonb_array_elements(files) f"
+                                " where team_id = %s and status in ('uploading', 'ready')", (team_id,)).fetchone()["n"]
+            if held + size > TEAM_SHARE_BYTES:
+                raise HTTPException(400, f"The team's shared files would pass {TEAM_SHARE_BYTES // 2**20} MB; delete some first")
+        sid = conn.execute("select gen_random_uuid() as id").fetchone()["id"]
+        files = [{"name": n, "size": f.size, "sha256": f.sha256, "path": f"{team_id}/{sid}/{i}-{n}"}
+                 for i, (n, f) in enumerate(zip(names, body.files))]
+        r = conn.execute("insert into shares (id, team_id, from_user, from_name, to_user, to_name, kind, note, files, repo,"
+                         " branch, status, expires_at) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now() + make_interval(days => %s))"
+                         " returning *", (sid, team_id, c.person.id, c.person.name, to["user_id"] if to else None,
+                                          to["name"] if to else None, "files" if body.files else "branch", body.note.strip(),
+                                          Jsonb(files), body.repo, body.branch, "uploading" if body.files else "ready",
+                                          SHARE_DAYS)).fetchone()
+        uploads = [{"name": f["name"], **store.upload(f["path"], f["size"], base_url(request))} for f in files] if files else []
+        return {**share_view(r, c.person.id), "uploads": uploads}
+
+    @app.post("/v1/shares/{sid}/ready")
+    def share_ready(sid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """The sender's app uploaded every file: check each arrived whole, then teammates see the share."""
+        team_id, _, role = team_scope(c, team, conn)
+        r = visible_share(conn, team_id, role, sid, c.person.id)
+        if str(r["from_user"]) != c.person.id or r["status"] != "uploading":
+            raise HTTPException(409, "That share isn't waiting for its files")
+        for f in r["files"]:
+            if store.size(f["path"]) != f["size"]:
+                raise HTTPException(400, f"{f['name']} didn't arrive whole; share it again")
+        r = conn.execute("update shares set status = 'ready' where id = %s returning *", (r["id"],)).fetchone()
+        return share_view(r, c.person.id)
+
+    @app.get("/v1/shares")
+    def list_shares(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _, role = team_scope(c, team, conn)
+        me = c.person.id
+        sweep_shares(conn, team_id)
+        mine = "" if role == "lead" else " and (from_user = %s or to_user = %s or to_user is null)"
+        rows = conn.execute(f"select * from shares where team_id = %s and status <> 'deleted'"
+                            f" and (status <> 'uploading' or from_user = %s){mine} order by created_at desc limit 100",
+                            (team_id, me) if role == "lead" else (team_id, me, me, me)).fetchall()
+        return {"shares": [share_view(r, me) for r in rows], "role": role}
+
+    @app.get("/v1/shares/{sid}")
+    def one_share(sid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _, role = team_scope(c, team, conn)
+        return share_view(visible_share(conn, team_id, role, sid, c.person.id), c.person.id)
+
+    @app.get("/v1/shares/{sid}/files/{n}")
+    def share_file(sid: str, n: int, request: Request, team: Optional[str] = None, c: Caller = Depends(caller),
+                   conn=Depends(db)) -> dict:
+        """A 5-minute link to one file, for the sender and the people it was shared with; who saved it goes on record."""
+        team_id, _, role = team_scope(c, team, conn)
+        r = visible_share(conn, team_id, role, sid, c.person.id)
+        if not share_view(r, c.person.id)["can_get"]:
+            raise HTTPException(403, "This share is between two teammates; you see the record, not the files")
+        if r["status"] != "ready" or not 0 <= n < len(r["files"]):
+            raise HTTPException(410 if r["status"] == "expired" else 404, "That file isn't there any more")
+        f = r["files"][n]
+        if str(r["from_user"]) != c.person.id:
+            conn.execute("update shares set saved_by = saved_by || to_jsonb(%s::text) where id = %s and not saved_by ? %s",
+                         (c.person.name, r["id"], c.person.name))
+        return {"url": store.download(f["path"], 300, base_url(request)), "name": f["name"], "size": f["size"], "sha256": f["sha256"]}
+
+    @app.delete("/v1/shares/{sid}")
+    def delete_share(sid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _, role = team_scope(c, team, conn)
+        r = visible_share(conn, team_id, role, sid, c.person.id)
+        if str(r["from_user"]) != c.person.id and role != "lead":
+            raise HTTPException(403, "Only who shared it, or the lead, can delete it")
+        conn.execute("update shares set status = 'deleted' where id = %s", (r["id"],))
+        if r["files"] and store:
+            store.delete([f["path"] for f in r["files"]])
+        return {"ok": True}
+
+    @app.put("/v1/blobs/{token}")
+    async def put_blob(token: str, request: Request) -> dict:
+        if not isinstance(store, blobstore.LocalBlobs):
+            raise HTTPException(404, "Not here")
+        try:
+            f = store.check(token, "put")
+        except (PermissionError, ValueError) as e:
+            raise HTTPException(403, str(e)) from None
+        data = await request.body()
+        if len(data) > SHARE_MAX_BYTES:
+            raise HTTPException(413, "Over 25 MB")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+        return {"ok": True}
+
+    @app.get("/v1/blobs/{token}")
+    def get_blob(token: str) -> FileResponse:
+        if not isinstance(store, blobstore.LocalBlobs):
+            raise HTTPException(404, "Not here")
+        try:
+            f = store.check(token, "get")
+        except (PermissionError, ValueError) as e:
+            raise HTTPException(403, str(e)) from None
+        if not f.is_file():
+            raise HTTPException(404, "That file isn't there any more")
+        return FileResponse(f, media_type="application/octet-stream")
+
     @app.get("/v1/settings")
     def settings(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         team_id, name = lead_scope(c, team, conn)
@@ -543,6 +723,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                          (c.team_id, RETENTION_DAYS))
             conn.execute("delete from session_prompts where team_id = %s and created_at < now() - make_interval(days => %s)",
                          (c.team_id, RETENTION_DAYS))
+            conn.execute("delete from shares where team_id = %s and status in ('expired', 'deleted')"
+                         " and created_at < now() - make_interval(days => %s)", (c.team_id, RETENTION_DAYS))
             conn.execute("delete from hub_sessions where expires_at < now()")
             conn.execute("delete from devices where expires_at < now() - interval '1 day'")
         return {"accepted": new, "duplicates": len(rows) - new}
