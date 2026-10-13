@@ -163,3 +163,21 @@ def test_old_events_and_extra_snapshots_are_pruned(hub):
         assert app.state.conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 20
     assert app.state.prune_events(time.time() + 31 * 86400) > 0  # a month later the events are gone
     assert client.get("/v1/board", headers=yang).json()["tasks"] == []
+
+
+def test_digest_is_cited_and_cached(hub):
+    _, client = hub
+    calls = []
+
+    def chat(job, messages, schema):
+        calls.append(job)
+        return {"headline": "T-11 is blocked.", "shipped": [], "in_progress": [], "at_risk": [],
+                "blocked": [{"text": "T-11 needs DB rights", "evidence": ["e1"]}]}
+
+    app = create(":memory:", chat=chat, start_worker=False)
+    c = TestClient(app)
+    s = member(c, "sourabh")
+    c.post("/v1/events", json={"events": golden("synthetic_blocked_migration.json")}, headers=s)
+    first = c.get("/v1/digest", headers=s).json()
+    again = c.get("/v1/digest", headers=s).json()
+    assert first["blocked"][0]["text"] == "T-11 needs DB rights" and first == again and calls == ["digest"]

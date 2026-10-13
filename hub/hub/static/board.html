@@ -73,6 +73,12 @@ button:disabled{opacity:.5;cursor:wait}
 .qa{border-top:1px solid var(--line);padding-top:10px}
 .qa .q{font-weight:700}.qa .a{margin-top:4px;overflow-wrap:anywhere}.qa .meta{font:500 11px/1.3 var(--fm);color:var(--faint);margin-top:4px}
 .qa.none .a{color:var(--muted)}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line2)}
+.digest{border-top:1px solid var(--line);padding-top:10px;display:grid;gap:8px;font-size:14px}
+.digest .headline{font-weight:700}
+.digest h4{margin:0;font:700 11px/1.4 var(--fm);letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+.digest h4.blocked,.digest h4.at_risk{color:var(--bad)}
+.digest ul{margin:0;padding-left:16px}.digest .meta{font:500 11px/1.3 var(--fm);color:var(--faint)}
 .signin{max-width:420px;margin:60px auto;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
 .signin img{width:120px;height:160px;object-fit:contain}
 .signin form{display:flex;flex-direction:column;gap:10px;width:100%}
@@ -111,6 +117,8 @@ button:disabled{opacity:.5;cursor:wait}
       <div class="who"><img src="/static/mascot/agent-s/think.webp" alt=""><div><h2>Ask Agent S</h2>
         <p>Answers come only from your team's session events, with the evidence counted. No evidence, no answer.</p></div></div>
       <form class="ask" id="askForm"><input id="question" maxlength="500" placeholder="How far is T-14? Anything blocked?" required><button id="askBtn">Ask</button></form>
+      <button class="ghost" id="digestBtn" type="button">Today's digest</button>
+      <div class="digest" id="digest" hidden></div>
       <div class="answers" id="answers"></div>
     </aside>
   </div>
@@ -239,6 +247,28 @@ $("signinForm").addEventListener("submit", async ev => {
   const r = await fetch("/v1/board/login", {method: "POST", headers: {"Content-Type": "application/json"}, credentials: "same-origin",
     body: JSON.stringify({room: $("roomIn").value.trim(), token: $("tokenIn").value})});
   if (r.ok) { $("tokenIn").value = ""; load(); } else $("signinErr").textContent = "That room and token don't match.";
+});
+
+$("digestBtn").addEventListener("click", async () => {
+  const btn = $("digestBtn"), box = $("digest");
+  btn.disabled = true; btn.textContent = "Writing the digest"; box.hidden = false; box.replaceChildren(el("div", "meta", "…"));
+  try {
+    const r = await fetch("/v1/digest", {credentials: "same-origin"});
+    const d = await r.json();
+    box.replaceChildren();
+    if (!r.ok) { box.append(el("div", "meta", d.detail || "Agent S couldn't write the digest right now.")); }
+    else {
+      box.append(el("div", "headline", d.headline));
+      for (const [key, label] of [["shipped", "Shipped"], ["in_progress", "In progress"], ["blocked", "Blocked"], ["at_risk", "At risk"]]) {
+        if (!d[key] || !d[key].length) continue;
+        const ul = el("ul");
+        for (const it of d[key]) { const li = el("li", null, it.text); li.append(el("span", "cite", `${it.evidence_ids.length} cited`)); ul.append(li); }
+        box.append(el("h4", key, label), ul);
+      }
+      box.append(el("div", "meta", `last 24 h · ${d.model || ""}`));
+    }
+  } catch (e) { box.replaceChildren(el("div", "meta", "Couldn't reach the hub.")); }
+  btn.disabled = false; btn.textContent = "Today's digest";
 });
 
 $("askForm").addEventListener("submit", async ev => {

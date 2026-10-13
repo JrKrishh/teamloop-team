@@ -28,7 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from agent_s import llm, progress, qa
+from agent_s import digest, llm, progress, qa
 
 from .safety import ROOM_RE, sanitize
 
@@ -64,6 +64,7 @@ MAX_EVENT_BYTES = 8192  # ccbridge's message cap
 POSTS_PER_MINUTE = int(os.getenv("HUB_POSTS_PER_MINUTE", "60"))
 RETENTION_DAYS = float(os.getenv("HUB_RETENTION_DAYS", "30"))
 KEEP_SNAPSHOTS = 20
+DIGEST_CACHE_SECONDS = 600
 STREAM_POLL_SECONDS = float(os.getenv("HUB_STREAM_POLL", "1"))
 STATIC = Path(__file__).parent / "static"
 COOKIE_DAYS = 7
@@ -279,6 +280,26 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
 
         return StreamingResponse(events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    digests: dict[str, tuple[float, dict]] = {}
+
+    @app.get("/v1/digest")
+    def get_digest(room: str = Depends(board_room)) -> dict:
+        """Last 24 hours, written by the big model; cached per room for 10 minutes to protect the credits."""
+        now = time.time()
+        hit = digests.get(room)
+        if hit and now - hit[0] < DIGEST_CACHE_SECONDS:
+            return hit[1]
+        with lock:
+            rows = conn.execute("SELECT body FROM events WHERE room = ? AND received_at > ? ORDER BY ts",
+                                (room, now - 86400)).fetchall()
+        try:
+            out = {**digest.digest([json.loads(r["body"]) for r in rows], chat=chat), "generated_at": now}
+        except Exception as e:  # noqa: BLE001
+            log.warning("digest failed: %s", e)
+            raise HTTPException(503, "Agent S couldn't write the digest right now; try again in a minute")
+        digests[room] = (now, out)
+        return out
 
     @app.post("/v1/ask")
     def ask(req: AskIn, room: str = Depends(board_room)) -> dict:
