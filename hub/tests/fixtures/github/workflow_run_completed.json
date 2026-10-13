@@ -104,11 +104,11 @@
    "timestamp": "2026-10-12T19:38:44Z",
    "author": {
     "name": "JrKrishh",
-    "email": "manir1179@gmail.com"
+    "email": "dev@example.com"
    },
    "committer": {
     "name": "JrKrishh",
-    "email": "manir1179@gmail.com"
+    "email": "dev@example.com"
    }
   },
   "repository": {
