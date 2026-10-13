@@ -37,7 +37,7 @@ def live_hub(monkeypatch):
 def test_connector_to_board(live_hub, tmp_path, monkeypatch):
     app, url = live_hub
     monkeypatch.setenv("TEAMLOOP_HOME", str(tmp_path / "tl"))
-    send._session.clear()
+    login._session.clear()
     assert login.login(login.encode(url, "teamloop", "room-token-123"), "yang") == 0
 
     spool.append({**normalize.event("task_start", "mcp", {}, {"title": "Fix add()"}), "task": "T-3"})
@@ -55,3 +55,16 @@ def test_connector_to_board(live_hub, tmp_path, monkeypatch):
     [task] = board["tasks"]
     assert task["title"] == "Fix add()" and task["members"] == ["yang"] and task["progress"]["percent"] == 95
     assert board["members"][0]["active"] is True
+
+
+def test_agent_reads_team_status_from_the_hub(live_hub, tmp_path, monkeypatch):
+    from teamloop import mcp_server
+
+    app, url = live_hub
+    monkeypatch.setenv("TEAMLOOP_HOME", str(tmp_path / "tl"))
+    login._session.clear()
+    assert login.login(login.encode(url, "teamloop", "room-token-123"), "yang") == 0
+    spool.append({**normalize.event("task_start", "mcp", {}, {"title": "Fix add()"}), "task": "T-3"})
+    send.send_once(summarizer=lambda text, facts: None)
+    text = mcp_server.get_team_status()
+    assert text.startswith(mcp_server.FRAME) and "T-3 Fix add()" in text and "Active now: yang" in text

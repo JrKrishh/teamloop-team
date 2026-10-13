@@ -10,8 +10,6 @@ import json
 import os
 import threading
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Callable
 
@@ -41,28 +39,10 @@ def prepare(record: dict, summarizer: Callable | None = None) -> dict:
     return out
 
 
-_session: dict[str, str] = {}
-
-
 def _post(cfg: dict, events: list[dict]) -> None:
-    """ccbridge auth: room token + the session from /v1/join. A 401 means the session expired or the hub
-    restarted: join again once and retry."""
     from teamloop import login
 
-    for attempt in (1, 2):
-        if "id" not in _session:
-            _session["id"] = login.join(cfg)
-        req = urllib.request.Request(cfg["url"] + "/v1/events", json.dumps({"events": events}).encode(), {
-            "Content-Type": "application/json", "Authorization": f"Bearer {cfg['token']}",
-            "X-CCBridge-Room": cfg["room"], "X-CCBridge-Session": _session["id"]})
-        try:
-            with urllib.request.urlopen(req, timeout=20):
-                return
-        except urllib.error.HTTPError as e:
-            if e.code == 401 and attempt == 1:
-                _session.pop("id", None)
-                continue
-            raise
+    login.request(cfg, "POST", "/v1/events", {"events": events})
 
 
 def send_once(post: Callable = _post, summarizer: Callable | None = None) -> tuple[int, str | None]:
