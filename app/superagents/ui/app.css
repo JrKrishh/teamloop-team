@@ -145,12 +145,28 @@ kbd{font:500 11px var(--fm);color:var(--faint);border:1px solid var(--line2);bor
 .choice-art{height:72px;display:flex;align-items:flex-end;gap:2px}
 
 /* ---- shell ---- */
-.shell{display:grid;grid-template-columns:252px 1fr}
+.shell{display:grid;grid-template-columns:252px 1fr;transition:grid-template-columns .22s var(--ease)}
 .rail{background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:14px;padding:16px 12px;min-height:0}
 .rail-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 6px;font:800 17px/1 var(--ft);letter-spacing:-.02em}
+.brand-name,.rail .lbl{min-width:0;overflow:hidden;white-space:nowrap;transition:opacity .15s}
+.rail-toggle{margin-left:auto;border-color:transparent;background:none;color:var(--muted)}
+.rail-toggle:hover{color:var(--text)}
+/* folded to icons (the button or Ctrl+B); names show as tooltips */
+.shell.rail-min{grid-template-columns:68px 1fr}
+.rail-min .rail-brand{padding:4px 0 6px;justify-content:center}
+.rail-min .mark-sm,.rail-min .brand-name,.rail-min .new-chat kbd,.rail-min .chats-section,.rail-min .rail-label,.rail-min .live li span,.rail-min .me-text,.rail-min .me > .ic{display:none}
+.rail-min .lbl{opacity:0}
+.rail-min .rail-toggle{margin-left:0}
+.rail-min .new-chat{padding:0 12px;gap:0}
+.rail-min .nav button{padding:0 13px}
+.rail-min .nav-badge{position:absolute;left:27px;top:7px;min-width:0;width:9px;height:9px;padding:0;font-size:0;line-height:0;box-shadow:0 0 0 2px var(--bg2)}
+.rail-min .rail-section{padding:6px 0}
+.rail-min .live li{justify-content:center}
+.rail-min .me{padding:6px;justify-content:center}
+.rail-min .rail-foot .menu{right:auto;width:240px}
 .mark-sm{width:28px;height:28px;display:inline-block}
 .new-chat{justify-content:flex-start;height:40px;font-size:14px}
-.nav{display:grid;gap:2px}
+.nav{display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
 .nav button{display:flex;align-items:center;gap:11px;height:38px;padding:0 10px;border-radius:10px;border:0;background:none;color:var(--muted);font-weight:600;font-size:14.5px;text-align:left;position:relative;transition:background .15s,color .15s}
 .nav button:hover{background:var(--panel);color:var(--text)}
 .nav button.on{background:var(--panel);color:var(--text)}
@@ -518,6 +534,18 @@ button.tchip:hover{background:var(--panel2)}
 .never{display:grid;gap:6px;font-size:14px;color:var(--muted)}
 .never b{color:var(--text)}
 
+/* ---- settings ---- */
+.settings{display:grid;gap:16px;max-width:780px}
+.acct{display:flex;align-items:center;gap:14px}
+.acct .avatar{width:48px;height:48px;font-size:18px}
+.acct > div{flex:1;min-width:0;display:grid}
+.acct b{font-weight:650;font-size:15.5px;overflow-wrap:anywhere}
+.acct small{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.keys{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;margin:0;font-size:14px;align-items:center}
+.keys dt{color:var(--muted)}
+.keys dd{margin:0;display:flex;gap:4px;justify-content:flex-end}
+.keys kbd{margin-left:0}
+
 /* ---- side panel: files, terminal, browser ---- */
 .side{position:relative;flex:none;width:var(--side-w,46%);min-width:340px;max-width:72%;border-left:1px solid var(--line);display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--bg);min-height:0;animation:sideIn .32s var(--ease) both}
 @keyframes sideIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
@@ -525,6 +553,10 @@ button.tchip:hover{background:var(--panel2)}
 .resizer:hover,.resizer.drag,.resizer:focus-visible{background:linear-gradient(90deg,transparent 3px,var(--brick) 3px,var(--brick) 5px,transparent 5px);outline:none}
 .side-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
 .side-head .icon-btn{margin-left:auto}
+.side-head .icon-btn + .icon-btn{margin-left:0}
+.side.wide{flex:1;width:auto;min-width:0;max-width:none;border-left:0}
+.side.wide .resizer{display:none}
+.work:has(> .side.wide) > .views{display:none}
 .tabs{display:inline-flex;gap:2px;padding:3px;border-radius:12px;background:var(--bg2);border:1px solid var(--line)}
 .tabs button{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 14px;border-radius:9px;border:0;background:none;color:var(--muted);font-weight:650;font-size:13.5px;transition:background .15s,color .15s}
 .tabs button:hover{color:var(--text)}

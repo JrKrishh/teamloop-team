@@ -58,6 +58,15 @@ The buttons at the top right open a panel next to the chat (drag its edge to res
 - **Terminal** (Ctrl+`): a real shell (PowerShell 7 if installed, else Windows PowerShell) in a pseudo-console, in your first connected repo. Tabs for more than one.
 - **Browser:** shows a page (a dev server on localhost, docs, a page an agent opens) inside the app. Sites that refuse to be framed open in their own Super Agents window.
 
+**Expand** (the arrows next to the panel's close button) gives the panel the whole work area, for a terminal or a page at full width; picking a view in the sidebar puts it back. The sidebar on the left folds to icons with the button at its top or **Ctrl+B** (names show as tooltips) and stays folded next time.
+
+## Settings
+Click your name at the bottom of the sidebar → **Settings** (or **Ctrl+,**). One page for:
+- **Account:** who you're signed in as, your role in the current team, and Sign out.
+- **Appearance:** dark or light.
+- **Privacy:** sharing from this laptop, letting agents search your coding sessions (Memory), and your rules for teammates' prompts into your sessions (Super Team). These are the same switches as on This laptop, Agents → Memory and Super Team → Sessions.
+- **Keyboard shortcuts**, and **About** (version, licence, source code).
+
 ## Super Team
 Teammates connected through Super Agents are a **Super Team**. Anyone in it, lead or member, can send a prompt into a teammate's live Claude Code or Codex session: ask the agent that has the context ("what's left on T-22?", "explain your diff"). Agents can do it too (`team_sessions`, `prompt_session`, `session_prompt`).
 - **The owner's rules** (Super Team → Sessions → Your sessions): prompts from teammates are **off**, **ask me each time** (the default: a badge and a toast, then Allow or Deny), or **run automatically**. Runs are **read only** (the default) or **can edit files**. A **daily token limit per teammate**, or unlimited.
