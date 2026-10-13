@@ -22,7 +22,7 @@ from . import skills as skill_store
 from .mcpman import Manager, Tool
 from .tools import BY_NAME, BUILTINS, Builtin
 
-MAX_STEPS = 14
+MAX_STEPS = 24  # browser and desktop tasks take many small steps
 TO_MODEL, TO_WINDOW = 12_000, 4_000
 BASE = """You are {name}, an agent in Super Agents, the app where a software team sees and plans the work their
 developers do with AI coding agents. You work for {person} in the team "{team}" (members: {members}).
@@ -118,6 +118,7 @@ class Turn:
         self.spent = {"calls": 0, "in": 0, "out": 0}  # this turn's model use, shown under the answer
         self.ui_written: list[str] = []  # UI files this turn wrote, and how many of them a browser step came after
         self.ui_checked = 0
+        self.failures: dict[tuple, int] = {}  # failing calls, by tool and arguments
 
     # ---- events for the window -----------------------------------------------------------------------------
     def emit(self, kind: str, **data) -> None:
@@ -167,7 +168,7 @@ class Turn:
         return text
 
     def _on(self, group: str) -> bool:
-        return bool((self.agent.get("tools") or {}).get(group, True))  # a group added later is on for agents saved before it
+        return bool((self.agent.get("tools") or {}).get(group, group not in agent_store.OFF_UNTIL_ON))  # groups added later are on for agents saved before them, except desktop
 
     def _toolset(self) -> list[dict]:
         groups = {g for g in agent_store.TOOL_GROUPS if self._on(g)} | {"skills"}
@@ -302,6 +303,12 @@ class Turn:
             except ValueError:
                 pass
         self.emit("tool", **card, status="failed" if is_error else "done", result=result[:TO_WINDOW], **extra)
+        if is_error:  # models retry the same failing call until they run out of steps; say so once it's happened twice
+            key = (name, json.dumps(args, sort_keys=True))
+            self.failures[key] = self.failures.get(key, 0) + 1
+            if self.failures[key] >= 2:
+                result += ("\nThis exact call has now failed twice the same way: don't repeat it. Read the current state "
+                           "again, try another way, or tell the person what's in the way.")
         return result
 
     def run_plan(self) -> None:

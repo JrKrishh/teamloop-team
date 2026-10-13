@@ -17,7 +17,7 @@ teamloop.exe ─ hooks and MCP server, run by Claude Code and Codex; sends to th
 Agent S is built in; add more on **Agents** (a reviewer, a release manager, a researcher). Each agent has its own:
 - **Instructions**: its behaviour (role, tone, what to check, what never to do), added to every message.
 - **Default model and mode**, applied when you pick it in the composer.
-- **Tools**, in groups: **Team board** (read the board and the team's history; create, assign, close, start tasks), **Files and git** (read, search and write in the repos connected on This laptop; branch, commit, push and open pull requests, below), **Terminal** (run shell commands; always asks first), **Browser** (read pages; show a page in the browser panel), **Memory** (`remember`, `forget`, `recall`; below).
+- **Tools**, in groups: **Team board** (read the board and the team's history; create, assign, close, start tasks), **Files and git** (read, search and write in the repos connected on This laptop; branch, commit, push and open pull requests, below), **Terminal** (run shell commands; always asks first), **Browser** (the agent browser and dev servers; below), **Memory** (`remember`, `forget`, `recall`; below), **Desktop** (Windows apps through their own controls; off until you turn it on; below).
 - **Skills** and **Connectors** (below).
 
 Agents live in `~/.teamloop/agents.json`. Agent S's instructions are editable; it can't be deleted.
@@ -74,6 +74,16 @@ Agents use a real browser (`runtime/browser.py`): the installed Microsoft Edge (
 - **Checking its own work:** if a turn changed UI files and never looked at them in the browser, the loop asks once (start the dev server, open the page, read the console) before the agent may finish, as Claude Code's auto-verify does.
 - **What asks you:** localhost, 127.0.0.1 and `*.localhost`/`*.test` are free. Other sites ask first: allow once (for this run of the app), or always for that site (Settings → Privacy lists them). On those sites, steps that submit or look risky (delete, pay, send, publish, sign out…) follow the mode. Passwords (except on localhost), card numbers and anything that looks like a secret are never typed by an agent: you take over. Downloads are blocked, and the app's own address can't be opened.
 - Limits: copying text out of the live view and uploading files through it aren't supported yet.
+
+## Desktop control (Windows)
+Agents can use Windows apps on this laptop (`runtime/desktop.py`) once you turn **Desktop** on for them (Agents → the agent → Tools; it's off by default, for every agent).
+- **Through the apps' own controls.** Windows UI Automation gives each window as a tree of controls. An agent reads it as text (numbered elements with role, name, value and state, plus the window's text) and presses buttons, fills fields, ticks boxes, picks options and scrolls through the controls themselves: no mouse, no keyboard, no focus, so you keep working while it fills in another window. Menus and dialogs it opens are followed, a message box in front is called out first, and an element the window rebuilt while the agent was thinking is found again.
+- **Keys and the mouse** only when a control can't be reached any other way, asked for explicitly (`mouse=true`, `keys=true`, `desktop_press`); they bring the window forward for a moment.
+- **What asks you:** each app the first time (once, or always: Settings → Privacy lists them); opening an app, always; presses that look risky (delete, send, pay, submit…) and keys follow the mode. Agents see the titles of open windows only for apps you've allowed.
+- **Never:** Windows Settings and Security, sign-in and admin prompts, the registry, Task Manager, password managers, Super Agents itself. Browsers go to the agent browser; terminals and editors are click only (typing a command is `run_command`'s job, and it asks). Passwords, card numbers and anything that looks like a secret are never typed.
+- **Seeing it and stopping it:** a red frame around the window an agent is using, with a caption; **Ctrl+Alt+Esc** stops desktop actions for 30 seconds.
+- **Tools:** `desktop_windows`, `desktop_snapshot`, `desktop_click`, `desktop_type`, `desktop_select`, `desktop_scroll`, `desktop_press`, `desktop_open`, `desktop_screenshot` (proof for you, in the chat), `desktop_batch`.
+- Not yet: apps with no controls to read (games, canvases, remote desktops) need a vision model, which isn't wired in; elevated (administrator) windows are out of reach by design.
 
 ## Settings
 Click your name at the bottom of the sidebar → **Settings** (or **Ctrl+,**). One page for:

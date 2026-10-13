@@ -270,6 +270,12 @@ class BrowserHost:
         await self._start()
         self.driving, self.driving_at = who, time.time()
         p = self.page
+        info = self.refs.get(a.get("ref") or "", {})
+        el = f"{info.get('role', 'element')} “{info.get('name', '')}”"
+        did = {"open": f"Opened {a.get('url')}", "click": f"Clicked {el}", "type": f"Typed into {el}" + (" and pressed Enter" if a.get("submit") else ""),
+               "select": f"Chose “{a.get('option')}” in {el}", "press": f"Pressed {a.get('key')}",
+               "scroll": f"Scrolled {el}" if a.get("ref") else f"Scrolled {a.get('direction', 'down')}",
+               "wait": f"Waited for “{a.get('text')}”" if a.get("text") else "Waited"}[action]
         if action == "open":
             url = a["url"]
             if url in ("back", "forward", "reload"):
@@ -310,7 +316,7 @@ class BrowserHost:
             while time.time() < end and a.get("text") and a["text"].lower() not in (await p.evaluate("document.body ? document.body.innerText : ''")).lower():
                 await asyncio.sleep(0.25)
         await self._settle()
-        return self.describe(await self._snapshot())
+        return f"{did}.\n" + self.describe(await self._snapshot())
 
     async def snapshot(self, find: str = "") -> str:
         await self._start()

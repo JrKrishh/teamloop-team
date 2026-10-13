@@ -98,6 +98,7 @@ const TOOL_GROUPS = {
   terminal: {label: "Terminal", desc: "Run shell commands on this laptop. Always asks first."},
   browser: {label: "Browser", desc: "Read web pages and show pages in the browser panel."},
   memory: {label: "Memory", desc: "Remember notes, and search earlier chats and your coding sessions in every project on this laptop."},
+  desktop: {label: "Desktop", desc: "Use Windows apps through their controls, without your mouse or keyboard. Each app asks first; never Settings, security or password apps. Off until you turn it on."},
 };
 const MAX_FILES = 5, MAX_FILE_BYTES = 200_000;
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ""}</svg>`;
@@ -654,6 +655,16 @@ const TOOL_UI = {
   browser_eval: ["term", "Run in the page", a => (a.code || "").slice(0, 60)],
   browser_batch: ["list", "Steps", a => `${(a.steps || []).length} in one go`],
   dev_server: ["play", "Dev server", a => `${a.action || "start"}${a.repo ? ` · ${a.repo}` : ""}`],
+  desktop_windows: ["laptop", "List windows", () => ""],
+  desktop_snapshot: ["laptop", "Read window", a => a.window || (a.find ? `“${a.find}”` : "current")],
+  desktop_click: ["laptop", "Press", a => a.ref + (a.mouse ? " with the mouse" : "")],
+  desktop_type: ["edit", "Fill", a => `“${(a.text || "").slice(0, 40)}” into ${a.ref}${a.submit ? " and submit" : ""}`],
+  desktop_select: ["laptop", "Choose", a => `${a.option} in ${a.ref}`],
+  desktop_scroll: ["laptop", "Scroll", a => `${a.ref} ${a.direction || "down"}`],
+  desktop_press: ["laptop", "Keys", a => a.keys + (a.window ? ` in ${a.window}` : "")],
+  desktop_open: ["play", "Open app", a => a.app],
+  desktop_screenshot: ["laptop", "Screenshot", a => a.window || ""],
+  desktop_batch: ["list", "Steps", a => `${(a.steps || []).length} in one go`],
   load_skill: ["book", "Use skill", a => a.name],
   read_skill_file: ["book", "Read skill file", a => `${a.name}/${a.file}`],
 };
@@ -681,17 +692,20 @@ function toolCard(st, e, past) {
     const tst = el("button", "tst"); tst.type = "button"; tst.setAttribute("aria-expanded", "false");
     row.append(tic, el("b", null, label), target, tst);
     box.append(row); st.steps.append(box);
-    c = st.cards[e.id] = {box, row, tst, e, out: null, result: null};
+    c = st.cards[e.id] = {box, row, tst, e, out: null, result: null, target};
     const toggle = () => toggleOut(c);
     row.onclick = toggle; tst.onclick = ev => { ev.stopPropagation(); toggle(); };
   }
   c.e = {...c.e, ...e};
   setCard(c, e.status, st, past);
   if (e.result != null) { c.result = e.result; if (c.out) c.out.textContent = e.result; }
-  const shot = e.name === "browser_screenshot" && /\[screenshot (sh_[0-9a-f]{10})\]/.exec(c.result || "");
+  // "Press ref_12" says nothing to a person: once the step is done, show what it pressed ("menuitem “File”")
+  const did = /^(desktop|browser)_(click|type|select|scroll)$/.test(e.name) && /^(?:Pressed|Clicked|Filled|Typed into|Chose|Scrolled) (.+)\.$/m.exec((c.result || "").split("\n")[0]);
+  if (did && c.target) c.target.textContent = did[1];
+  const shot = /^(browser|desktop)_screenshot$/.test(e.name) && /\[screenshot ((sh|dk)_[0-9a-f]{10})\]/.exec(c.result || "");
   if (shot && !c.img) {  // the proof, in the chat: the person sees what the agent checked
-    c.img = el("img", "tshot"); c.img.alt = "Screenshot of the page"; c.box.append(c.img);
-    fetch(`/api/browser/shot/${shot[1]}`, {headers: {"X-App-Key": KEY}}).then(r => (r.ok ? r.blob() : null))
+    c.img = el("img", "tshot"); c.img.alt = shot[2] === "sh" ? "Screenshot of the page" : "Screenshot of the window"; c.box.append(c.img);
+    fetch(`/api/${shot[2] === "sh" ? "browser" : "desktop"}/shot/${shot[1]}`, {headers: {"X-App-Key": KEY}}).then(r => (r.ok ? r.blob() : null))
       .then(b => { if (b) c.img.src = URL.createObjectURL(b); else c.img.remove(); }).catch(() => c.img.remove());
   }
   if (e.status === "done" && e.name === "team_ask") for (const id of e.citations || []) st.cited.add(id);
@@ -728,6 +742,9 @@ function askBox(c, st) {
   else if (e.name === "share_branch") box.append(el("p", null, `${who} wants to hand the current branch${a.repo ? ` of ${a.repo}` : ""} over to ${a.to || "the whole team"}${a.note ? `: “${a.note}”` : "."}`));
   else if (e.name === "take_share") box.append(el("p", null, `${who} wants to take share ${(a.id || "").slice(0, 8)}: save its files into ${a.repo || "your repo"}'s inbox, or check out the branch it hands over.`));
   else if (e.name === "dev_server") box.append(el("p", null, `${who} wants to ${a.action === "stop" ? "stop" : "start"} the dev server of ${a.repo || "your repo"} (its launch.json or dev script).`));
+  else if (e.name === "desktop_open") box.append(el("p", null, `${who} wants to open ${a.app} on this laptop and work in its window.`));
+  else if (e.name.startsWith("desktop_") && e.access === "ask") box.append(el("p", null, `${who} wants to use ${a.window || "this app"}: read its window and act in it through its controls.`));
+  else if (e.name.startsWith("desktop_")) box.append(el("p", null, `${who} wants to ${toolUi(e)[1].toLowerCase()} ${toolUi(e)[2](a) || ""}${e.name === "desktop_press" || a.mouse || a.keys ? " (this brings the window forward for a moment)" : ""}.`));
   else if (e.name.startsWith("browser_")) box.append(el("p", null, `${who} wants to ${toolUi(e)[1].toLowerCase()} ${toolUi(e)[2](a) || ""} on ${BR.state.url || "this page"}.`));
   else box.append(el("p", null, `${who} wants to make this change.`));
   const row = el("div", "row gap");
@@ -752,6 +769,17 @@ function askBox(c, st) {
     };
     yes.textContent = "Allow once"; row.append(no, always, yes);
   } else row.append(no, yes);
+  if (e.access === "ask" && e.name.startsWith("desktop_") && e.name !== "desktop_open") {  // an app agents haven't used yet
+    api("/api/desktop/state").then(d => {
+      if (!d.pending || !row.isConnected) return;
+      const always = el("button", "btn small", `Always allow ${d.pending}`); always.type = "button";
+      always.onclick = async () => {
+        try { await api("/api/desktop/apps", {method: "POST", body: {site: d.pending, allowed: true}}); } catch (err) { toast(err.message, true); return; }
+        decide(true);
+      };
+      yes.textContent = "Allow once"; row.insertBefore(always, yes);
+    }).catch(() => {});
+  }
   box.append(row);
   return box;
 }
@@ -2232,6 +2260,12 @@ function renderSettings() {
     const list = el("div", "row gap"); list.style.flexWrap = "wrap";
     for (const s of b.sites) list.append(btn(`${s} ✕`, "ghost", async () => { await api("/api/browser/sites", {method: "POST", body: {site: s, allowed: false}}).catch(e => toast(e.message, true)); renderSettings(); }));
     share.append(groupBox("Sites agents use in the browser without asking (localhost always)", list));
+  }).catch(() => {});
+  api("/api/desktop/state").then(d => {
+    if (!d.apps.length) return;
+    const list = el("div", "row gap"); list.style.flexWrap = "wrap";
+    for (const a of d.apps) list.append(btn(`${a} ✕`, "ghost", async () => { await api("/api/desktop/apps", {method: "POST", body: {site: a, allowed: false}}).catch(e => toast(e.message, true)); renderSettings(); }));
+    share.append(groupBox("Apps agents use without asking (Desktop)", list));
   }).catch(() => {});
 
   const keys = el("section", "panel"), dl = el("dl", "keys");
