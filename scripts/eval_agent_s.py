@@ -20,7 +20,8 @@ from agent_s import llm, progress, qa  # noqa: E402
 
 
 def main():
-    rows, ok_pct, ok_blk, uncited = [], 0, 0, 0
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # models write characters a Windows console can't
+    rows, ok_pct, ok_blk, uncited, errors = [], 0, 0, 0, 0
     files = sorted((ROOT / "agent_s" / "golden").glob("*.json"))
     for f in files:
         g = json.loads(f.read_text(encoding="utf-8"))
@@ -29,6 +30,7 @@ def main():
             out = progress.estimate(g["task"], g["events"], g.get("title", ""))
         except Exception as e:  # noqa: BLE001 - a failed run is a result
             rows.append([f.stem, "-", "-", "ERROR", "-", "-", str(e)[:60]])
+            errors += 1
             continue
         lo, hi = g["expect"]["percent"]
         pct_ok = lo <= out["percent"] <= hi
@@ -48,6 +50,7 @@ def main():
             a = qa.answer(c["question"], team)
         except Exception as e:  # noqa: BLE001
             qa_rows.append([c["question"], "ERROR", "-", str(e)[:60]])
+            errors += 1
             continue
         abstained = not a["citations"]
         hit = any(k.lower() in a["answer"].lower() for k in c["expect_any"])
@@ -59,7 +62,7 @@ def main():
     table = "\n".join("| " + " | ".join(r) + " |" for r in [head, ["---"] * len(head), *rows])
     n = len(files)
     score = (f"**{ok_pct}/{n}** in range, **{ok_blk}/{n}** status right, **{uncited}** uncited claims dropped; "
-             f"Q&A **{qa_ok}/{len(cases)}** good")
+             f"Q&A **{qa_ok}/{len(cases)}** good; **{errors}** calls failed (timeouts or server errors, not wrong answers)")
     qhead = ["question", "good", "citations", "answer"]
     table += "\n\n" + "\n".join("| " + " | ".join(r) + " |" for r in [qhead, ["---"] * len(qhead), *qa_rows])
     model = llm.model_for("progress")

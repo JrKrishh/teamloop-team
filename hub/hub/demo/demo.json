@@ -1,9 +1,9 @@
 {
- "built": "2026-10-12 19:43 UTC",
+ "built": "2026-10-13 03:09 UTC",
  "events": [
   {
    "v": 1,
-   "id": "6d084886e14d4f84aa76f062430cde6d",
+   "id": "945d637f5f9b4f21a4252176f6611b37",
    "offset_min": 95,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -18,7 +18,7 @@
   },
   {
    "v": 1,
-   "id": "6714303521874128ab9dd8ab05e67ee0",
+   "id": "9716aea45547448cb6c54dfa2cbaa495",
    "offset_min": 94,
    "tool": "mcp",
    "session": "yang-T-21",
@@ -33,7 +33,7 @@
   },
   {
    "v": 1,
-   "id": "e5fe88757c94438c98cd740428446a5e",
+   "id": "27f8e370c2ea4e71bfe87f03cc3fe872",
    "offset_min": 90,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -50,7 +50,7 @@
   },
   {
    "v": 1,
-   "id": "7166038b38034e44bd55a67615894156",
+   "id": "0c2f4aa2e99a4541be0cb660aa30f4bf",
    "offset_min": 84,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -72,7 +72,7 @@
   },
   {
    "v": 1,
-   "id": "67e448cd37464fd4ba187fcd39cdb95b",
+   "id": "2ba59ca3e1894a6e94799011d87ace22",
    "offset_min": 83,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -87,7 +87,7 @@
   },
   {
    "v": 1,
-   "id": "5d0434ebf8024e5fb134f8901abedefe",
+   "id": "ca4b0bfefdda49d681190622baf88310",
    "offset_min": 70,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -104,7 +104,7 @@
   },
   {
    "v": 1,
-   "id": "a40af0221da1424392d9d892aa2a3314",
+   "id": "62de0e52ccea478790bd8813fb94eed0",
    "offset_min": 66,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -125,7 +125,7 @@
   },
   {
    "v": 1,
-   "id": "bebad527b2fa4006a7cf8ef0cb3ea857",
+   "id": "fd889e0f41e641439e64865eb837e0f0",
    "offset_min": 65,
    "tool": "mcp",
    "session": "yang-T-21",
@@ -150,7 +150,7 @@
   },
   {
    "v": 1,
-   "id": "3e8e6a4907f34487b5c8850fab2ecf32",
+   "id": "56394c2b618d4958826b964a7fe9be13",
    "offset_min": 64,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -165,7 +165,7 @@
   },
   {
    "v": 1,
-   "id": "3066af4e522d4675b29df18e323d2962",
+   "id": "5789eb8608e74859bc84df77931974fe",
    "offset_min": 8,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -182,7 +182,7 @@
   },
   {
    "v": 1,
-   "id": "7d80cabd872c40c8b9048f38e35c57bb",
+   "id": "505cab6e09ef4b5780e4b1055edcd1b1",
    "offset_min": 3,
    "tool": "claude_code",
    "session": "yang-T-21",
@@ -197,7 +197,7 @@
   },
   {
    "v": 1,
-   "id": "e30e896219424a54b2940f58af5f8e58",
+   "id": "8b40c43a77934979ba1dae7f85a8c38d",
    "offset_min": 120,
    "tool": "codex",
    "session": "sourabh-T-22",
@@ -212,7 +212,7 @@
   },
   {
    "v": 1,
-   "id": "54b584058de14db3982fa3c05cbc1610",
+   "id": "5bfb3b0565854db8a2d261c00c08182a",
    "offset_min": 116,
    "tool": "codex",
    "session": "sourabh-T-22",
@@ -229,7 +229,7 @@
   },
   {
    "v": 1,
-   "id": "90f5aae5a92441389d003d8455c41e32",
+   "id": "c921db1d114e4d27bac5c348783f37f8",
    "offset_min": 112,
    "tool": "codex",
    "session": "sourabh-T-22",
@@ -249,7 +249,7 @@
   },
   {
    "v": 1,
-   "id": "ff7a3d0665f14f9d8f6edd86801bc05d",
+   "id": "1a604c364e9b407687eed0519ea6c2e9",
    "offset_min": 111,
    "tool": "codex",
    "session": "sourabh-T-22",
@@ -264,7 +264,7 @@
   },
   {
    "v": 1,
-   "id": "3bbfe918ef014375bcbea4fcdd3a3746",
+   "id": "fe3495cee24047e0b23451944c20585d",
    "offset_min": 60,
    "tool": "codex",
    "session": "sourabh-T-22",
@@ -281,7 +281,7 @@
   },
   {
    "v": 1,
-   "id": "4e8269f25f2c44d2acd6a393ae22c4e7",
+   "id": "bbd59c7d675946d298bc81aa4f1d18d7",
    "offset_min": 57,
    "tool": "codex",
    "session": "sourabh-T-22",
@@ -301,7 +301,7 @@
   },
   {
    "v": 1,
-   "id": "b7392c12485f47db8de41128fcd8e03a",
+   "id": "4311308ff7c645828eb7382feee7309c",
    "offset_min": 56,
    "tool": "mcp",
    "session": "sourabh-T-22",
@@ -318,7 +318,7 @@
   },
   {
    "v": 1,
-   "id": "93da39b53e95407fa4a3eaa1790f34e6",
+   "id": "7d166e8f826a462787526f14c3f3026e",
    "offset_min": 55,
    "tool": "codex",
    "session": "sourabh-T-22",
@@ -333,7 +333,7 @@
   },
   {
    "v": 1,
-   "id": "370fa71613e7471c902fda4572d320fd",
+   "id": "a5ee5ed7d29144c1ae213cd3c3c554c5",
    "offset_min": 240,
    "tool": "claude_code",
    "session": "asha-T-19",
@@ -348,7 +348,7 @@
   },
   {
    "v": 1,
-   "id": "ccb0e2e2a4d94a7aa797f89f65a71e59",
+   "id": "f176b0eedfe347b099cc23bd3a6bbdf6",
    "offset_min": 238,
    "tool": "mcp",
    "session": "asha-T-19",
@@ -363,7 +363,7 @@
   },
   {
    "v": 1,
-   "id": "81d5aaa2a36941338859d0a10d2a4476",
+   "id": "b968c752def94708bdf2108001176a13",
    "offset_min": 230,
    "tool": "claude_code",
    "session": "asha-T-19",
@@ -380,7 +380,7 @@
   },
   {
    "v": 1,
-   "id": "f2c2a227fc8f469aaca098211c5b9546",
+   "id": "938cff918d204a27a629010f5df36bed",
    "offset_min": 220,
    "tool": "claude_code",
    "session": "asha-T-19",
@@ -401,7 +401,7 @@
   },
   {
    "v": 1,
-   "id": "7fcb53f616734389be3891c8224ab9a4",
+   "id": "f1653b91a70f461b96304644f58932f2",
    "offset_min": 219,
    "tool": "claude_code",
    "session": "asha-T-19",
@@ -421,7 +421,7 @@
   },
   {
    "v": 1,
-   "id": "906309046e884bdc9c8838c033f47e71",
+   "id": "8988c1f3d0864b85bb3cd6c92836e941",
    "offset_min": 218,
    "tool": "claude_code",
    "session": "asha-T-19",
@@ -436,7 +436,7 @@
   },
   {
    "v": 1,
-   "id": "4c623dddb5de4176a34452baed9a90fe",
+   "id": "c1e085448b094a5ca2a6b6a092b8ab2a",
    "offset_min": 215,
    "tool": "github",
    "session": "asha-T-19",
@@ -456,7 +456,7 @@
   },
   {
    "v": 1,
-   "id": "2c02a8a6d497496fb33a136d39499bbc",
+   "id": "5bd645f0199541868c370340c9c898e3",
    "offset_min": 205,
    "tool": "github",
    "session": "asha-T-19",
@@ -474,7 +474,7 @@
   },
   {
    "v": 1,
-   "id": "79fbfd9657b8422fa13cd07e27b58dd9",
+   "id": "c0457142a0cf478083b3da0e2994f3fb",
    "offset_min": 420,
    "tool": "claude_code",
    "session": "yang-T-17",
@@ -489,7 +489,7 @@
   },
   {
    "v": 1,
-   "id": "07ddae1870414358a0be0c89456b841b",
+   "id": "9f247479d74d4271989454127afcdd67",
    "offset_min": 415,
    "tool": "claude_code",
    "session": "yang-T-17",
@@ -506,7 +506,7 @@
   },
   {
    "v": 1,
-   "id": "619c2e9ca7ee44719d0c58ce762b4a4c",
+   "id": "b264636675ea48a4888fe4130c07775c",
    "offset_min": 400,
    "tool": "claude_code",
    "session": "yang-T-17",
@@ -527,7 +527,7 @@
   },
   {
    "v": 1,
-   "id": "df59219634714ec0976763300e690ea1",
+   "id": "8cb9a62e64e8496791874d37c3198e09",
    "offset_min": 398,
    "tool": "claude_code",
    "session": "yang-T-17",
@@ -542,7 +542,7 @@
   },
   {
    "v": 1,
-   "id": "8c580cc7dd1e4b10a94d3b7b39a1d097",
+   "id": "2f678cb71b604d3c99609e3339b60f77",
    "offset_min": 380,
    "tool": "github",
    "session": "yang-T-17",
@@ -566,168 +566,146 @@
    "task": "T-21",
    "done": [
     {
-     "text": "Added /v1/stream endpoint",
+     "text": "SSE /v1/stream endpoint implemented",
      "evidence_ids": [
-      "e5fe88757c94438c98cd740428446a5e"
+      "27f8e370c2ea4e71bfe87f03cc3fe872",
+      "ca4b0bfefdda49d681190622baf88310"
      ]
     },
     {
-     "text": "Reconnects resume from Last-Event-ID",
+     "text": "Reconnect via Last-Event-ID works",
      "evidence_ids": [
-      "3e8e6a4907f34487b5c8850fab2ecf32"
-     ]
-    },
-    {
-     "text": "All 5 stream tests pass",
-     "evidence_ids": [
-      "a40af0221da1424392d9d892aa2a3314"
+      "56394c2b618d4958826b964a7fe9be13"
      ]
     }
    ],
    "doing": [
     {
-     "text": "Wiring the board to the stream",
+     "text": "Board using EventSource for updates",
      "evidence_ids": [
-      "bebad527b2fa4006a7cf8ef0cb3ea857"
+      "5789eb8608e74859bc84df77931974fe",
+      "505cab6e09ef4b5780e4b1055edcd1b1"
      ]
     }
    ],
-   "next": [
-    {
-     "text": "Board uses EventSource",
-     "evidence_ids": [
-      "bebad527b2fa4006a7cf8ef0cb3ea857"
-     ]
-    }
-   ],
+   "next": [],
    "blockers": [],
-   "percent": 85,
-   "confidence": "high",
+   "percent": 80,
+   "confidence": "medium",
    "status": "in_progress",
    "agent_says_percent": 60,
-   "dropped_uncited": 0,
-   "model": "ollama:qwen3:4b",
-   "generated_at": "2026-10-12T19:42:20Z"
+   "dropped_uncited": 1,
+   "model": "nebius:nvidia/nemotron-3-super-120b-a12b",
+   "generated_at": "2026-10-13T03:08:38Z"
   },
   "T-22": {
    "task": "T-22",
-   "done": [
-    {
-     "text": "Wrote progress_snapshots migration",
-     "evidence_ids": [
-      "54b584058de14db3982fa3c05cbc1610",
-      "3bbfe918ef014375bcbea4fcdd3a3746"
-     ]
-    }
-   ],
-   "doing": [
-    {
-     "text": "Fixing permission error",
-     "evidence_ids": [
-      "90f5aae5a92441389d003d8455c41e32",
-      "4e8269f25f2c44d2acd6a393ae22c4e7",
-      "b7392c12485f47db8de41128fcd8e03a"
-     ]
-    }
-   ],
+   "done": [],
+   "doing": [],
    "next": [
     {
-     "text": "Get access to database",
+     "text": "Obtain write access for demo database user",
      "evidence_ids": [
-      "b7392c12485f47db8de41128fcd8e03a",
-      "93da39b53e95407fa4a3eaa1790f34e6"
+      "4311308ff7c645828eb7382feee7309c",
+      "7d166e8f826a462787526f14c3f3026e"
      ]
     }
    ],
    "blockers": [
     {
-     "text": "Demo database user is read-only",
+     "text": "Database user lacks CREATE TABLE permission",
      "evidence_ids": [
-      "b7392c12485f47db8de41128fcd8e03a"
+      "4311308ff7c645828eb7382feee7309c",
+      "7d166e8f826a462787526f14c3f3026e"
      ]
     }
    ],
-   "percent": 40,
-   "confidence": "high",
+   "percent": 20,
+   "confidence": "medium",
    "status": "blocked",
    "agent_says_percent": null,
-   "dropped_uncited": 0,
-   "model": "ollama:qwen3:4b",
-   "generated_at": "2026-10-12T19:42:36Z"
+   "dropped_uncited": 1,
+   "model": "nebius:nvidia/nemotron-3-super-120b-a12b",
+   "generated_at": "2026-10-13T03:09:01Z"
   },
   "T-19": {
    "task": "T-19",
    "done": [
     {
-     "text": "Sign-in sets an HttpOnly cookie",
+     "text": "Edited hub/hub/team.py to implement HttpOnly cookie sign‑in",
      "evidence_ids": [
-      "906309046e884bdc9c8838c033f47e71"
+      "b968c752def94708bdf2108001176a13"
      ]
     },
     {
-     "text": "7 tests pass",
+     "text": "Ran tests – all 7 passed",
      "evidence_ids": [
-      "f2c2a227fc8f469aaca098211c5b9546"
+      "938cff918d204a27a629010f5df36bed"
      ]
     },
     {
-     "text": "committed and pushed",
+     "text": "Git operations succeeded",
      "evidence_ids": [
-      "906309046e884bdc9c8838c033f47e71"
+      "f1653b91a70f461b96304644f58932f2"
+     ]
+    },
+    {
+     "text": "Turn summary reports sign‑in sets HttpOnly cookie, committed & pushed",
+     "evidence_ids": [
+      "8988c1f3d0864b85bb3cd6c92836e941"
+     ]
+    },
+    {
+     "text": "PR #18 opened for T‑19",
+     "evidence_ids": [
+      "c1e085448b094a5ca2a6b6a092b8ab2a"
+     ]
+    },
+    {
+     "text": "CI build succeeded",
+     "evidence_ids": [
+      "5bd645f0199541868c370340c9c898e3"
      ]
     }
    ],
    "doing": [],
-   "next": [
-    {
-     "text": "PR #18 open",
-     "evidence_ids": [
-      "4c623dddb5de4176a34452baed9a90fe"
-     ]
-    }
-   ],
+   "next": [],
    "blockers": [],
-   "percent": 95,
+   "percent": 100,
    "confidence": "high",
    "status": "in_progress",
    "agent_says_percent": null,
    "dropped_uncited": 0,
-   "model": "ollama:qwen3:4b",
-   "generated_at": "2026-10-12T19:42:49Z"
+   "model": "nebius:nvidia/nemotron-3-super-120b-a12b",
+   "generated_at": "2026-10-13T03:09:14Z"
   },
   "T-17": {
    "task": "T-17",
    "done": [
     {
-     "text": "prepare-commit-msg hook adds TeamLoop-Task trailers, keeps existing hooks",
+     "text": "prepare-commit-msg hook adds TeamLoop-Task trailers",
      "evidence_ids": [
-      "df59219634714ec0976763300e690ea1"
+      "9f247479d74d4271989454127afcdd67",
+      "8cb9a62e64e8496791874d37c3198e09"
      ]
     },
     {
-     "text": "6 tests pass",
+     "text": "existing hooks preserved",
      "evidence_ids": [
-      "619c2e9ca7ee44719d0c58ce762b4a4c"
+      "8cb9a62e64e8496791874d37c3198e09"
      ]
     }
    ],
    "doing": [],
-   "next": [
-    {
-     "text": "PR #15 merged",
-     "evidence_ids": [
-      "8c580cc7dd1e4b10a94d3b7b39a1d097"
-     ]
-    }
-   ],
+   "next": [],
    "blockers": [],
-   "percent": 95,
+   "percent": 100,
    "confidence": "high",
    "status": "in_progress",
    "agent_says_percent": null,
    "dropped_uncited": 0,
-   "model": "ollama:qwen3:4b",
-   "generated_at": "2026-10-12T19:43:01Z"
+   "model": "nebius:nvidia/nemotron-3-super-120b-a12b",
+   "generated_at": "2026-10-13T03:09:16Z"
   }
  }
 }
