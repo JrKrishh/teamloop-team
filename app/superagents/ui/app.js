@@ -1,6 +1,7 @@
 "use strict";
-// Super Agents UI. Text that comes from teammates or the model (titles, summaries, answers) is untrusted:
-// it goes in with textContent only. innerHTML is used only for this file's own icons and marks.
+// Super Agents UI. Text that comes from teammates, the model or files is untrusted: it goes in with textContent, or as
+// Markdown through DOMPurify (answers, skills, .md files). innerHTML is otherwise used only for this file's own icons
+// and marks, and for highlight.js output (which escapes what it highlights).
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -11,9 +12,11 @@ const KEY = (() => {
   history.replaceState(null, "", "/");
   return k || "";
 })();
-const S = {boot: null, user: null, teams: [], team: null, board: null, laptop: null, view: "chat", events: 0,
-  mode: "manual", model: "auto", files: []};
+const S = {boot: null, user: null, teams: [], team: null, board: null, laptop: null, view: "chat",
+  mode: "manual", model: "auto", files: [], agents: [], colors: [], agent: "agent-s", chat: null, turn: null,
+  running: false, chats: [], connectors: []};
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function api(path, {method = "GET", body} = {}) {
   const headers = {"X-App-Key": KEY};
@@ -55,21 +58,38 @@ const ICONS = {
   hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5V4a1.5 1.5 0 0 1 3 0v6.5M14 10.5V5.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.5 1.5 0 0 1 2.3-1.9L8 15"/>',
   list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01" stroke-width="3"/>',
   play: '<path d="M7 5.5v13l11-6.5Z"/>',
-  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
+  bot: '<rect x="4.5" y="7.5" width="15" height="11.5" rx="3.5"/><path d="M12 7.5v-3"/><circle cx="12" cy="3.7" r="1"/><path d="M9.3 12.7h.01M14.7 12.7h.01" stroke-width="2.6"/><path d="M9.6 16h4.8"/>',
+  term: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="m7.5 9.5 3 2.5-3 2.5M12.5 15h4"/>',
+  globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.3 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.3-3.6-8.5S9.6 5.9 12 3.5Z"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.3-4.3"/>',
+  edit: '<path d="M4.5 19.5h4l10-10a2.8 2.8 0 0 0-4-4l-10 10Z"/><path d="m13.5 6.5 4 4"/>',
+  book: '<path d="M5 4.5h9.5a3 3 0 0 1 3 3v12h-9.5a3 3 0 0 1-3-3Z"/><path d="M5 16.5a3 3 0 0 1 3-3h9.5"/>',
+  plug: '<path d="M9 3.5v4M15 3.5v4"/><path d="M6.5 7.5h11V11a5.5 5.5 0 0 1-11 0Z"/><path d="M12 16.5v4"/>',
+  stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
+  reload: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
+  external: '<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M17.5 14v4a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h4"/>',
+  caret: '<path d="m10 7 5 5-5 5"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
 };
 // Like Claude Code's modes: Shift+Tab cycles them.
 const MODES = {
-  manual: {label: "Manual", icon: "hand", desc: "Agent S asks before each change to the board.", short: "Asks before each change"},
-  auto: {label: "Auto", icon: "bolt", desc: "Agent S makes routine changes itself and tells you. You can undo them.", short: "Makes routine changes itself"},
-  plan: {label: "Plan", icon: "list", desc: "Agent S writes a plan first. Nothing changes until you run it.", short: "Writes a plan; you run it"},
+  manual: {label: "Manual", icon: "hand", desc: "Asks before each change: tasks, files, connector actions."},
+  auto: {label: "Auto", icon: "bolt", desc: "Makes routine changes itself and tells you. Shell commands still ask first."},
+  plan: {label: "Plan", icon: "list", desc: "Works out a plan first. Nothing changes until you run it."},
 };
 const MODE_ORDER = ["manual", "auto", "plan"];
 const MODELS = {
-  auto: {label: "Auto", desc: "Super for answers, Ultra for plans and imports"},
+  auto: {label: "Auto", desc: "Nemotron Super for chats, Ultra for the digest"},
   lightning: {label: "Nemotron Lightning", desc: "Fastest replies"},
   super: {label: "Nemotron Super", desc: "Balanced · 120B"},
   ultra: {label: "Nemotron Ultra", desc: "Deepest reasoning · 550B"},
+};
+const TOOL_GROUPS = {
+  team: {label: "Team board", desc: "Read the board and the team's history; create, assign, close and start tasks."},
+  files: {label: "Files", desc: "Read, search and write files in the repos connected on This laptop."},
+  terminal: {label: "Terminal", desc: "Run shell commands on this laptop. Always asks first."},
+  browser: {label: "Browser", desc: "Read web pages and show pages in the browser panel."},
 };
 const MAX_FILES = 5, MAX_FILE_BYTES = 200_000;
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ""}</svg>`;
@@ -79,7 +99,7 @@ function ic(name) { const s = el("span", "ic"); s.innerHTML = icon(name); return
 const HOOD = "M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z";
 function agent(cls = "", hood = "") {
   const t = document.createElement("template");
-  t.innerHTML = `<svg class="agent ${cls}" viewBox="0 0 100 100" aria-hidden="true"${hood ? ` style="--hood:${hood}"` : ""}><path class="hood" d="${HOOD}"/>`
+  t.innerHTML = `<svg class="agent ${cls}" viewBox="0 0 100 100" aria-hidden="true"${/^#[0-9a-fA-F]{6}$/.test(hood) ? ` style="--hood:${hood}"` : ""}><path class="hood" d="${HOOD}"/>`
     + '<ellipse class="face" cx="50" cy="61" rx="30" ry="27"/><g class="eyes"><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/>'
     + '<ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/><circle class="glint" cx="40.9" cy="58.6" r="2.1"/><circle class="glint" cx="63.9" cy="58.6" r="2.1"/></g></svg>';
   return t.content.firstElementChild;
@@ -92,11 +112,25 @@ function ago(t) { const s = Math.max(0, Date.now() / 1000 - t); return s < 60 ? 
 function clock(ts) { if (!ts) return ""; const d = new Date(ts); return isNaN(d) ? ts.slice(11, 16) : d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", hour12: false}); }
 function toast(text, bad) { const t = el("div", "toast" + (bad ? " bad" : ""), text); $("toasts").append(t); setTimeout(() => t.remove(), 4200); }
 
+// Markdown from the model, skills and files: sanitized, code highlighted, links open in the browser panel.
+if (window.hljs) hljs.configure({ignoreUnescapedHTML: true});
+function renderMd(box, text) {
+  box.innerHTML = DOMPurify.sanitize(marked.parse(text || "", {gfm: true, breaks: false}), {USE_PROFILES: {html: true}});
+  box.querySelectorAll("pre code").forEach(c => { try { hljs.highlightElement(c); } catch (e) { /* stays plain */ } });
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest(".md a[href]");
+  if (!a) return;
+  e.preventDefault();
+  if (/^https?:/i.test(a.getAttribute("href"))) openBrowser(a.getAttribute("href"));
+});
+
 // ---- theme ----------------------------------------------------------------------------------------
 function setTheme(theme, save = true) {
   document.documentElement.dataset.theme = theme;
   $("themeLabel").textContent = theme === "dark" ? "Light theme" : "Dark theme";
   const t = $("themeBtn").querySelector(".ic"); t.dataset.ic = theme === "dark" ? "sunny" : "moon"; t.innerHTML = icon(t.dataset.ic);
+  for (const x of TERMS.list) x.term.options.theme = termTheme();
   api("/api/window/theme", {method: "POST", body: {dark: theme === "dark"}}).catch(() => {});
   if (save) api("/api/prefs", {method: "POST", body: {theme}}).catch(() => {});
 }
@@ -118,9 +152,11 @@ async function start() {
 
 function applyBoot(boot) {
   S.boot = boot;
-  setTheme((boot.prefs || {}).theme || "dark", false);
-  setMode((boot.prefs || {}).mode || "manual", false);
-  setModel((boot.prefs || {}).model || "auto", false);
+  const prefs = boot.prefs || {};
+  setTheme(prefs.theme || "dark", false);
+  setMode(prefs.mode || "manual", false);
+  setModel(prefs.model || "auto", false);
+  S.agent = prefs.agent || "agent-s";
   if (!boot.signed_in) return showLogin();
   S.user = boot.user; S.teams = boot.teams; S.team = boot.team; S.laptop = boot.laptop;
   if (boot.offline) toast(boot.offline, true);
@@ -227,6 +263,7 @@ $("joinForm").addEventListener("submit", async ev => {
 
 // ---- the shell ------------------------------------------------------------------------------------------
 let pollTimer = null;
+const VIEWS = ["chat", "board", "team", "agents", "laptop"];
 function showShell() {
   show("shell");
   $("railMark").replaceChildren(agent());
@@ -240,30 +277,35 @@ function showShell() {
   if (!$("thread").childElementCount) renderHello();
   go(HASH.get("view") || S.view);
   HASH.delete("view");
+  loadAgents().then(() => { if ($("thread").querySelector(".hello")) renderHello(); loadChats(); });
+  api("/api/connectors").then(r => { S.connectors = r.items; }).catch(() => {});
   loadBoard().then(() => { if (HASH.get("ask")) { ask(HASH.get("ask")); HASH.delete("ask"); } });
+  if (HASH.get("pane")) { openPane(HASH.get("pane")); HASH.delete("pane"); }
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (!document.hidden) { loadBoard(); refreshLaptop(); } }, 20000);
 }
 function go(view) {
-  S.view = view;
-  for (const b of document.querySelectorAll("#nav button")) b.classList.toggle("on", b.dataset.view === view);
-  for (const v of ["chat", "board", "team", "laptop"]) $(`view-${v}`).hidden = v !== view;
-  if (view === "board") renderBoard();
-  if (view === "team") loadTeam();
-  if (view === "laptop") refreshLaptop(true);
-  if (view === "chat") setTimeout(() => $("askIn").focus(), 50);
+  S.view = VIEWS.includes(view) ? view : "chat";
+  for (const b of document.querySelectorAll("#nav button")) b.classList.toggle("on", b.dataset.view === S.view);
+  for (const v of VIEWS) $(`view-${v}`).hidden = v !== S.view;
+  if (S.view === "board") renderBoard();
+  if (S.view === "team") loadTeam();
+  if (S.view === "agents") showAgentTab(agentTab);
+  if (S.view === "laptop") refreshLaptop(true);
+  if (S.view === "chat") setTimeout(() => $("askIn").focus(), 50);
 }
 for (const b of document.querySelectorAll("#nav button")) b.onclick = () => go(b.dataset.view);
 $("laptopChip").onclick = () => go("laptop");
-$("newChat").onclick = () => { $("thread").replaceChildren(); renderHello(); go("chat"); };
+$("newChat").onclick = () => newChat();
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") { closeMenus(); if (!$("drawer").hidden) closeTask(); }
-  if (e.ctrlKey && e.key.toLowerCase() === "n" && !$("shell").hidden) { e.preventDefault(); $("newChat").click(); }
+  if (e.key === "Escape") { closeMenus(); if (!$("drawer").hidden) closeDrawer(); }
+  if (e.ctrlKey && e.key.toLowerCase() === "n" && !$("shell").hidden) { e.preventDefault(); newChat(); }
+  if (e.ctrlKey && e.key === "`" && !$("shell").hidden) { e.preventDefault(); togglePane("terminal"); }
 });
 
 function closeMenus() {
-  for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu"]) $(id).hidden = true;
-  document.querySelectorAll('[aria-expanded="true"]').forEach(b => b.setAttribute("aria-expanded", "false"));
+  for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu", "agentMenu"]) $(id).hidden = true;
+  document.querySelectorAll('.cwrap > [aria-expanded="true"]').forEach(b => b.setAttribute("aria-expanded", "false"));
 }
 document.addEventListener("click", e => { if (!e.target.closest(".menu, #meBtn, #teamBtn, .cwrap")) closeMenus(); });
 $("meBtn").onclick = () => { const m = $("meMenu"); const open = m.hidden; closeMenus(); m.hidden = !open; };
@@ -271,7 +313,7 @@ $("themeBtn").onclick = () => { setTheme(document.documentElement.dataset.theme 
 $("signOutBtn").onclick = async () => {
   closeMenus(); clearInterval(pollTimer);
   await api("/api/auth/signout", {method: "POST"}).catch(() => {});
-  S.user = null; S.board = null; $("thread").replaceChildren();
+  S.user = null; S.board = null; S.chat = null; $("thread").replaceChildren();
   await reboot();
 };
 $("teamBtn").onclick = () => {
@@ -280,7 +322,7 @@ $("teamBtn").onclick = () => {
   for (const t of S.teams) {
     const b = el("button", t.id === S.team ? "on" : null); b.type = "button";
     b.append(ic(t.id === S.team ? "check" : "team"), el("span", null, t.name), el("small", null, t.role === "lead" ? " · lead" : ""));
-    b.onclick = async () => { closeMenus(); if (t.id === S.team) return; S.team = t.id; S.board = null; await api("/api/team", {method: "POST", body: {team: t.id}}); $("thread").replaceChildren(); showShell(); };
+    b.onclick = async () => { closeMenus(); if (t.id === S.team) return; S.team = t.id; S.board = null; await api("/api/team", {method: "POST", body: {team: t.id}}); S.chat = null; $("thread").replaceChildren(); showShell(); };
     m.append(b);
   }
   m.append(el("hr"));
@@ -308,7 +350,6 @@ async function loadBoard() {
   if (!S.team) return;
   try {
     S.board = await hub(withTeam("board"));
-    S.events = S.board.tasks.reduce((n, t) => n + (t.events || 0), 0);
     renderLive();
     if (S.view === "board") renderBoard();
     if (Date.now() - refreshedAt > 30000) {  // Agent S re-estimates stale tasks; the board never waits for it
@@ -328,14 +369,98 @@ function renderLive() {
   if (!people.length) ul.append(el("li", "none", "Nobody has reported yet."));
 }
 
+// ---- agents: the picker --------------------------------------------------------------------------------
+const currentAgent = () => S.agents.find(a => a.id === S.agent) || S.agents[0] || {id: "agent-s", name: "Agent S", color: "#C2554C", mode: "manual", model: "auto"};
+async function loadAgents() {
+  try { const r = await api("/api/agents"); S.agents = r.agents; S.colors = r.colors; } catch (e) { /* keep what we have */ }
+  if (!S.agents.some(a => a.id === S.agent)) S.agent = "agent-s";
+  renderAgentPick();
+}
+function renderAgentPick() {
+  const a = currentAgent();
+  $("agentLabel").textContent = a.name;
+  $("agentMini").replaceChildren(agent("", a.color));
+  $("askIn").placeholder = a.id === "agent-s" ? "Ask about your team's work, or ask Agent S to plan it…" : `Message ${a.name}…`;
+  $("askIn").setAttribute("aria-label", `Message ${a.name}`);
+}
+function setAgent(id, save = true, defaults = true) {
+  S.agent = id;
+  const a = currentAgent();
+  if (defaults) { setMode(a.mode || "manual", false); setModel(a.model || "auto", false); }
+  renderAgentPick();
+  if (save) api("/api/prefs", {method: "POST", body: {agent: a.id, mode: S.mode, model: S.model}}).catch(() => {});
+}
+const agentLine = a => (a.instructions || "").trim().split("\n")[0].slice(0, 80) || (a.builtin ? "Built in. Plans the team's work and answers with evidence" : "No instructions yet");
+$("agentPick").onclick = () => toggleMenu("agentPick", "agentMenu", () => {
+  const m = $("agentMenu"); m.replaceChildren();
+  for (const a of S.agents) {
+    const b = el("button", a.id === S.agent ? "on" : null); b.type = "button";
+    b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(a.id === S.agent));
+    const words = el("span"); words.append(el("b", null, a.name), el("small", null, agentLine(a)));
+    b.append(agent("", a.color), words);
+    b.onclick = () => { closeMenus(); setAgent(a.id); $("askIn").focus(); };
+    m.append(b);
+  }
+  m.append(el("hr"));
+  const manage = el("button"); manage.type = "button"; manage.append(ic("bot"), el("span", null, "Manage agents"));
+  manage.onclick = () => { closeMenus(); agentTab = "agents"; go("agents"); };
+  m.append(manage);
+});
+
+// ---- chats ------------------------------------------------------------------------------------------------
+async function loadChats() {
+  try { S.chats = (await api("/api/chats")).chats; } catch (e) { return; }
+  renderChats();
+}
+function renderChats() {
+  const ul = $("chatList"); ul.replaceChildren();
+  for (const c of S.chats.slice(0, 40)) {
+    const li = el("li"); const b = el("button", "c" + (c.id === S.chat ? " on" : "")); b.type = "button";
+    const a = S.agents.find(x => x.id === c.agent); const dot = el("i"); if (a) dot.style.setProperty("--hood", a.color);
+    b.append(dot, el("span", null, c.title || "Untitled")); b.title = `${c.title || "Untitled"} · ${ago(c.updated)}`;
+    b.onclick = () => openChat(c.id);
+    const x = el("button", "del"); x.type = "button"; x.setAttribute("aria-label", `Delete the chat ${c.title || ""}`); x.append(ic("x"));
+    x.onclick = async ev => {  // two clicks: the first arms it
+      ev.stopPropagation();
+      if (!x.classList.contains("armed")) { x.classList.add("armed"); x.title = "Click again to delete"; x.style.color = "var(--bad)"; x.style.opacity = "1"; setTimeout(() => { x.classList.remove("armed"); x.removeAttribute("style"); }, 2600); return; }
+      await api(`/api/chats/${c.id}`, {method: "DELETE"}).catch(() => {});
+      if (S.chat === c.id) newChat();
+      loadChats();
+    };
+    li.append(b, x); ul.append(li);
+  }
+  if (!S.chats.length) ul.append(el("li", "none", "Your chats show up here."));
+}
+function newChat() {
+  if (S.running) return toast("Wait for the answer, or stop it first.", true);
+  S.chat = null; $("thread").replaceChildren(); renderHello(); renderChats(); go("chat");
+}
+async function openChat(id) {
+  if (S.running) return toast("Wait for the answer, or stop it first.", true);
+  try {
+    const c = await api(`/api/chats/${id}`);
+    S.chat = c.id; $("thread").replaceChildren();
+    if (c.agent && S.agents.some(a => a.id === c.agent)) setAgent(c.agent, false, false);
+    for (const v of c.view || []) {
+      userMsg(v.user, (v.files || []).map(name => ({name})));
+      const st = turnState(agentMsg(S.agents.find(a => a.id === v.agent) || currentAgent()), null, v.mode);
+      for (const e of v.events || []) handleEvent(st, e, true);
+      finishAnswer(st, v.answer, MODES[v.mode] ? MODES[v.mode].label : "");
+    }
+    renderChats(); go("chat"); scrollDown(true);
+  } catch (e) { toast(e.message, true); }
+}
+
 // ---- chat ------------------------------------------------------------------------------------------------
 function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; }
 function renderHello() {
   const t = $("thread"); t.replaceChildren();
-  const box = el("div", "hello"); const a = agent();
+  const ag = currentAgent();
+  const box = el("div", "hello"); const a = agent("", ag.color);
   const first = (S.user && S.user.name || "").split(" ")[0];
   box.append(a, el("h1", null, `${greeting()}, ${first}.`),
-    el("p", null, "Ask Agent S about your team's work. Every answer points to the session events it comes from."));
+    el("p", null, ag.id === "agent-s" ? "Ask Agent S about your team's work, or have it plan, read your repos, run commands and browse. Answers about the team point to the session events they come from."
+      : `${ag.name} is ready. ${agentLine(ag).replace(/[.!]$/, "")}.`));
   const ideas = [["flag", "What's blocked right now?", "Blockers, with the sessions that show them"],
     ["check", "What did the team finish today?", "Done means a merged PR, passing tests or a commit"],
     ["list", "Plan our next tasks and suggest owners", "Proposes changes to the board; you approve them"],
@@ -348,7 +473,7 @@ function renderHello() {
     b.onclick = () => (i === "sun" ? digest() : ask(text));
     grid.append(b);
   }
-  box.append(grid, el("p", "tip", "Tip: + imports a spec or a repo's GitHub issues for Agent S to plan from. Shift+Tab switches mode."));
+  box.append(grid, el("p", "tip", "Tip: + imports a spec or GitHub issues. Shift+Tab switches mode. Ctrl+` opens a terminal."));
   t.append(box);
 }
 function fileChip(name, size, onRemove) {
@@ -361,54 +486,221 @@ function userMsg(text, files) {
   const t = $("thread"); const hello = t.querySelector(".hello"); if (hello) hello.remove();
   const m = el("div", "msg user"); const col = el("div", "stack-r"); col.append(el("div", "bubble", text));
   if (files && files.length) { const f = el("div", "files"); for (const x of files) f.append(fileChip(x.name)); col.append(f); }
-  m.append(col); t.append(m); scrollDown();
+  m.append(col); t.append(m); scrollDown(true);
 }
-function agentMsg() {
+function agentMsg(a = currentAgent()) {
   const m = el("div", "msg agent"); const body = el("div", "body");
-  const who = el("div", "who"); who.append("Agent S");
-  const doing = S.mode === "plan" ? "Planning" : "Reading";
-  const line = el("div", "thinking-line", S.events ? `${doing} from ${S.events} session events…` : `${doing} the team's sessions…`);
-  body.append(who, line); m.append(agent("thinking"), body); $("thread").append(m); scrollDown();
-  return {m, body, who, line};
+  const who = el("div", "who"); who.append(a.name);
+  const steps = el("div", "steps");
+  const line = el("div", "thinking-line", S.mode === "plan" ? "Planning…" : "Thinking…");
+  body.append(who, steps, line); m.append(agent("thinking", a.color), body); $("thread").append(m); scrollDown();
+  return {m, body, who, line, steps, agent: a};
 }
-function scrollDown() { const t = $("thread"); requestAnimationFrame(() => t.scrollTo({top: t.scrollHeight, behavior: REDUCED ? "auto" : "smooth"})); }
+function scrollDown(force) {
+  const t = $("thread");
+  if (!force && t.scrollHeight - t.scrollTop - t.clientHeight > 220) return;  // they scrolled up to read: leave them there
+  requestAnimationFrame(() => t.scrollTo({top: t.scrollHeight, behavior: REDUCED ? "auto" : "smooth"}));
+}
 function settle(slot, meta) { slot.m.querySelector(".agent").classList.remove("thinking"); slot.line.remove(); if (meta) slot.who.append(el("small", null, meta)); }
 const shortModel = m => /ultra/i.test(m || "") ? "Nemotron Ultra" : /super/i.test(m || "") ? "Nemotron Super"
   : /lightning/i.test(m || "") ? "Nemotron Lightning" : (m || "").replace(/^ollama:/, "local ");
-const titleOf = task => ((S.board ? S.board.tasks : []).find(t => t.task === task) || {}).title || "";
+function setRunning(on) {
+  S.running = on;
+  const b = $("askBtn"); b.classList.toggle("stop", on); b.setAttribute("aria-label", on ? "Stop" : "Send");
+  b.querySelector(".ic").innerHTML = icon(on ? "stop" : "up");
+}
 
+// One turn of the agent loop on this laptop: start it, then follow its events (thinking, tool cards, the answer).
 async function ask(q) {
-  if (!S.team || !q) return;
+  if (!S.team || !q || S.running) return;
   const files = S.files.splice(0); renderChips();
   userMsg(q, files);
-  const slot = agentMsg();
-  $("askBtn").disabled = true;
+  const a = currentAgent();
+  const slot = agentMsg(a);
+  setRunning(true);
   try {
-    const r = await hub(withTeam("agent"), {method: "POST", body: {message: q, mode: S.mode, model: S.model,
-      attachments: files.map(f => ({name: f.name, text: f.text}))}});
-    settle(slot, `${shortModel(r.model)} · ${MODES[r.mode].label}`);
-    const cited = r.citations || [];
-    if (r.kind === "work" && !cited.length) slot.m.classList.add("none");
-    slot.body.append(el("div", "answer", r.answer));
-    if (cited.length || r.kind === "work") {
-      const row = el("div", "row gap");
-      row.append(el("span", "badge " + (cited.length ? "ok" : "none"), cited.length ? `${cited.length} event${cited.length > 1 ? "s" : ""} cited` : "No evidence"));
-      if (cited.length) {
-        const b = el("button", "evidence-btn", "Show evidence"); b.type = "button";
-        b.onclick = () => toggleEvidence(slot.body, cited, b);
-        row.append(b);
-        if (HASH.get("evidence")) { HASH.delete("evidence"); setTimeout(() => b.click(), 50); }
-      }
-      slot.body.append(row);
-    }
-    if (r.plan && r.plan.length) {
-      const box = el("div", "plan-box"); box.append(el("div", "label", "Plan")); const ol = el("ol");
-      for (const step of r.plan) ol.append(el("li", null, step));
-      box.append(ol); slot.body.append(box);
-    }
-    if (r.actions && r.actions.length) renderActions(slot.body, r.actions, r.mode);
+    const r = await api("/api/turns", {method: "POST", body: {chat: S.chat, agent: a.id, message: q, mode: S.mode, model: S.model,
+      team: S.team, attachments: files.map(f => ({name: f.name, text: f.text}))}});
+    S.chat = r.chat; S.turn = r.turn;
+    await follow(turnState(slot, r.turn, S.mode), 0);
   } catch (e) { settle(slot); slot.m.classList.add("none"); slot.body.append(el("div", "answer", e.message)); }
-  $("askBtn").disabled = false; scrollDown();
+  setRunning(false); S.turn = null; loadChats(); loadBoard();
+}
+function turnState(slot, turnId, mode) { return {slot, turn: turnId, steps: slot.steps, cards: {}, cited: new Set(), mode: mode || "manual"}; }
+async function follow(st, after) {
+  for (let misses = 0; misses < 6;) {
+    let r;
+    try { r = await api(`/api/turns/${st.turn}?after=${after}`); misses = 0; }
+    catch (e) { if (e.status === 404) return; misses++; await sleep(800); continue; }
+    for (const e of r.events) {
+      handleEvent(st, e, false);
+      after = e.i + 1;
+      if (e.kind === "end") return;
+    }
+  }
+  failTurn(st, "Lost track of this answer. It may still finish; check Chats in a moment.");
+}
+function handleEvent(st, e, past) {
+  const s = st.slot;
+  if (e.kind === "start") {
+    for (const [cid, msg] of Object.entries(e.mcp_errors || {})) st.steps.append(el("div", "warnline", `${connName(cid)} isn't available: ${msg}`));
+  } else if (e.kind === "thinking") {
+    if (!past) { s.line.textContent = st.mode === "plan" ? "Planning…" : "Thinking…"; s.body.append(s.line); }
+  } else if (e.kind === "text") {
+    st.steps.append(el("div", "narr", e.text));
+  } else if (e.kind === "tool") {
+    toolCard(st, e, past);
+    if (!past && (e.status === "asking" || e.status === "running")) { s.line.textContent = e.status === "asking" ? "Waiting for you…" : "Working…"; s.body.append(s.line); }
+  } else if (e.kind === "browser") {
+    if (!past) openBrowser(e.url);
+  } else if (e.kind === "answer") {
+    finishAnswer(st, e.text, `${shortModel(e.model)} · ${MODES[st.mode].label}`);
+  } else if (e.kind === "error") {
+    failTurn(st, e.text);
+  } else if (e.kind === "end") {
+    if (s.body.querySelector(".answer")) s.line.remove();  // after Run plan there's no new answer to replace it
+    if (e.planned && !past) planFoot(st, e.planned);
+  }
+  if (!past) scrollDown();
+}
+function finishAnswer(st, text, meta) {
+  const s = st.slot;
+  settle(s, meta);
+  const box = el("div", "answer md"); renderMd(box, text || "Done."); s.body.append(box);
+  if (st.cited.size) {
+    const ids = [...st.cited]; const row = el("div", "row gap");
+    row.append(el("span", "badge ok", `${ids.length} event${ids.length > 1 ? "s" : ""} cited`));
+    const b = el("button", "evidence-btn", "Show evidence"); b.type = "button";
+    b.onclick = () => toggleEvidence(s.body, ids, b);
+    row.append(b); s.body.append(row);
+    if (HASH.get("evidence")) { HASH.delete("evidence"); setTimeout(() => b.click(), 50); }
+  }
+}
+function failTurn(st, text) {
+  const s = st.slot;
+  if (!s.line.isConnected && s.body.querySelector(".answer")) return;
+  settle(s); s.m.classList.add("none"); s.body.append(el("div", "answer", text));
+}
+
+// ---- tool cards: what the agent did, and what waits for you ---------------------------------------------------
+const TOOL_UI = {
+  team_board: ["board", "Read the board", () => ""],
+  team_ask: ["spark", "Asked the team's history", a => a.question],
+  team_task: ["board", "Read task", a => a.task],
+  create_task: ["plus", "Create task", a => (a.title || "") + (a.owner ? ` · ${a.owner}` : "")],
+  assign_task: ["user", "Assign", a => `${a.task} → ${a.owner}`],
+  close_task: ["check", "Close", a => a.task],
+  start_task: ["play", "Start on this laptop", a => a.task + (a.repo ? ` in ${a.repo}` : "")],
+  list_files: ["folder", "List", a => a.path || "connected repos"],
+  read_file: ["file", "Read", a => a.path],
+  search_files: ["search", "Search", a => `“${a.query}”${a.path ? ` in ${a.path}` : ""}`],
+  write_file: ["edit", "Write", a => a.path],
+  run_command: ["term", "Run", a => a.command],
+  fetch_url: ["globe", "Read page", a => a.url],
+  open_in_browser: ["globe", "Open", a => a.url],
+  load_skill: ["book", "Use skill", a => a.name],
+  read_skill_file: ["book", "Read skill file", a => `${a.name}/${a.file}`],
+};
+const STATUS = {running: "running", asking: "needs you", planned: "planned", done: "✓ done", failed: "✕ failed", declined: "declined",
+  discarded: "discarded", undone: "undone"};
+const connName = cid => (S.connectors.find(c => c.id === cid) || {}).name || cid;
+const argText = a => Object.entries(a || {}).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ").slice(0, 200);
+function toolUi(e) {
+  if (TOOL_UI[e.name]) return TOOL_UI[e.name];
+  const m = /^mcp__.+?__(.+)$/.exec(e.name);
+  const conn = (e.group || "").startsWith("mcp:") ? connName(e.group.slice(4)) : "Connector";
+  return ["plug", m ? `${conn} · ${m[1]}` : e.name, argText];
+}
+function toolCard(st, e, past) {
+  let c = st.cards[e.id];
+  if (!c) {
+    const [iconName, label, describe] = toolUi(e);
+    const box = el("div", "tool"); const row = el("div", "tool-row");
+    const tic = el("span", "tic"); tic.innerHTML = icon(iconName);
+    const what = describe(e.args || {}) || "";
+    let target;
+    if (["read_file", "write_file"].includes(e.name) && what) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openFile(what); }; }
+    else if (["fetch_url", "open_in_browser"].includes(e.name) && what) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openBrowser(what); }; }
+    else target = el("span", "targ", what);
+    const tst = el("button", "tst"); tst.type = "button"; tst.setAttribute("aria-expanded", "false");
+    row.append(tic, el("b", null, label), target, tst);
+    box.append(row); st.steps.append(box);
+    c = st.cards[e.id] = {box, row, tst, e, out: null, result: null};
+    const toggle = () => toggleOut(c);
+    row.onclick = toggle; tst.onclick = ev => { ev.stopPropagation(); toggle(); };
+  }
+  c.e = {...c.e, ...e};
+  setCard(c, e.status, st, past);
+  if (e.result != null) { c.result = e.result; if (c.out) c.out.textContent = e.result; }
+  if (e.status === "done" && e.name === "team_ask") for (const id of e.citations || []) st.cited.add(id);
+  if (e.status === "done" && !past) undoable(c, st);
+  if (e.status === "done" && !past && e.name === "write_file" && FILES.current === (e.args || {}).path) openFile(FILES.current);
+}
+function setCard(c, status, st, past) {
+  c.status = status;
+  c.box.className = `tool ${status}`;
+  c.tst.replaceChildren();
+  if (status === "running") c.tst.append(el("span", "spin"));
+  c.tst.append(STATUS[status] || status);
+  c.box.querySelector(".ask-box")?.remove();
+  if (status === "asking" && !past) c.box.append(askBox(c, st));
+}
+function toggleOut(c) {
+  if (!c.result) return;
+  if (c.out) { c.out.remove(); c.out = null; c.tst.setAttribute("aria-expanded", "false"); return; }
+  c.out = el("pre", "tout", c.result);
+  c.box.insertBefore(c.out, c.box.querySelector(".ask-box")); c.tst.setAttribute("aria-expanded", "true");
+}
+function askBox(c, st) {
+  const e = c.e; const a = e.args || {}; const who = st.slot.agent.name;
+  const box = el("div", "ask-box");
+  if (e.name === "run_command") box.append(el("p", null, `${who} wants to run this on your laptop${a.cwd ? ` in ${a.cwd}` : ""}:`), el("pre", null, a.command || ""));
+  else if (e.name === "write_file") box.append(el("p", null, `${who} wants to write ${a.path}:`), el("pre", null, (a.content || "").slice(0, 6000)));
+  else if ((e.group || "").startsWith("mcp:")) box.append(el("p", null, `${who} wants to use ${toolUi(e)[1]} with:`), el("pre", null, JSON.stringify(a, null, 2)));
+  else box.append(el("p", null, `${who} wants to make this change.`));
+  const row = el("div", "row gap");
+  const no = el("button", "btn small ghost", "Deny"), yes = el("button", "btn small primary", e.name === "run_command" ? "Run it" : "Allow");
+  no.type = yes.type = "button";
+  const decide = async ok => {
+    no.disabled = yes.disabled = true;
+    try { await api(`/api/turns/${st.turn}/decide`, {method: "POST", body: {call: e.id, approve: ok}}); }
+    catch (err) { toast(err.message, true); no.disabled = yes.disabled = false; }
+  };
+  no.onclick = () => decide(false); yes.onclick = () => decide(true);
+  row.append(no, yes); box.append(row);
+  return box;
+}
+// Undo for the board changes that can be put back exactly.
+function undoable(c, st) {
+  const e = c.e; let put;
+  const made = /^Created ([A-Z][A-Z0-9]*-\d+)/.exec(c.result || "");
+  if (e.name === "create_task" && made) put = () => hub(withTeam(`tasks/${encodeURIComponent(made[1])}`), {method: "DELETE"});
+  if (e.name === "close_task") put = () => hub(withTeam(`tasks/${encodeURIComponent(e.args.task)}`), {method: "PATCH", body: {state: "open"}});
+  if (!put) return;
+  const u = el("button", "link-btn", "Undo"); u.type = "button";
+  u.onclick = async ev => {
+    ev.stopPropagation(); u.disabled = true;
+    try { await put(); setCard(c, "undone", st, true); loadBoard(); } catch (err) { toast(err.message, true); u.disabled = false; }
+  };
+  c.row.append(u);
+}
+function planFoot(st, n) {
+  const box = el("div", "plan-foot");
+  const t = el("span"); t.append(el("b", null, `${n} change${n > 1 ? "s" : ""} planned.`), " Nothing has changed yet.");
+  const no = el("button", "btn small ghost", "Discard"); no.type = "button";
+  const runBtn = el("button", "btn small primary"); runBtn.type = "button"; runBtn.append(ic("play"), "Run plan");
+  no.onclick = () => {
+    for (const c of Object.values(st.cards)) if (c.status === "planned") setCard(c, "discarded", st, true);
+    box.replaceChildren(el("span", null, "Plan discarded. Nothing changed."));
+  };
+  runBtn.onclick = async () => {
+    if (S.running) return;
+    runBtn.disabled = no.disabled = true; setRunning(true); S.turn = st.turn;
+    try { const r = await api(`/api/turns/${st.turn}/run-plan`, {method: "POST"}); box.remove(); await follow(st, r.after); toast("Plan applied."); }
+    catch (e) { toast(e.message, true); runBtn.disabled = no.disabled = false; }
+    setRunning(false); S.turn = null; loadBoard();
+  };
+  box.append(t, no, runBtn); st.slot.body.append(box); scrollDown();
 }
 async function toggleEvidence(body, ids, btn) {
   const open = body.querySelector(".evidence");
@@ -424,107 +716,17 @@ async function toggleEvidence(body, ids, btn) {
       if (e.task) { const t = el("button", "tchip", e.task); t.type = "button"; t.onclick = () => openTask(e.task, ids); row.append(t); } else row.append(el("span"));
       box.append(row);
     }
-    const plan = body.querySelector(".plan-box, .actions-box");
+    const plan = body.querySelector(".plan-foot");
     if (plan) body.insertBefore(box, plan); else body.append(box);
     btn.textContent = "Hide evidence"; scrollDown();
   } catch (e) { toast(e.message, true); }
   btn.disabled = false;
 }
 
-// ---- Agent S's changes to the board, applied by mode -------------------------------------------------
-const ACT = {
-  create_task: {icon: "plus", verb: a => `New ${a.task}`, text: a => a.title + (a.owner ? ` · ${a.owner}` : "")},
-  assign_task: {icon: "user", verb: a => `Assign ${a.task}`, text: a => `${titleOf(a.task) ? titleOf(a.task) + " " : ""}to ${a.owner}`},
-  close_task: {icon: "check", verb: a => `Close ${a.task}`, text: a => a.title || titleOf(a.task)},
-  start_task: {icon: "play", verb: a => `Start ${a.task}`, text: a => `${a.title || titleOf(a.task)} · on this laptop`},
-};
-const UNDO = {
-  create_task: (a, res) => hub(withTeam(`tasks/${encodeURIComponent(res.task)}`), {method: "DELETE"}),
-  assign_task: a => hub(withTeam(`tasks/${encodeURIComponent(a.task)}`), {method: "PATCH", body: {owner: a.prevOwner || ""}}),
-  close_task: a => hub(withTeam(`tasks/${encodeURIComponent(a.task)}`), {method: "PATCH", body: {state: "open"}}),
-};
-function renderActions(body, actions, mode) {
-  const box = el("div", "actions-box");
-  const head = el("div", "actions-head");
-  head.append(el("b", null, `${actions.length} change${actions.length > 1 ? "s" : ""} to the board`), `· ${MODES[mode].short}`);
-  box.append(head);
-  const rows = actions.map(a => {
-    const row = el("div", "act"); const i = el("span", "aic"); i.innerHTML = icon(ACT[a.type].icon);
-    const what = el("div", "what"); const line = el("div"); line.append(el("b", null, ACT[a.type].verb(a)), " ", ACT[a.type].text(a));
-    what.append(line); if (a.why) what.append(el("small", null, a.why));
-    const ctl = el("div", "ctl"); row.append(i, what, ctl); box.append(row);
-    return {a, row, ctl, line};
-  });
-  const foot = el("div", "actions-foot"); box.append(foot);
-  body.append(box); scrollDown();
-  const runAll = async () => { for (const r of rows) if (!r.done && !r.skipped) await run(r); foot.replaceChildren(); };
-  if (mode === "auto") { runAll(); return; }
-  if (mode === "manual") {
-    for (const r of rows) offer(r);
-    const all = el("button", "btn small", "Approve all"); all.type = "button";
-    all.onclick = () => { all.disabled = true; runAll(); };
-    foot.append(all);
-    return;
-  }
-  for (const r of rows) r.ctl.append(el("span", "state", "planned"));
-  const go = el("button", "btn small primary"); go.type = "button"; go.append(ic("play"), "Run plan");
-  const no = el("button", "btn small ghost", "Discard"); no.type = "button";
-  go.onclick = () => { go.disabled = no.disabled = true; runAll(); };
-  no.onclick = () => { for (const r of rows) skip(r); foot.replaceChildren(el("span", "state", "Plan discarded. Nothing changed.")); };
-  foot.append(no, go);
-}
-function offer(r) {
-  r.ctl.replaceChildren();
-  const no = el("button", "btn small ghost", "Skip"); no.type = "button"; no.onclick = () => skip(r);
-  const yes = el("button", "btn small primary", "Approve"); yes.type = "button"; yes.onclick = () => run(r);
-  r.ctl.append(no, yes);
-}
-function skip(r) { r.skipped = true; r.row.className = "act skipped"; r.ctl.replaceChildren(el("span", "state", "skipped")); }
-async function applyAction(a, repo) {
-  const card = (S.board ? S.board.tasks : []).find(t => t.task === a.task);
-  const path = `tasks/${encodeURIComponent(a.task)}`;
-  if (a.type === "create_task") return hub(withTeam("tasks"), {method: "POST", body: {task: a.task, title: a.title, owner: a.owner || null}});
-  if (a.type === "assign_task") { a.prevOwner = card ? card.owner || "" : ""; return hub(withTeam(path), {method: "PATCH", body: {owner: a.owner}}); }
-  if (a.type === "close_task") return hub(withTeam(path), {method: "PATCH", body: {state: "closed"}});
-  return api("/api/laptop/task", {method: "POST", body: {task: a.task, title: a.title || (card && card.title) || "", repo: repo || null}});
-}
-async function run(r, repo) {
-  r.ctl.replaceChildren(el("span", "state", "working…"));
-  try {
-    r.result = await applyAction(r.a, repo);
-    r.done = true; r.row.className = "act done";
-    if (r.result && r.result.task && r.result.task !== r.a.task && r.a.type === "create_task") {
-      r.a.task = r.result.task; r.line.firstChild.textContent = ACT[r.a.type].verb(r.a);
-    }
-    r.ctl.replaceChildren(el("span", "state", "✓ done"));
-    if (UNDO[r.a.type]) { const u = el("button", "link-btn"); u.type = "button"; u.append("Undo"); u.onclick = () => undo(r); r.ctl.append(u); }
-    loadBoard();
-    if (r.a.type === "start_task") refreshLaptop();
-  } catch (e) {
-    const repos = ((S.laptop || {}).repos || []).filter(x => x.ok);
-    if (e.status === 409 && r.a.type === "start_task" && repos.length > 1) return pickRepo(r, repos);
-    r.row.className = "act failed"; r.ctl.replaceChildren(el("span", "state", e.message));
-    const again = el("button", "link-btn", "Retry"); again.type = "button"; again.onclick = () => run(r, repo); r.ctl.append(again);
-  }
-}
-function pickRepo(r, repos) {
-  r.ctl.replaceChildren();
-  const sel = el("select"); sel.setAttribute("aria-label", "Repo");
-  for (const x of repos) { const o = el("option", null, x.name); o.value = x.path; sel.append(o); }
-  const go = el("button", "btn small primary", "Start here"); go.type = "button"; go.onclick = () => run(r, sel.value);
-  r.ctl.append(sel, go);
-}
-async function undo(r) {
-  try {
-    await UNDO[r.a.type](r.a, r.result);
-    r.done = false; r.row.className = "act skipped"; r.ctl.replaceChildren(el("span", "state", "undone")); loadBoard();
-  } catch (e) { toast(e.message, true); }
-}
-
 async function digest() {
-  if (!S.team) return;
+  if (!S.team || S.running) return;
   userMsg("Today's digest");
-  const slot = agentMsg();
+  const slot = agentMsg(S.agents.find(a => a.id === "agent-s") || currentAgent());
   try {
     const d = await hub(withTeam(`digest?model=${S.model}`));
     settle(slot, shortModel(d.model));
@@ -540,7 +742,7 @@ async function digest() {
   scrollDown();
 }
 
-// ---- the composer: import, mode, model ---------------------------------------------------------------
+// ---- the composer: agent, import, mode, model ------------------------------------------------------------------
 function setMode(mode, save = true) {
   S.mode = MODES[mode] ? mode : "manual";
   const m = MODES[S.mode];
@@ -613,10 +815,15 @@ $("issuesForm").addEventListener("submit", async ev => {
 const askIn = $("askIn");
 askIn.addEventListener("input", () => { askIn.style.height = "auto"; askIn.style.height = `${Math.min(askIn.scrollHeight, 180)}px`; });
 askIn.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("askForm").requestSubmit(); }
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!S.running) $("askForm").requestSubmit(); }
   if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode(MODE_ORDER[(MODE_ORDER.indexOf(S.mode) + 1) % MODE_ORDER.length]); }
 });
-$("askForm").addEventListener("submit", e => { e.preventDefault(); const q = askIn.value.trim(); if (!q) return; askIn.value = ""; askIn.style.height = "auto"; ask(q); });
+$("askForm").addEventListener("submit", e => {
+  e.preventDefault();
+  if (S.running) { if (S.turn) api(`/api/turns/${S.turn}/cancel`, {method: "POST"}).catch(() => {}); return; }  // the stop button
+  const q = askIn.value.trim(); if (!q) return;
+  askIn.value = ""; askIn.style.height = "auto"; ask(q);
+});
 $("digestBtn").onclick = digest;
 
 // ---- board -------------------------------------------------------------------------------------------------
@@ -683,7 +890,7 @@ function renderBoard() {
   b.tasks.forEach((t, i) => grid.append(card(t, b.members, i)));
 }
 
-// ---- task drawer ------------------------------------------------------------------------------------------
+// ---- the drawer: task timelines, and the agent, skill and connector editors ----------------------------------
 let openedFrom = null;
 const SVGNS = "http://www.w3.org/2000/svg";
 function svg(tag, attrs) { const n = document.createElementNS(SVGNS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; }
@@ -699,17 +906,22 @@ function sparkline(history) {
   history.forEach((h, i) => s.append(svg("circle", {cx: x(i), cy: y(h.percent), r: 3.5, fill: "var(--brick)"})));
   box.append(s, el("div", "label", `${n} estimate${n > 1 ? "s" : ""} · now ${history[n - 1].percent}%`)); return box;
 }
-async function openTask(task, highlight) {
+function openDrawer(kicker, title, nodes, foot) {
   openedFrom = document.activeElement;
+  $("dId").textContent = kicker; $("dTitle").textContent = title;
+  $("dBody").replaceChildren(...nodes); $("dBody").scrollTop = 0;
+  $("dFoot").replaceChildren(...(foot || [])); $("dFoot").hidden = !(foot && foot.length);
+  $("scrim").hidden = false; $("drawer").hidden = false;
+}
+async function openTask(task, highlight) {
   try {
     const d = await hub(withTeam(`tasks/${encodeURIComponent(task)}`));
-    $("dId").textContent = d.task; $("dTitle").textContent = d.title || d.task;
-    const body = $("dBody"); body.replaceChildren(sparkline(d.history || []));
+    const nodes = [sparkline(d.history || [])];
     const p = d.progress || {}; const lists = el("div", "lists");
     for (const r of [list("Blocked", p.blockers, "blockers"), list("Done", p.done), list("Doing", p.doing), list("Next", p.next)]) if (r) lists.append(r);
-    if (lists.childElementCount) body.append(lists);
-    body.append(el("div", "label", "Timeline, newest first"));
-    if (!d.timeline.length) body.append(el("p", "sub", d.owner ? `Planned for ${d.owner}. When a session starts on ${d.task}, it shows up here.`
+    if (lists.childElementCount) nodes.push(lists);
+    nodes.push(el("div", "label", "Timeline, newest first"));
+    if (!d.timeline.length) nodes.push(el("p", "sub", d.owner ? `Planned for ${d.owner}. When a session starts on ${d.task}, it shows up here.`
       : `Planned. When someone starts a session on ${d.task}, it shows up here.`));
     const ol = el("ol", "timeline"); const hit = new Set(highlight || []);
     for (const e of d.timeline) {
@@ -717,13 +929,516 @@ async function openTask(task, highlight) {
       t.append(el("b", null, `${e.member}${TOOLS[e.tool] ? " · " + TOOLS[e.tool] : ""}  `), e.line);
       li.append(el("time", null, clock(e.ts)), t); ol.append(li);
     }
-    body.append(ol);
-    $("scrim").hidden = false; $("drawer").hidden = false; $("dClose").focus();
+    nodes.push(ol);
+    openDrawer(d.task, d.title || d.task, nodes);
+    $("dClose").focus();
     const first = ol.querySelector(".hit"); if (first) first.scrollIntoView({block: "center"});
   } catch (e) { toast(e.message, true); }
 }
-function closeTask() { $("drawer").hidden = true; $("scrim").hidden = true; if (openedFrom) openedFrom.focus(); }
-$("dClose").onclick = closeTask; $("scrim").onclick = closeTask;
+function closeDrawer() { $("drawer").hidden = true; $("scrim").hidden = true; if (openedFrom && openedFrom.isConnected) openedFrom.focus(); }
+$("dClose").onclick = closeDrawer; $("scrim").onclick = closeDrawer;
+
+// small form pieces for the editors
+function fieldBox(label, control, hint) { const l = el("label", "field"); l.append(el("span", null, label), control); if (hint) l.append(el("span", "hint", hint)); return l; }
+function groupBox(label, control, hint) { const d = el("div", "field"); d.setAttribute("role", "group"); d.setAttribute("aria-label", label); d.append(el("span", null, label), control); if (hint) d.append(el("span", "hint", hint)); return d; }
+function inputEl(props) { return Object.assign(el("input"), props); }
+function textareaEl(props) { return Object.assign(el("textarea"), props); }
+function segEl(options, value, onPick) {
+  const s = el("div", "seg");
+  for (const [k, label] of options) {
+    const b = el("button", null, label); b.type = "button"; b.setAttribute("aria-pressed", String(k === value));
+    b.onclick = () => { for (const x of s.children) x.setAttribute("aria-pressed", "false"); b.setAttribute("aria-pressed", "true"); onPick(k); };
+    s.append(b);
+  }
+  return s;
+}
+function optEl(checked, title, small, tag) {
+  const l = el("label", "opt"); const c = inputEl({type: "checkbox", checked});
+  const w = el("span"); const b = el("b", null, title); if (tag) b.append(tag); w.append(b); if (small) w.append(el("small", null, small));
+  l.append(c, w); return {l, c};
+}
+function btn(label, cls, onClick, iconName) { const b = el("button", `btn small ${cls || ""}`); b.type = "button"; if (iconName) b.append(ic(iconName)); b.append(label); b.onclick = onClick; return b; }
+function armed(label, onConfirm) {  // a destructive button that asks for a second click
+  const b = btn(label, "ghost", () => {
+    if (b.dataset.armed) return onConfirm();
+    b.dataset.armed = "1"; b.textContent = `${label}: click again`; b.classList.add("danger");
+    setTimeout(() => { delete b.dataset.armed; b.textContent = label; b.classList.remove("danger"); }, 3000);
+  });
+  return b;
+}
+
+// ---- Agents page: agents, skills, connectors --------------------------------------------------------------------
+let agentTab = "agents";
+const TAB_SUB = {
+  agents: "Each agent has its own instructions, model, mode, skills, connectors and tools.",
+  skills: "Skills teach agents a way of working. An agent reads a skill when the task calls for it; always-on skills are part of every message.",
+  connectors: "Connectors are MCP servers, as in Claude Desktop. Give one to an agent and it can use that server's tools.",
+};
+function showAgentTab(tab) {
+  agentTab = tab;
+  for (const b of $("agentTabs").children) b.classList.toggle("on", b.dataset.tab === tab);
+  for (const t of Object.keys(TAB_SUB)) $(`tab-${t}`).hidden = t !== tab;
+  $("agentsSub").textContent = TAB_SUB[tab];
+  if (tab === "agents") renderAgents();
+  if (tab === "skills") renderSkills();
+  if (tab === "connectors") renderConnectors();
+}
+for (const b of $("agentTabs").children) b.onclick = () => showAgentTab(b.dataset.tab);
+
+async function renderAgents() {
+  await loadAgents();
+  const grid = $("tab-agents"); grid.className = "tab agent-grid"; grid.replaceChildren();
+  S.agents.forEach((a, i) => {
+    const c = el("article", "agent-card"); c.style.animationDelay = `${Math.min(i, 8) * 40}ms`;
+    const head = el("div", "head"); const words = el("div"); words.style.minWidth = "0";
+    words.append(el("h3", null, a.name), el("div", "meta", `${a.model === "auto" ? "Auto model" : MODELS[a.model].label} · ${MODES[a.mode].label} mode${a.builtin ? " · built in" : ""}`));
+    head.append(agent("", a.color), words);
+    const chips = el("div", "row");
+    const n = a.skills.length, k = a.connectors.length;
+    chips.append(el("span", "tag", `${n} skill${n === 1 ? "" : "s"}`), el("span", "tag", `${k} connector${k === 1 ? "" : "s"}`));
+    for (const g of Object.keys(TOOL_GROUPS)) if (a.tools[g]) chips.append(el("span", "tag", TOOL_GROUPS[g].label));
+    const foot = el("div", "foot");
+    foot.append(btn("Chat", "ghost", () => { setAgent(a.id); newChat(); }), btn("Edit", "", () => editAgent(a)));
+    c.append(head, el("p", "instr", agentLine(a)), chips, foot); grid.append(c);
+  });
+  const add = el("button", "agent-card add"); add.type = "button";
+  add.append(ic("plus"), el("b", null, "New agent"), el("span", "sub", "A reviewer, a release manager, a researcher: give it instructions, skills and tools."));
+  add.onclick = () => editAgent(null);
+  grid.append(add);
+}
+async function editAgent(a) {
+  const isNew = !a;
+  const draft = a ? JSON.parse(JSON.stringify(a)) : {name: "", color: S.colors[S.agents.length % S.colors.length] || "#3E9B6B", instructions: "",
+    model: "auto", mode: "manual", skills: ["karpathy-guidelines"], connectors: [], tools: {team: true, files: true, terminal: true, browser: true}};
+  const [skills, conns] = await Promise.all([api("/api/skills").then(r => r.skills).catch(() => []), api("/api/connectors").then(r => r.items).catch(() => [])]);
+  const name = inputEl({value: draft.name, maxLength: 40, placeholder: "e.g. Reviewer", required: true});
+  const sw = el("div", "swatches");
+  for (const c of S.colors) {
+    const b = el("button"); b.type = "button"; b.style.setProperty("--c", c); b.setAttribute("aria-label", `Hood colour ${c}`); b.setAttribute("aria-pressed", String(c === draft.color));
+    b.onclick = () => { draft.color = c; for (const x of sw.children) x.setAttribute("aria-pressed", String(x === b)); };
+    sw.append(b);
+  }
+  const instr = textareaEl({value: draft.instructions, maxLength: 8000, rows: 8,
+    placeholder: "How should this agent work? For example: You review pull requests like a staff engineer. Correctness first, then tests, then naming. Be blunt and specific; quote the line you mean."});
+  const tools = el("div", "opts");
+  for (const [g, t] of Object.entries(TOOL_GROUPS)) { const o = optEl(!!draft.tools[g], t.label, t.desc); o.c.onchange = () => { draft.tools[g] = o.c.checked; }; tools.append(o.l); }
+  const sk = el("div", "opts");
+  for (const s of skills) {
+    const o = optEl(draft.skills.includes(s.name), s.name, s.description, s.always ? el("span", "pill-tag on", "in every message") : null);
+    o.c.onchange = () => { draft.skills = o.c.checked ? [...new Set([...draft.skills, s.name])] : draft.skills.filter(x => x !== s.name); };
+    sk.append(o.l);
+  }
+  const cn = el("div", "opts");
+  for (const c of conns) {
+    const o = optEl(draft.connectors.includes(c.id), c.name, c.kind === "http" ? c.url : [c.command, ...(c.args || [])].join(" "), c.enabled ? null : el("span", "pill-tag", "off"));
+    o.c.onchange = () => { draft.connectors = o.c.checked ? [...new Set([...draft.connectors, c.id])] : draft.connectors.filter(x => x !== c.id); };
+    cn.append(o.l);
+  }
+  if (!conns.length) { const p = el("p", "sub"); p.append("No connectors yet. "); const l = el("button", "link-btn", "Add one"); l.type = "button"; l.onclick = () => { closeDrawer(); showAgentTab("connectors"); }; p.append(l); cn.append(p); }
+  const form = el("form", "form");
+  form.append(fieldBox("Name", name), groupBox("Hood", sw),
+    fieldBox("Instructions", instr, "Its behaviour: role, tone, what to check, what never to do. Added to every message."),
+    groupBox("Default model", segEl(Object.keys(MODELS).map(k => [k, MODELS[k].label.replace("Nemotron ", "")]), draft.model, k => { draft.model = k; })),
+    groupBox("Default mode", segEl(MODE_ORDER.map(k => [k, MODES[k].label]), draft.mode, k => { draft.mode = k; })),
+    groupBox("Tools", tools), groupBox("Skills", sk, "Karpathy's guidelines are on by default: think first, keep it simple, change only what's asked."),
+    groupBox("Connectors", cn));
+  const save = async () => {
+    if (!name.value.trim()) { name.focus(); return toast("Give the agent a name.", true); }
+    const body = {name: name.value.trim(), color: draft.color, instructions: instr.value, model: draft.model, mode: draft.mode,
+      skills: draft.skills, connectors: draft.connectors, tools: draft.tools};
+    try {
+      const saved = await api(isNew ? "/api/agents" : `/api/agents/${a.id}`, {method: isNew ? "POST" : "PATCH", body});
+      closeDrawer(); toast(isNew ? `${saved.name} is ready.` : `Saved ${saved.name}.`);
+      await renderAgents(); renderChats();
+    } catch (e) { toast(e.message, true); }
+  };
+  form.addEventListener("submit", e => { e.preventDefault(); save(); });
+  const foot = [];
+  if (!isNew && !a.builtin) foot.push(armed("Delete", async () => {
+    try { await api(`/api/agents/${a.id}`, {method: "DELETE"}); closeDrawer(); if (S.agent === a.id) setAgent("agent-s"); toast(`Deleted ${a.name}.`); renderAgents(); }
+    catch (e) { toast(e.message, true); }
+  }));
+  foot.push(el("span", "grow"), btn("Cancel", "ghost", closeDrawer), btn(isNew ? "Create agent" : "Save", "primary", save));
+  openDrawer(isNew ? "Agents" : a.builtin ? "Built-in agent" : "Agent", isNew ? "New agent" : a.name, [form], foot);
+  name.focus();
+}
+
+async function renderSkills() {
+  const box = $("tab-skills"); box.replaceChildren(el("div", "skeleton"));
+  let skills;
+  try { skills = (await api("/api/skills")).skills; } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  const bar = el("div", "bar");
+  bar.append(btn("New skill", "primary", () => editSkill(null), "plus"), btn("Import from Claude Code", "", importSkills, "book"));
+  const rows = el("div", "list");
+  skills.forEach((s, i) => {
+    const it = el("div", "item"); it.style.animationDelay = `${Math.min(i, 8) * 30}ms`;
+    const iic = el("span", "iic"); iic.append(ic("book"));
+    const w = el("div"); const nm = el("b", "mono", s.name);
+    if (s.always) nm.append(el("span", "pill-tag on", "in every message"));
+    nm.append(el("span", "pill-tag", s.bundled ? "built in" : "yours"));
+    w.append(nm, el("small", null, s.description || "No description"));
+    const ctl = el("div", "ctl"); ctl.append(btn("Open", "ghost", () => viewSkill(s.name)));
+    it.append(iic, w, ctl); rows.append(it);
+  });
+  box.replaceChildren(bar, rows);
+}
+async function viewSkill(name) {
+  let s;
+  try { s = await api(`/api/skills/${encodeURIComponent(name)}`); } catch (e) { return toast(e.message, true); }
+  const md = el("div", "md"); renderMd(md, s.body);
+  const nodes = [el("p", "sub", s.description), md];
+  if (s.files.length) nodes.push(el("div", "label", `Also in this skill: ${s.files.join(", ")}`));
+  const foot = [];
+  if (!s.bundled) foot.push(armed(s.name === "karpathy-guidelines" ? "Reset to built in" : "Delete", async () => {
+    try { await api(`/api/skills/${encodeURIComponent(s.name)}`, {method: "DELETE"}); closeDrawer(); toast(`Removed ${s.name}.`); renderSkills(); }
+    catch (e) { toast(e.message, true); }
+  }));
+  foot.push(el("span", "grow"), btn(s.bundled ? "Customize" : "Edit", "", () => editSkill(s), "edit"));
+  openDrawer(s.bundled ? "Built-in skill" : "Your skill", s.name, nodes, foot);
+}
+function editSkill(s) {
+  const isNew = !s;
+  const name = inputEl({value: s ? s.name : "", maxLength: 64, placeholder: "e.g. release-notes", className: "mono", disabled: !isNew});
+  const desc = inputEl({value: s ? s.description : "", maxLength: 400, placeholder: "When to use it, in one line. Agents decide from this."});
+  const body = textareaEl({value: s ? s.body : "", rows: 18, className: "mono", placeholder: "# Release notes\n\nGroup merged work by feature. Lead with what users notice…"});
+  const save = async () => {
+    try {
+      const r = await api("/api/skills", {method: "POST", body: {name: name.value.trim(), description: desc.value.trim(), body: body.value}});
+      closeDrawer(); toast(`Saved ${r.name}. Turn it on for an agent in Agents.`); renderSkills();
+    } catch (e) { toast(e.message, true); }
+  };
+  const form = el("form", "form");
+  form.append(fieldBox("Name", name, "Lowercase letters, digits and dashes."), fieldBox("Description", desc), fieldBox("Instructions (SKILL.md)", body, "Markdown. Claude Code's skill format, so the same skill works in both."));
+  form.addEventListener("submit", e => { e.preventDefault(); save(); });
+  openDrawer(isNew ? "New skill" : s.bundled ? "Your copy of a built-in skill" : "Edit skill", isNew ? "New skill" : s.name, [form],
+    [el("span", "grow"), btn("Cancel", "ghost", closeDrawer), btn("Save skill", "primary", save)]);
+  (isNew ? name : body).focus();
+}
+async function importSkills() {
+  let found;
+  try { found = (await api("/api/skills/claude-code")).skills; } catch (e) { return toast(e.message, true); }
+  const rows = el("div", "list");
+  for (const s of found) {
+    const it = el("div", "item"); const iic = el("span", "iic"); iic.append(ic("book"));
+    const w = el("div"); w.append(el("b", "mono", s.name), el("small", null, s.description || ""));
+    const ctl = el("div", "ctl");
+    const b = btn(s.installed ? "Import again" : "Import", s.installed ? "ghost" : "primary", async () => {
+      b.disabled = true;
+      try { await api("/api/skills/import", {method: "POST", body: {name: s.name}}); b.textContent = "Added"; renderSkills(); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    });
+    ctl.append(b); it.append(iic, w, ctl); rows.append(it);
+  }
+  openDrawer("Claude Code", "Import skills", [el("p", "sub", "Skills installed for Claude Code on this laptop (~/.claude/skills). Importing copies one into Super Agents."),
+    found.length ? rows : el("p", "sub", "No Claude Code skills found on this laptop.")]);
+}
+
+async function renderConnectors() {
+  const box = $("tab-connectors");
+  let r;
+  try { r = await api("/api/connectors"); S.connectors = r.items; } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  const rows = el("div", "list");
+  for (const c of r.items) rows.append(connectorItem(c, r));
+  if (!r.items.length) rows.append(el("p", "sub", "None yet. Add one below, then switch it on for an agent."));
+  const presets = el("div", "presets");
+  for (const p of r.presets) presets.append(presetCard(p));
+  presets.append(customCard());
+  box.replaceChildren(el("h3", "section-title", "Your connectors"), rows, el("h3", "section-title", "Add a connector"), presets);
+}
+function connectorItem(c, r) {
+  const it = el("div", "item" + (c.enabled ? "" : " off"));
+  const iic = el("span", "iic"); iic.append(ic("plug"));
+  const w = el("div"); const nm = el("b", null, c.name);
+  nm.append(el("span", "pill-tag", c.kind === "http" ? "http" : "local"));
+  if (r.live[c.id] != null) nm.append(el("span", "pill-tag on", `${r.live[c.id]} tools`));
+  if (r.errors[c.id]) nm.append(el("span", "pill-tag bad", "error"));
+  const users = S.agents.filter(a => a.connectors.includes(c.id)).map(a => a.name);
+  w.append(nm, el("small", null, c.kind === "http" ? c.url : [c.command, ...(c.args || [])].join(" ")),
+    el("small", null, users.length ? `Used by ${users.join(", ")}` : "No agent uses it yet"));
+  const msg = el("div", "err", r.errors[c.id] || ""); w.append(msg);
+  const tg = el("button", "toggle"); tg.type = "button"; tg.setAttribute("role", "switch"); tg.setAttribute("aria-checked", String(!!c.enabled)); tg.setAttribute("aria-label", `${c.name} on`);
+  tg.onclick = async () => { await api(`/api/connectors/${c.id}`, {method: "PATCH", body: {enabled: !c.enabled}}).catch(e => toast(e.message, true)); renderConnectors(); };
+  const test = btn("Test", "ghost", async () => {
+    test.disabled = true; msg.className = "sub"; msg.textContent = "Connecting…";
+    try { const t = (await api(`/api/connectors/${c.id}/test`, {method: "POST"})).tools; msg.textContent = `Works. ${t.length} tools: ${t.slice(0, 8).join(", ")}${t.length > 8 ? ", …" : ""}`; }
+    catch (e) { msg.className = "err"; msg.textContent = e.message; }
+    test.disabled = false;
+  });
+  const del = armed("Remove", async () => { await api(`/api/connectors/${c.id}`, {method: "DELETE"}).catch(e => toast(e.message, true)); await loadAgents(); renderConnectors(); });
+  const ctl = el("div", "ctl"); ctl.append(tg, test, del);
+  it.append(iic, w, ctl); return it;
+}
+async function addConnector(body, give, msg) {
+  try {
+    const c = await api("/api/connectors", {method: "POST", body});
+    if (give) { const s = S.agents.find(a => a.id === "agent-s"); await api("/api/agents/agent-s", {method: "PATCH", body: {connectors: [...new Set([...(s ? s.connectors : []), c.id])]}}); }
+    toast(`Added ${c.name}.${give ? " Agent S can use it now." : ""}`);
+    await loadAgents(); renderConnectors();
+  } catch (e) { msg.textContent = e.message; }
+}
+function giveBox() { const o = optEl(true, "Give it to Agent S", null); o.l.style.padding = "6px 10px"; return o; }
+function presetCard(p) {
+  const box = el("div", "preset"); const h = el("h4"); h.append(ic("plug"), p.name);
+  box.append(h, el("p", null, p.about));
+  const values = {};
+  for (const f of p.fields) {
+    const i = inputEl({type: f.secret ? "password" : "text", placeholder: f.label, autocomplete: "off", className: f.arg ? "mono" : ""});
+    i.oninput = () => { values[f.key] = i.value; };
+    if (f.arg) {
+      const row = el("div", "row gap"); i.style.flex = "1";
+      row.append(i, btn("Pick", "ghost", async () => { const r = await api("/api/pick-folder", {method: "POST"}).catch(() => ({})); if (r.path) { i.value = r.path; values[f.key] = r.path; } }));
+      box.append(row);
+    } else box.append(i);
+  }
+  const give = giveBox(); const msg = el("div", "err");
+  box.append(give.l, btn("Add", "primary", () => { msg.textContent = ""; addConnector({preset: p.preset, values}, give.c.checked, msg); }, "plus"), msg);
+  return box;
+}
+function customCard() {
+  const box = el("div", "preset"); const h = el("h4"); h.append(ic("plug"), "Custom MCP server");
+  box.append(h, el("p", null, "Any MCP server: a URL (streamable HTTP) or a command this laptop runs (stdio)."));
+  let kind = "url";
+  const name = inputEl({placeholder: "Name", maxLength: 40});
+  const url = inputEl({placeholder: "https://example.com/mcp", className: "mono"});
+  const header = inputEl({placeholder: "Authorization header (optional)", type: "password", autocomplete: "off"});
+  const cmd = inputEl({placeholder: "Command, e.g. npx or uvx", className: "mono"});
+  const args = textareaEl({placeholder: "Arguments, one per line", rows: 3, className: "mono"});
+  const urlBox = el("div", "stack"); urlBox.append(url, header);
+  const cmdBox = el("div", "stack"); cmdBox.append(cmd, args); cmdBox.hidden = true;
+  const seg = segEl([["url", "URL"], ["command", "Command"]], kind, k => { kind = k; urlBox.hidden = k !== "url"; cmdBox.hidden = k !== "command"; });
+  const give = giveBox(); const msg = el("div", "err");
+  box.append(name, seg, urlBox, cmdBox, give.l, btn("Add", "primary", () => {
+    msg.textContent = "";
+    const body = kind === "url" ? {name: name.value, url: url.value.trim(), headers: header.value.trim() ? {Authorization: header.value.trim()} : {}}
+      : {name: name.value, command: cmd.value.trim(), args: args.value.split("\n").map(x => x.trim()).filter(Boolean)};
+    addConnector(body, give.c.checked, msg);
+  }, "plus"), msg);
+  return box;
+}
+
+// ---- the side panel: files, terminal, browser ----------------------------------------------------------------
+const SIDE = {pane: null};
+function openPane(name) {
+  if (!["files", "terminal", "browser"].includes(name)) return;
+  $("side").hidden = false; SIDE.pane = name;
+  for (const b of document.querySelectorAll("[data-pane]")) b.classList.toggle("on", b.dataset.pane === name);
+  for (const p of ["files", "terminal", "browser"]) $(`pane-${p}`).hidden = p !== name;
+  if (name === "files") loadTree();
+  if (name === "terminal") { if (!TERMS.list.length) newTerminal(); else showTerm(TERMS.active || TERMS.list[0]); }
+  if (name === "browser" && !BR.url) browserEmpty();
+}
+function closePane() {
+  $("side").hidden = true; SIDE.pane = null;
+  for (const b of document.querySelectorAll("[data-pane]")) b.classList.remove("on");
+}
+function togglePane(name) { if (SIDE.pane === name) closePane(); else openPane(name); }
+for (const b of document.querySelectorAll(".pane-btns [data-pane]")) b.onclick = () => togglePane(b.dataset.pane);
+for (const b of document.querySelectorAll(".side-head [data-pane]")) b.onclick = () => openPane(b.dataset.pane);
+$("sideClose").onclick = closePane;
+(() => {  // drag (or arrow keys on) the panel's left edge to resize it; the width is remembered on this laptop
+  const side = $("side"), handle = $("resizer");
+  const set = px => { const w = Math.round(Math.max(340, Math.min(px, window.innerWidth * 0.72))); side.style.setProperty("--side-w", `${w}px`); return w; };
+  try { const w = localStorage.getItem("sa-side-w"); if (w) set(+w); } catch (e) { /* default width */ }
+  const remember = () => { try { localStorage.setItem("sa-side-w", String(parseInt(side.style.getPropertyValue("--side-w")) || "")); } catch (e) { /* fine */ } };
+  handle.addEventListener("pointerdown", e => {
+    e.preventDefault(); handle.setPointerCapture(e.pointerId); handle.classList.add("drag");
+    const right = side.getBoundingClientRect().right;
+    const move = ev => set(right - ev.clientX);
+    const up = () => { handle.classList.remove("drag"); handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); remember(); };
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+  });
+  handle.addEventListener("keydown", e => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault(); set(side.getBoundingClientRect().width + (e.key === "ArrowLeft" ? 32 : -32)); remember();
+  });
+})();
+
+// Files: the repos connected on This laptop, read only here (agents write through their tools).
+const FILES = {current: null};
+const LANGS = {py: "python", js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript",
+  json: "json", md: "markdown", markdown: "markdown", html: "xml", htm: "xml", xml: "xml", svg: "xml", css: "css", scss: "scss", less: "less",
+  yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", sh: "bash", bash: "bash", zsh: "bash", ps1: "powershell", psm1: "powershell",
+  go: "go", rs: "rust", java: "java", kt: "kotlin", rb: "ruby", php: "php", cs: "csharp", c: "c", h: "c", cpp: "cpp", cc: "cpp", hpp: "cpp",
+  sql: "sql", swift: "swift", lua: "lua", r: "r", diff: "diff", patch: "diff", graphql: "graphql", vb: "vbnet"};
+function langFor(name) {
+  const lower = name.toLowerCase(); const ext = lower.includes(".") ? lower.split(".").pop() : lower;
+  const lang = lower === "makefile" ? "makefile" : LANGS[ext];
+  return lang && hljs.getLanguage(lang) ? lang : null;
+}
+async function loadTree() {
+  const tree = $("tree");
+  let roots;
+  try { roots = (await api("/api/files/roots")).roots; } catch (e) { tree.replaceChildren(el("div", "note", e.message)); return; }
+  tree.replaceChildren();
+  if (!roots.length) {
+    const n = el("div", "note", "Connect a repo on This laptop to browse its files here. ");
+    const b = el("button", "link-btn", "Connect a repo"); b.type = "button"; b.onclick = () => go("laptop"); n.append(b);
+    tree.append(n);
+  }
+  roots.forEach((r, i) => { const node = treeNode({name: r.name, path: r.name, dir: true}, true); tree.append(node); if (i === 0) node.querySelector("button").click(); });
+  if (!FILES.current) viewerEmpty(roots.length);
+}
+function treeNode(entry, root) {
+  const wrap = el("div", root ? "root" : null);
+  const b = el("button"); b.type = "button"; b.title = entry.path;
+  const caret = el("span", "ic caret"); if (entry.dir) caret.innerHTML = icon("caret");
+  b.append(caret, ic(entry.dir ? "folder" : "file"), el("span", null, entry.name));
+  wrap.append(b);
+  if (!entry.dir) { b.onclick = () => openFile(entry.path, b); return wrap; }
+  const kids = el("div", "kids"); kids.hidden = true; wrap.append(kids);
+  b.setAttribute("aria-expanded", "false");
+  b.onclick = async () => {
+    const opening = kids.hidden;
+    if (opening && !kids.childElementCount) {
+      try { const r = await api(`/api/files/list?path=${encodeURIComponent(entry.path)}`); for (const e of r.entries) kids.append(treeNode(e)); if (!r.entries.length) kids.append(el("div", "note", "Empty")); }
+      catch (e) { kids.append(el("div", "note", e.message)); }
+    }
+    kids.hidden = !opening; wrap.classList.toggle("open", opening); b.setAttribute("aria-expanded", String(opening));
+  };
+  return wrap;
+}
+function viewerEmpty(hasRoots) {
+  const box = el("div", "viewer-empty"); box.append(agent("", currentAgent().color), el("b", null, hasRoots ? "Pick a file" : "No repos yet"),
+    el("span", null, hasRoots ? "Files from your connected repos open here. Agents' edits show up as they happen." : "Files from your connected repos open here."));
+  $("viewer").replaceChildren(el("div", "viewer-head"), box);
+}
+async function openFile(path, fromTree) {
+  if (SIDE.pane !== "files") openPane("files");
+  document.querySelectorAll("#tree button.on").forEach(x => x.classList.remove("on"));
+  if (fromTree) fromTree.classList.add("on");
+  FILES.current = path;
+  const head = el("div", "viewer-head"); const label = el("span", "path", path); head.append(ic("file"), label);
+  const body = el("div", "viewer-body");
+  $("viewer").replaceChildren(head, body);
+  let r;
+  try { r = await api(`/api/files/read?path=${encodeURIComponent(path)}`); } catch (e) { body.append(el("div", "viewer-empty", e.message)); return; }
+  label.textContent = r.path; label.title = r.path;
+  const copy = el("button", "icon-btn small"); copy.type = "button"; copy.title = "Copy the path"; copy.setAttribute("aria-label", "Copy the path"); copy.append(ic("copy"));
+  copy.onclick = () => navigator.clipboard.writeText(r.path).then(() => toast("Path copied."), () => toast(r.path));
+  if (r.kind === "image") {
+    head.append(copy);
+    const box = el("div", "img"); const img = el("img"); img.alt = r.name; box.append(img); body.append(box);
+    try { const res = await fetch(`/api/files/raw?path=${encodeURIComponent(path)}`, {headers: {"X-App-Key": KEY}}); img.src = URL.createObjectURL(await res.blob()); }
+    catch (e) { box.replaceChildren(el("div", "viewer-empty", "Couldn't load the image.")); }
+    return;
+  }
+  if (r.kind !== "text") { head.append(copy); body.append(el("div", "viewer-empty", r.kind === "large" ? `${r.name} is over 2 MB.` : `${r.name} isn't a text file.`)); return; }
+  const code = () => body.replaceChildren(codeView(r.text, r.name));
+  const preview = () => { const m = el("div", "md"); renderMd(m, r.text); body.replaceChildren(m); };
+  if (/\.(md|markdown)$/i.test(r.name)) { head.append(segEl([["preview", "Preview"], ["source", "Source"]], "preview", k => (k === "preview" ? preview() : code())), copy); preview(); }
+  else { head.append(copy); code(); }
+}
+function codeView(text, name) {
+  const lines = text.split("\n"); if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  const src = lines.join("\n");
+  const wrap = el("div", "code");
+  const gutter = el("pre", "gutter", lines.map((_, i) => i + 1).join("\n"));
+  const pre = el("pre"); const code = el("code", "hljs"); code.textContent = src;
+  const lang = langFor(name);
+  try {
+    if (lang && src.length < 400_000) code.innerHTML = hljs.highlight(src, {language: lang, ignoreIllegals: true}).value;
+    else if (!lang && src.length < 40_000) code.innerHTML = hljs.highlightAuto(src).value;
+  } catch (e) { code.textContent = src; }
+  pre.append(code); wrap.append(gutter, pre); return wrap;
+}
+
+// Terminal: a real shell on this laptop (PowerShell on Windows), in the first connected repo.
+const TERMS = {list: [], active: null, n: 0};
+function termTheme() {
+  const css = getComputedStyle(document.documentElement); const v = n => css.getPropertyValue(n).trim();
+  const dark = document.documentElement.dataset.theme !== "light";
+  const ansi = dark
+    ? ["#2A2830", "#F07A70", "#4CC38A", "#F2B32B", "#7FA6F0", "#B3A5F0", "#6CCFD0", "#D8D0C4", "#6F6960", "#FF9A90", "#7BE0AE", "#FFD166", "#A5C2FF", "#CFC3FF", "#9BE6E6", "#F3ECE0"]
+    : ["#18171B", "#B23A31", "#2C7A4F", "#8F6400", "#2D60A3", "#6448B4", "#1F7676", "#8C857B", "#6B655D", "#A8443D", "#2C8A57", "#A87A00", "#3D74C2", "#7A5CCC", "#2A8C8C", "#18171B"];
+  const names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+  const theme = {background: v("--term-bg"), foreground: v("--text"), cursor: v("--brick"), cursorAccent: v("--term-bg"),
+    selectionBackground: dark ? "rgba(217,103,92,.35)" : "rgba(168,68,61,.22)"};
+  names.forEach((n, i) => { theme[n] = ansi[i]; theme[`bright${n[0].toUpperCase()}${n.slice(1)}`] = ansi[i + 8]; });
+  return theme;
+}
+function newTerminal() {
+  const id = ++TERMS.n;
+  const box = el("div", "term"); $("terms").append(box);
+  const term = new Terminal({fontFamily: '"JB Mono", "Cascadia Mono", Consolas, monospace', fontSize: 13, lineHeight: 1.15, cursorBlink: true,
+    scrollback: 5000, theme: termTheme()});
+  const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(box);
+  const t = {id, name: `Terminal ${id}`, term, fit, box, ws: null, ended: false};
+  TERMS.list.push(t);
+  term.onData(d => {
+    if (t.ended) { if (d === "\r") { t.ended = false; term.reset(); connectTerm(t); } return; }
+    if (t.ws && t.ws.readyState === 1) t.ws.send(JSON.stringify({t: "in", d}));
+  });
+  term.onResize(({cols, rows}) => { if (t.ws && t.ws.readyState === 1) t.ws.send(JSON.stringify({t: "resize", c: cols, r: rows})); });
+  new ResizeObserver(() => { if (box.offsetWidth && !box.hidden) { try { fit.fit(); } catch (e) { /* not laid out yet */ } } }).observe(box);
+  showTerm(t); connectTerm(t);
+}
+function connectTerm(t) {
+  try { t.fit.fit(); } catch (e) { /* default size */ }
+  const q = new URLSearchParams({k: KEY, cols: t.term.cols, rows: t.term.rows});
+  const ws = new WebSocket(`ws://${location.host}/api/terminal?${q}`);
+  t.ws = ws;
+  ws.onmessage = e => t.term.write(e.data);
+  ws.onopen = () => { renderTermTabs(); if (TERMS.active === t) t.term.focus(); };
+  ws.onclose = () => {
+    if (t.ws !== ws) return;
+    t.ended = true; renderTermTabs();
+    t.term.write("\r\n\x1b[2m[the shell ended · press Enter to start a new one]\x1b[0m\r\n");
+  };
+}
+function showTerm(t) {
+  TERMS.active = t;
+  for (const x of TERMS.list) x.box.hidden = x !== t;
+  requestAnimationFrame(() => { try { t.fit.fit(); } catch (e) { /* hidden */ } t.term.focus(); });
+  renderTermTabs();
+}
+function closeTerm(t) {
+  const ws = t.ws; t.ws = null; if (ws) ws.close();
+  t.term.dispose(); t.box.remove();
+  TERMS.list = TERMS.list.filter(x => x !== t);
+  if (TERMS.active === t) TERMS.active = TERMS.list[TERMS.list.length - 1] || null;
+  if (TERMS.active) showTerm(TERMS.active); else { renderTermTabs(); closePane(); }
+}
+function renderTermTabs() {
+  const bar = $("termTabs"); bar.replaceChildren();
+  for (const t of TERMS.list) {
+    const b = el("button", (t === TERMS.active ? "on" : "") + (t.ended ? " ended" : "")); b.type = "button";
+    const x = el("span", "x"); x.setAttribute("role", "button"); x.setAttribute("aria-label", `Close ${t.name}`); x.append(ic("x"));
+    x.onclick = ev => { ev.stopPropagation(); closeTerm(t); };
+    b.append(el("i"), t.name, x); b.onclick = () => showTerm(t); bar.append(b);
+  }
+  const add = el("button", "add"); add.type = "button"; add.title = "New terminal"; add.setAttribute("aria-label", "New terminal"); add.append(ic("plus"));
+  add.onclick = newTerminal; bar.append(add);
+}
+
+// Browser: pages in a frame (dev servers, docs, what an agent opens); "open in its own window" for sites that refuse frames.
+const BR = {url: ""};
+function normalizeUrl(raw) {
+  let u = (raw || "").trim(); if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) u = (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(u) ? "http://" : "https://") + u;
+  try {
+    const x = new URL(u);  // never the app itself, under any loopback name
+    return ["127.0.0.1", "localhost", "[::1]"].includes(x.hostname) && x.port === location.port ? "" : x.href;
+  } catch (e) { return ""; }
+}
+function openBrowser(raw) {
+  const u = normalizeUrl(raw);
+  if (!u) return toast("That address can't open here.", true);
+  if (SIDE.pane !== "browser") openPane("browser");
+  BR.url = u; $("urlIn").value = u; $("frameEmpty").hidden = true;
+  const f = $("frame"); f.hidden = false; f.src = u;
+}
+function browserEmpty() {
+  const e = $("frameEmpty");
+  e.replaceChildren(agent("", currentAgent().color), el("b", null, "A browser for your work"),
+    el("span", "sub", "Preview your dev server, read docs, or follow a page an agent opens."));
+  const row = el("div", "row gap");
+  for (const port of [3000, 5173, 8000]) { const b = el("button", "chip-btn", `localhost:${port}`); b.type = "button"; b.onclick = () => openBrowser(`http://localhost:${port}`); row.append(b); }
+  e.append(row); e.hidden = false; $("frame").hidden = true;
+}
+$("urlForm").addEventListener("submit", e => { e.preventDefault(); openBrowser($("urlIn").value); });
+$("brReload").onclick = () => { if (BR.url) { const f = $("frame"); f.src = "about:blank"; setTimeout(() => { f.src = BR.url; }, 40); } };
+const popOut = () => { const u = normalizeUrl($("urlIn").value) || BR.url; if (u) api("/api/browser/window", {method: "POST", body: {url: u}}).catch(e => toast(e.message, true)); };
+$("brPop").onclick = popOut; $("brPop2").onclick = popOut;
 
 // ---- team -------------------------------------------------------------------------------------------------
 async function loadTeam() {
@@ -839,7 +1554,8 @@ function renderLaptop() {
   const never = el("section", "panel"); never.append(el("h3", null, "Never leaves this laptop"));
   const nv = el("div", "never");
   for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
-  nv.append(el("p", "sub", "What goes: a one-line summary per turn, written on this laptop, plus facts such as files changed and tests passed or failed."));
+  nv.append(el("p", "sub", "What goes: a one-line summary per turn, written on this laptop, plus facts such as files changed and tests passed or failed."),
+    el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);
   grid.append(left, right);
 }

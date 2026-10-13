@@ -78,6 +78,34 @@ def _call(p: dict, model: str, job: str, messages: list[dict], schema: dict, max
 MAX_TOKENS = {"agent": 2000}  # a plan with a dozen actions needs room; the other jobs fit in 1200
 
 
+def chat_tools(messages: list[dict], tools: list[dict], max_tokens: int = 2000, timeout: float = 90) -> dict:
+    """One step of an agent's tool loop (the Super Agents app runs the loop on the laptop and calls this through
+    POST /v1/llm). OpenAI-style tools in, {content, tool_calls, model} out. Same retry rule as chat_json."""
+    p = PROVIDERS[provider()]
+    model = _model("agent")
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2, **p["extra"]}
+    if tools:
+        body.update(tools=tools, tool_choice="auto")
+    headers = {"Content-Type": "application/json"}
+    if p["key"]:
+        headers["Authorization"] = f"Bearer {os.environ[p['key']]}"
+    last: Exception | None = None
+    for _ in range(2):
+        try:
+            req = urllib.request.Request(p["url"], json.dumps(body).encode(), headers)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                msg = json.loads(r.read())["choices"][0]["message"]
+            return {"content": msg.get("content"), "tool_calls": msg.get("tool_calls") or [], "model": f"{provider()}:{model}"}
+        except urllib.error.HTTPError as e:
+            if e.code != 429 and e.code < 500:
+                raise
+            last = e
+        except RETRYABLE as e:
+            last = e
+        time.sleep(1)
+    raise last
+
+
 def chat_json(job: str, messages: list[dict], schema: dict, max_tokens: int | None = None, timeout: float = 90) -> dict:
     """One retry on a timeout, 429/5xx or malformed JSON (Token Factory sometimes stalls a request; seen in the
     13 Oct eval). If the job's model still fails and it isn't the progress model, fall back to it (PLAN.md §10.1:

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Super Agents</title>
 <link rel="icon" href="/ui/icon.png">
+<link rel="stylesheet" href="/ui/vendor/xterm.css">
 <link rel="stylesheet" href="/ui/app.css">
 </head>
 <body>
@@ -90,11 +91,16 @@
     <div class="rail-brand"><span class="mark-sm" id="railMark"></span><span>Super Agents</span></div>
     <button type="button" class="btn new-chat" id="newChat"><span class="ic" data-ic="plus"></span>New chat<kbd>Ctrl N</kbd></button>
     <nav class="nav" id="nav">
-      <button type="button" data-view="chat" class="on"><span class="ic" data-ic="spark"></span>Agent S</button>
+      <button type="button" data-view="chat" class="on"><span class="ic" data-ic="spark"></span>Chat</button>
       <button type="button" data-view="board"><span class="ic" data-ic="board"></span>Board</button>
       <button type="button" data-view="team"><span class="ic" data-ic="team"></span>Team</button>
+      <button type="button" data-view="agents"><span class="ic" data-ic="bot"></span>Agents</button>
       <button type="button" data-view="laptop"><span class="ic" data-ic="laptop"></span>This laptop</button>
     </nav>
+    <div class="rail-section chats-section">
+      <div class="rail-label">Chats</div>
+      <ul class="chats" id="chatList"></ul>
+    </div>
     <div class="rail-section">
       <div class="rail-label">Live now</div>
       <ul class="live" id="liveList"></ul>
@@ -116,7 +122,15 @@
         <div class="menu" id="teamMenu" role="menu" hidden></div>
       </div>
       <button type="button" class="status-chip" id="laptopChip"></button>
+      <div class="pane-btns" role="group" aria-label="Side panel">
+        <button type="button" class="icon-btn" data-pane="files" title="Files" aria-label="Files"><span class="ic" data-ic="folder"></span></button>
+        <button type="button" class="icon-btn" data-pane="terminal" title="Terminal (Ctrl+`)" aria-label="Terminal"><span class="ic" data-ic="term"></span></button>
+        <button type="button" class="icon-btn" data-pane="browser" title="Browser" aria-label="Browser"><span class="ic" data-ic="globe"></span></button>
+      </div>
     </header>
+
+    <div class="work">
+    <div class="views">
 
     <section class="view chat" id="view-chat">
       <div class="thread" id="thread"></div>
@@ -128,8 +142,12 @@
         </form>
         <form class="composer" id="askForm">
           <div class="chips" id="chips" hidden></div>
-          <textarea id="askIn" rows="1" maxlength="2000" placeholder="Ask about your team's work, or ask Agent S to plan it…" aria-label="Message Agent S"></textarea>
+          <textarea id="askIn" rows="1" maxlength="8000" placeholder="Ask about your team's work, or ask Agent S to plan it…" aria-label="Message Agent S"></textarea>
           <div class="cbar">
+            <div class="cwrap">
+              <button type="button" class="cbtn agent-pick" id="agentPick" aria-haspopup="menu" title="Agent"><span class="mini" id="agentMini"></span><span id="agentLabel">Agent S</span><span class="ic" data-ic="chev"></span></button>
+              <div class="menu up wide" id="agentMenu" role="menu" hidden></div>
+            </div>
             <div class="cwrap">
               <button type="button" class="cbtn square" id="importBtn" aria-haspopup="menu" title="Import"><span class="ic" data-ic="plus"></span></button>
               <div class="menu up" id="importMenu" role="menu" hidden>
@@ -168,10 +186,58 @@
       <div class="people" id="people"></div>
     </section>
 
+    <section class="view" id="view-agents" hidden>
+      <div class="view-head">
+        <div><h1>Agents</h1><p class="sub" id="agentsSub"></p></div>
+        <div class="tabs" id="agentTabs" role="tablist">
+          <button type="button" role="tab" data-tab="agents" class="on">Agents</button>
+          <button type="button" role="tab" data-tab="skills">Skills</button>
+          <button type="button" role="tab" data-tab="connectors">Connectors</button>
+        </div>
+      </div>
+      <div class="tab" id="tab-agents"></div>
+      <div class="tab" id="tab-skills" hidden></div>
+      <div class="tab" id="tab-connectors" hidden></div>
+    </section>
+
     <section class="view" id="view-laptop" hidden>
       <div class="view-head"><div><h1>This laptop</h1><p class="sub">What this machine shares, and where it goes.</p></div></div>
       <div class="laptop-grid" id="laptopGrid"></div>
     </section>
+    </div>
+
+    <aside class="side" id="side" hidden aria-label="Side panel">
+      <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" aria-label="Resize the panel" tabindex="0"></div>
+      <header class="side-head">
+        <div class="tabs small" role="tablist">
+          <button type="button" role="tab" data-pane="files"><span class="ic" data-ic="folder"></span>Files</button>
+          <button type="button" role="tab" data-pane="terminal"><span class="ic" data-ic="term"></span>Terminal</button>
+          <button type="button" role="tab" data-pane="browser"><span class="ic" data-ic="globe"></span>Browser</button>
+        </div>
+        <button type="button" class="icon-btn small" id="sideClose" aria-label="Close the panel"><span class="ic" data-ic="x"></span></button>
+      </header>
+      <section class="pane files" id="pane-files" hidden>
+        <nav class="tree" id="tree" aria-label="Files in your connected repos"></nav>
+        <div class="viewer" id="viewer"></div>
+      </section>
+      <section class="pane terminal" id="pane-terminal" hidden>
+        <div class="term-tabs" id="termTabs"></div>
+        <div class="terms" id="terms"></div>
+      </section>
+      <section class="pane browser" id="pane-browser" hidden>
+        <form class="urlbar" id="urlForm">
+          <button type="button" class="icon-btn small" id="brReload" aria-label="Reload" title="Reload"><span class="ic" data-ic="reload"></span></button>
+          <input id="urlIn" placeholder="Enter an address, e.g. localhost:3000" autocomplete="off" spellcheck="false" aria-label="Address">
+          <button type="button" class="icon-btn small" id="brPop" aria-label="Open in its own window" title="Open in its own window"><span class="ic" data-ic="external"></span></button>
+        </form>
+        <div class="frame-wrap">
+          <iframe id="frame" title="Browser" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" referrerpolicy="no-referrer" hidden></iframe>
+          <div class="frame-empty" id="frameEmpty"></div>
+        </div>
+        <div class="frame-note">Some sites refuse to show inside another app. <button type="button" class="link-btn" id="brPop2">Open in its own window</button> always works.</div>
+      </section>
+    </aside>
+    </div>
   </main>
 </div>
 
@@ -179,9 +245,16 @@
 <aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dTitle">
   <div class="drawer-head"><div><div class="tid" id="dId"></div><h2 id="dTitle"></h2></div><button type="button" class="icon-btn" id="dClose" aria-label="Close"><span class="ic" data-ic="x"></span></button></div>
   <div class="drawer-body" id="dBody"></div>
+  <div class="drawer-foot" id="dFoot" hidden></div>
 </aside>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
+<script src="/ui/vendor/marked.min.js"></script>
+<script src="/ui/vendor/purify.min.js"></script>
+<script src="/ui/vendor/highlight.min.js"></script>
+<script src="/ui/vendor/hljs-powershell.min.js"></script>
+<script src="/ui/vendor/xterm.js"></script>
+<script src="/ui/vendor/addon-fit.js"></script>
 <script src="/ui/app.js"></script>
 </body>
 </html>

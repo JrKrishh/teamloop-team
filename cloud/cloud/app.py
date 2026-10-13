@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import time
+import urllib.error
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -194,6 +195,13 @@ class Attachment(BaseModel):
     text: str = Field(max_length=60_000)
 
 
+class LlmIn(BaseModel):
+    tier: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
+    messages: list[dict] = Field(min_length=1, max_length=200)
+    tools: list[dict] = Field(default_factory=list, max_length=80)
+    max_tokens: int = Field(default=2000, ge=16, le=4000)
+
+
 class AgentIn(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     mode: str = Field(default="manual", pattern="^(plan|manual|auto)$")
@@ -202,11 +210,13 @@ class AgentIn(BaseModel):
 
 
 # ---- the app --------------------------------------------------------------------------------------
-def create(chat: Optional[Callable] = None) -> FastAPI:
+def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None) -> FastAPI:
     chat = chat or llm.chat_json
+    chat_step = chat_step or llm.chat_tools
     app = FastAPI(title="TeamLoop cloud", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     posts = _Window(60, 60.0)
     asks = _Window(30, 600.0)
+    llm_steps = _Window(150, 600.0)  # an agent turn is a few steps; this allows a busy person, not a script
     digests: dict[str, tuple[float, dict]] = {}
     failed: dict[tuple[str, str], float] = {}
     demo = _Demo()
@@ -651,6 +661,24 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
         return {**out, "mode": body.mode}
+
+    @app.post("/v1/llm")
+    def llm_step(body: LlmIn, c: Caller = Depends(caller)) -> dict:
+        """One step of an agent's tool loop for the Super Agents app, on the hub's Nemotron key: signed-in people
+        only, rate limited, size capped. The loop and the tools run on the person's laptop."""
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        if not llm_steps.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Agents are busy; give it a minute")
+        if len(json.dumps(body.messages)) + len(json.dumps(body.tools)) > 400_000:
+            raise HTTPException(413, "That conversation is too long; start a new chat")
+        try:
+            with llm.pinned(body.tier):
+                return chat_step(body.messages, body.tools, body.max_tokens)
+        except urllib.error.HTTPError as e:
+            raise HTTPException(502, f"The model refused the request ({e.code})") from None
+        except Exception:  # noqa: BLE001
+            raise HTTPException(503, "The model didn't answer; try again in a moment") from None
 
     @app.get("/v1/events")
     def cited_events(ids: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
