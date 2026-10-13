@@ -371,6 +371,28 @@ def test_planned_tasks_show_on_the_board_until_sessions_take_over(app):
     assert signin(app, "stranger").post("/v1/tasks", params=q, json={"title": "x"}).status_code == 403
 
 
+def test_the_same_task_isnt_planned_twice_and_a_rename_shows(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    q = {"team": team}
+    assert yang.post("/v1/tasks", params=q, json={"title": "Rate limits for the public API"}).json()["task"] == "T-1"
+    again = yang.post("/v1/tasks", params=q, json={"title": "  rate limits for the  public API "})
+    assert again.status_code == 409 and "T-1" in again.json()["detail"]
+    yang.patch("/v1/tasks/T-1", params=q, json={"state": "closed"})
+    assert yang.post("/v1/tasks", params=q, json={"title": "Rate limits for the public API"}).json()["task"] == "T-2"  # T-1 is done
+    # a session's task: renamed, the board shows the new name; the drawer gets each event's session and report
+    TestClient(app).post("/v1/events", json={"events": golden("real_fix_add_done.json")}, headers=connect(app, yang, team))
+    yang.patch("/v1/tasks/T-3", params=q, json={"due": "2026-10-30"})  # stores a title for the plan row: not a rename
+    assert next(c for c in yang.get("/v1/board", params=q).json()["tasks"] if c["task"] == "T-3")["title"] != "T-3"
+    yang.patch("/v1/tasks/T-3", params=q, json={"title": "Fix add()"})
+    assert next(c for c in yang.get("/v1/board", params=q).json()["tasks"] if c["task"] == "T-3")["title"] == "Fix add()"
+    d = yang.get("/v1/tasks/T-3", params=q).json()
+    assert d["title"] == "Fix add()" and all("session" in e and "report" in e for e in d["timeline"])
+    report = next(e for e in d["timeline"] if e["kind"] == "self_report")  # reports come through MCP: no session of their own
+    assert report["report"]["percent"] in (80, 100) and report["report"]["done"]
+    assert {e["session"] for e in d["timeline"] if e["tool"] == "claude_code"} == {"133b0bcd-9489-43ad-be84-e045a9f47238"}
+
+
 def test_agent_turns_plan_and_route_models(app):
     global AGENT_REPLY
     yang = signin(app, "yang")

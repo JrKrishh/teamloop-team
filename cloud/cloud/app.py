@@ -797,8 +797,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             p = plan.pop(t["task"], None)
             card["owner"] = p["owner_name"] if p else None
             card["due"] = p["due"] if p else None
-            if p:
-                card["title"] = card["title"] or p["title"]
+            if p:  # a name the team gave it (a rename) beats the session's; a task id stored as a title isn't a name
+                card["title"] = (p["title"] if p["title"] != t["task"] else "") or card["title"]
                 if p["state"] == "closed":
                     card["status"] = "done"
             out.append(card)
@@ -871,7 +871,12 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     def create_task(body: TaskIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
-        team_id, _, _ = team_scope(c, team, conn)
+        team_id, name, _ = team_scope(c, team, conn)
+        title = " ".join(body.title.split())
+        same = next((t["task"] for t in build_board(conn, team_id, name)["tasks"]
+                     if t["status"] != "done" and " ".join((t["title"] or "").split()).lower() == title.lower()), None)
+        if same:  # asking an agent twice shouldn't put the same work on the board twice
+            raise HTTPException(409, f"{same} is already on the board with that title. Use {same}, or give the new task a different title.")
         have = task_ids(conn, team_id)
         task = body.task.strip().upper()
         if not TASK_RE.match(task) or task in have:

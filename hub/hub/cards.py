@@ -43,6 +43,9 @@ def card(task: str, evs: list[dict], snap: dict | None, last_activity: float, n_
 
 
 def timeline(evs: list[dict]) -> list[dict]:
-    """A task's events for the detail drawer, newest first, with their one-line descriptions."""
+    """A task's events for the detail drawer, newest first, with their one-line descriptions. The session, the agent's
+    report (percent, done, next, doing; or what blocks it) and turn summaries come along, so the drawer can group by
+    session and show a report as rows instead of one line."""
     return [{"id": e["id"], "ts": e.get("ts"), "member": e["member"], "tool": e.get("tool"), "kind": e["kind"],
+             "session": e.get("session"), "report": e.get("report"), "summary": e.get("summary"), "status": e.get("status"),
              "line": progress.describe(e)} for e in reversed(evs) if progress.describe(e)]
