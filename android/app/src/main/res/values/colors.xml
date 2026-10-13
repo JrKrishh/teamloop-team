@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- the window behind the app, and the splash: the page colour of the theme the phone is in -->
+    <color name="page">#F6F1E8</color>
+    <color name="brick">#A8443D</color>
+</resources>

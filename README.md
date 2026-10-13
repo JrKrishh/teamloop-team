@@ -25,7 +25,7 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 - **Skills** in Claude Code's format, including importing your own. **Karpathy's coding guidelines** are on by default for every agent.
 - **Connectors**: any MCP server, by URL or command, with presets for GitHub, Context7, Filesystem and Memory.
 - **Desktop control on Windows**, when you turn it on: agents use your apps through their own controls (no mouse, no keyboard, no taking over your screen) to fill in a form, save a file or read a value. Each app asks first; settings, security and password apps are never touched; Ctrl+Alt+Esc stops it.
-- **Your agents from your phone**, like Claude Code's Remote Control. You pair the phone with a QR code. It sees your chats, sends messages, watches a turn live, and approves or stops steps, while the agents keep running on the laptop. It's end-to-end encrypted: the key travels only in the QR code, so the relay sees nothing. It's a web app for the home screen, with no store install.
+- **Your agents from your phone**, like Claude Code's Remote Control. It comes as a native Android app (APK) or a web app for the home screen; you pair it with a QR code. Everything waiting for your yes, from every running turn, sits in one Needs you list: swipe right to approve, left to deny. On Android a question also arrives as a notification you can answer from, while the app is in the background. It also has your chats, the team's board, and a fingerprint lock, while the agents keep running on the laptop. It's end-to-end encrypted: the key travels only in the QR code, so the relay sees nothing.
 - **A browser you share with your agents.** They start your dev server, open it, click through it, read the console and check their own fixes while you watch in the side panel, and you can take over. Next to it: a file viewer for your connected repos and real terminals.
 
 Chats with your agents are the one thing that leaves the laptop by design: to answer, a message and what its tools read (including what `recall` finds in your own past sessions) go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).
@@ -34,6 +34,8 @@ Chats with your agents are the one thing that leaves the laptop by design: to an
 1. Download `SuperAgents-windows-x64.zip` from https://teamloop.vercel.app (or [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest)) and unzip it.
 2. Double-click **Install Super Agents**. It installs for your Windows user (no admin), adds the `teamloop` command to your PATH, makes Start-menu and desktop shortcuts, and opens the app.
 3. Continue with GitHub, then create your team or join with your lead's invite link. Pick the repos to connect on **This laptop**.
+
+**On your phone:** download `SuperAgents-android.apk` from [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest) and open it (Android asks once to allow installs from your browser); iPhones use the web app at https://teamloop.vercel.app/remote/. Then pair in the app's Settings → Phone. Building the APK: [android/README.md](android/README.md).
 
 How the app works, including sign-in and the local server's security: [docs/app.md](docs/app.md). The accounts and the hub: [docs/cloud.md](docs/cloud.md).
 

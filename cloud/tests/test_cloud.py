@@ -621,7 +621,7 @@ def test_the_phone_remote_relay_and_its_page(app, monkeypatch):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("VERCEL", raising=False)
     assert c.get("/v1/config").json()["relay"] == "hub"  # no Supabase here: this hub relays itself
-    assert "Pair this phone" in c.get("/remote/").text and c.get("/remote/manifest.webmanifest").json()["start_url"] == "/remote/"
+    assert "Your agents, in your pocket" in c.get("/remote/").text and c.get("/remote/manifest.webmanifest").json()["start_url"] == "/remote/"
     broadcast = {"type": "broadcast", "event": "m", "payload": {"iv": "i", "c": "sealed"}}
     with c.websocket_connect("/v1/relay?vsn=1.0.0") as a, c.websocket_connect("/v1/relay?vsn=1.0.0") as b, \
             c.websocket_connect("/v1/relay?vsn=1.0.0") as other:

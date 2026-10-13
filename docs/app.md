@@ -95,26 +95,38 @@ Click your name at the bottom of the sidebar → **Settings** (or **Ctrl+,**). O
 
 ## Phone remote
 
-Your agents keep running on the laptop; the phone drives them, like Claude Code's Remote Control (`app/superagents/remote.py`; the phone app is `cloud/cloud/site/remote/`).
-- **What the phone does:**
-  - sees your chats;
-  - starts one, or continues one, with any agent and mode;
-  - watches a turn live, with the steps folded as on the laptop;
-  - approves or denies a step; runs or discards a plan; stops a turn.
-  - A turn started at the desk shows on the phone too ("Agent S needs you"), so you can walk away and answer from the phone.
-- **Pairing:** Settings → Phone. Turn it on (it's off by default), press **Pair a phone** and scan the code with the phone's camera. The phone opens Super Agents Remote, a web app you can add to the home screen; no app store. A code nobody scans expires in 10 minutes.
+Your agents keep running on the laptop; the phone drives them, like Claude Code's Remote Control (`app/superagents/remote.py`). Two ways in, one design: the **Android app** (`android/`, native, an APK of under 3 MB) and the **web app** (`cloud/cloud/site/remote/`, added to the home screen; for iPhones and browsers).
+- **Needs you:**
+  - every question a running turn waits on, from the phone or the desk, as a card with the command or change itself;
+  - **swipe right for yes, left for no**, or tap; the tab shows how many wait;
+  - below them, what each agent is working on now;
+  - a question from a turn started at the desk arrives within seconds, so you can walk away and answer from your pocket.
+- **Chats:**
+  - search, a few one-tap questions ("What's blocked right now?"), and your chats by day;
+  - in a chat: start or continue one with any agent and mode (one tap picks both); watch a turn live with its steps folded as on the laptop; approve or deny; run or discard a plan; stop a turn.
+- **Board:** the team's tasks, active first, with Agent S's estimate next to what the coding agent claims and what blocks each one. Tap a task to ask Agent S about it.
+- **The Android app adds:**
+  - **questions in the background:** each one arrives as a notification with **Deny** and **Run it** (or **Approve**) on it, so you answer without opening the app. Run it asks for the phone to be unlocked, and the lock screen shows only "Agent S needs you". An answer posts "Agent S answered".
+  - a quiet "Connected to …'s laptop" notification while it holds the line; Settings → Stay connected in the background turns that off;
+  - a QR scanner for pairing (Google's code scanner, so no camera permission);
+  - a fingerprint or face lock (on opening, and after a minute away);
+  - the mascot: it drops in at startup, waves on Connect, celebrates a pairing, hops when a question arrives, thinks while a turn runs and sleeps when the laptop is away;
+  - haptics on yes and no, and Android's back button.
+- **Pairing:** Settings → Phone. Turn it on (it's off by default), press **Pair a phone** and scan the code: with the Android app's scanner, or with the phone's camera for the web app. No app store. A code nobody scans expires in 10 minutes.
 - **End-to-end encrypted:**
   - **The key:** the code carries a channel id and a 256-bit key in the link's fragment, which browsers never send to a server.
   - **The seal:** every message is sealed with AES-256-GCM under that key, with the channel bound in. The relay sees only noise: Supabase Realtime in production, the hub's own socket in development.
   - **Replays and reflections:** messages older than two minutes, or seen before, are dropped, and neither side accepts its own messages back.
-  - **On the phone:** the key is kept in IndexedDB as a WebCrypto key that can't be exported, so the page can use it but no script can read it back.
+  - **On the phone:** the web app keeps the key in IndexedDB as a WebCrypto key that can't be exported, so the page can use it but no script can read it back. The Android app keeps it in Android Keystore, which won't hand it out either.
 - **What the phone can't do:** anything the chat window can't. It goes through the same local API and the same modes and approvals. It can't browse files or open a terminal.
 - **Unpair** deletes the key on the laptop, and the phone is cut off at once. On the phone, "Forget this laptop" deletes its copy.
 - **Reliability:**
   - The laptop never skips an event it couldn't send.
   - The phone shows events in order, asks again for any gap, and catches up on a running turn after it lost the connection.
   - Turning the switch off, or closing the app, ends remote control.
-- **Not yet:** push notifications when an agent needs you (Web Push; on iPhone only for a home-screen app). Until then, the phone shows it when you open it.
+- **Not yet:**
+  - **Push from the hub**, for when the Android app isn't holding the line (Stay connected in the background off, or Android stopped it) or the web app is closed. It needs a Firebase project (free); Web Push on iPhone works only for a home-screen app.
+  - **An iPhone app** (Apple's developer account is $99 a year); iPhones use the web app.
 
 ## The board
 

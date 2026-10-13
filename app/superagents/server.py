@@ -655,12 +655,30 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         the_turn(tid).cancel()
         return {"ok": True}
 
+    def step_of(t, call: Optional[str] = None, status: Optional[str] = None) -> Optional[dict]:
+        """A turn's tool call as the chat shows it: the one waiting on `call`, or the latest one now in `status`
+        (each call's last event says where it is)."""
+        seen: set = set()
+        for e in reversed(list(t.events)):
+            if e.get("kind") != "tool" or e.get("id") in seen:
+                continue
+            seen.add(e.get("id"))
+            if (e.get("id") == call) if call else (e.get("status") == status):
+                return {k: e.get(k) for k in ("id", "name", "args", "group", "access")}
+        return None
+
     @app.get("/api/turns")
     def turns_live() -> dict:
-        """Turns still running, and whether one waits for a yes or no: the phone can watch and answer them."""
-        return {"turns": [{"turn": t.id, "chat": t.chat.get("id"), "agent": t.agent.get("id"), "message": t.message[:200],
-                           "asking": any(not e.is_set() for e in t.decisions.values())}
-                          for t in list(state.turns.values()) if not t.done]}
+        """Turns still running: the question one waits on, or the step it's on. The phone shows and answers them."""
+        out = []
+        for t in list(state.turns.values()):
+            if t.done:
+                continue
+            waiting = [cid for cid, e in list(t.decisions.items()) if not e.is_set()]
+            out.append({"turn": t.id, "chat": t.chat.get("id"), "agent": t.agent.get("id"), "message": t.message[:200],
+                        "asking": bool(waiting), "ask": step_of(t, call=waiting[-1]) if waiting else None,
+                        "now": None if waiting else step_of(t, status="running")})
+        return {"turns": out}
 
     # ---- remote control from a phone (runtime of it in remote.py) ------------------------------------------
     def remote_status() -> dict:

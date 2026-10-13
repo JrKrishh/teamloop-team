@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HTTPS only, except loopback: a dev hub on the laptop reached through `adb reverse` (127.0.0.1 never leaves the
+     phone). Debug builds also allow the emulator's name for the laptop, 10.0.2.2 (src/debug). -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

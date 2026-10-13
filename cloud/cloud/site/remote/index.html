@@ -14,29 +14,47 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="app.css">
 </head>
-<body>
+<body data-view="pair">
 <header class="top">
-  <button type="button" class="icon" id="back" aria-label="Back to chats" hidden><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+  <button type="button" class="icon" id="back" aria-label="Back" hidden><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
   <div class="title"><b id="title">Super Agents</b><small id="status"><i></i><span>Connecting…</span></small></div>
-  <button type="button" class="icon" id="newChat" aria-label="New chat" hidden><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button type="button" class="icon" id="gear" aria-label="Settings" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
 
-<main>
+<main id="main">
   <section id="pair" class="pair" hidden>
-    <img src="icon-192.png" alt="" width="72" height="72">
-    <h1>Pair this phone</h1>
-    <ol>
+    <img src="icon-192.png" alt="" width="76" height="76">
+    <h1>Your agents, in your pocket</h1>
+    <p class="lead">The agents keep working on your laptop. From here you answer them, start them and watch them work.</p>
+    <ol id="howto">
       <li>Open Super Agents on your laptop.</li>
       <li>Go to <b>Settings → Phone</b> and press <b>Pair a phone</b>.</li>
       <li>Scan the code with this phone's camera.</li>
     </ol>
-    <p class="fine">Your agents keep running on the laptop. Messages between it and this phone are end-to-end encrypted with a key only the two of them have.</p>
+    <form id="pasteForm" class="paste"><input id="paste" placeholder="…or paste the pairing link" autocomplete="off" aria-label="Pairing link"><button class="btn" type="submit">Pair</button></form>
+    <p class="fine">End-to-end encrypted: only this phone and your laptop hold the key.</p>
   </section>
 
-  <section id="home" hidden>
-    <div id="live" class="live"></div>
-    <h2 class="label">Chats</h2>
-    <ul id="chats" class="chats"></ul>
+  <section id="inbox" hidden>
+    <div id="asks" class="asks"></div>
+    <h2 class="label" id="workingLabel" hidden>Working now</h2>
+    <div id="working" class="rows"></div>
+    <div id="calm" class="calm" hidden>
+      <img src="icon-192.png" alt="" width="64" height="64">
+      <b>Nothing needs you</b>
+      <p>Your agents ask here before they run a command or change something. Swipe right to say yes, left to say no.</p>
+    </div>
+  </section>
+
+  <section id="chats" hidden>
+    <input id="search" class="search" type="search" placeholder="Search chats" aria-label="Search chats">
+    <div id="quick" class="quick"></div>
+    <div id="chatList"></div>
+  </section>
+
+  <section id="board" hidden>
+    <div id="boardSeg" class="seg"></div>
+    <div id="boardList" class="rows"></div>
   </section>
 
   <section id="chat" hidden>
@@ -44,21 +62,23 @@
   </section>
 </main>
 
+<button type="button" id="fab" class="fab" hidden><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New chat</button>
+
 <form id="composer" class="composer" hidden>
-  <div class="opts">
-    <select id="agent" aria-label="Agent"></select>
-    <select id="mode" aria-label="Mode">
-      <option value="manual" title="Asks before each change">Manual</option>
-      <option value="auto" title="Makes routine changes itself; commands still ask">Auto</option>
-      <option value="plan" title="Nothing changes until you run the plan">Plan</option>
-    </select>
-  </div>
+  <button type="button" class="pick" id="pick"><i></i><span id="pickText">Agent S · Manual</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
   <div class="row">
     <textarea id="input" rows="1" placeholder="Message your laptop's agents" aria-label="Message"></textarea>
     <button type="submit" class="send" id="send" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
   </div>
 </form>
 
+<nav id="tabs" class="tabs" hidden>
+  <button type="button" data-tab="inbox"><svg viewBox="0 0 24 24"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5.5 5h13L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-5z"/></svg><span>Needs you</span><b id="badge" class="badge" hidden></b></button>
+  <button type="button" data-tab="chats"><svg viewBox="0 0 24 24"><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 3v-3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg><span>Chats</span></button>
+  <button type="button" data-tab="board"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="16" rx="1"/><rect x="14" y="4" width="6" height="10" rx="1"/></svg><span>Board</span></button>
+</nav>
+
+<div id="sheet" class="sheet" hidden><div class="scrim" id="scrim"></div><div class="panel" role="dialog" aria-modal="true"><div class="grip"></div><h3 id="sheetTitle"></h3><div id="sheetBody"></div></div></div>
 <div id="toast" class="toast" role="status" hidden></div>
 <script src="app.js"></script>
 </body>
