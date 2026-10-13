@@ -37,6 +37,10 @@ class Hub:
             return 200, {"token": "tl_laptop", "team": {"id": TEAM, "name": "Loopers"}, "name": "Yang"}
         if path == "/v1/board":
             return 200, {"room": "Loopers", "tasks": [], "query": query}
+        if path == "/v1/agent":
+            return 200, {"answer": "ok", "citations": [], "plan": [], "actions": [], "echo": body}
+        if path == "/v1/tasks/T-3" and method == "PATCH":
+            return 200, {"task": "T-3", "state": body.get("state")}
         if path == "/v1/logout":
             return 200, {"ok": True}
         return 404, {"detail": "no"}
@@ -166,3 +170,72 @@ def test_someone_else_signing_in_disconnects_the_previous_person(env, monkeypatc
     assert send.config() is None  # no longer reporting as Yang
     assert store.load().get("team") is None
     assert json.loads((spool.home() / "app.json").read_text())["user_id"] == "u-sourabh"
+
+
+def test_agent_turns_and_task_changes_reach_the_hub(env, monkeypatch):
+    client, hub, *_ = env
+    signed_in(monkeypatch, client)
+    r = client.post("/api/cloud/agent", params={"team": TEAM}, json={"message": "plan it", "mode": "plan", "model": "ultra"})
+    assert r.json()["echo"] == {"message": "plan it", "mode": "plan", "model": "ultra"}
+    assert client.patch("/api/cloud/tasks/T-3", params={"team": TEAM}, json={"state": "closed"}).json() == {"task": "T-3", "state": "closed"}
+    assert hub.calls[-1][:2] == ("PATCH", "/v1/tasks/T-3")
+
+
+def test_start_task_on_this_laptop(env, monkeypatch, tmp_path):
+    client, hub, *_ = env
+    signed_in(monkeypatch, client)
+    assert client.post("/api/laptop/task", json={"task": "T-23", "title": "OAuth"}).status_code == 409  # no repo yet
+    repos = []
+    for name in ("web", "api"):
+        root = tmp_path / name
+        root.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+        client.post("/api/laptop/repos", json={"path": str(root)})
+        repos.append(root)
+    assert client.post("/api/laptop/task", json={"task": "T-23"}).status_code == 409  # two repos: which one?
+    assert client.post("/api/laptop/task", json={"task": "T-23", "repo": str(tmp_path)}).status_code == 400
+    r = client.post("/api/laptop/task", json={"task": "T-23", "title": "OAuth callback", "repo": str(repos[0])}).json()
+    assert r["task"] == "T-23" and r["name"] == "web"
+    got = subprocess.run(["git", "config", "teamloop.task"], cwd=repos[0], capture_output=True, text=True).stdout.strip()
+    assert got == "T-23"
+    started = [spool.read(p) for p in spool.pending()]
+    assert any(e["kind"] == "task_start" and e["task"] == "T-23" and e["facts"] == {"title": "OAuth callback"} for e in started)
+    assert client.post("/api/laptop/task", json={"task": "not a task"}).status_code == 422
+
+
+def test_import_github_issues(env, monkeypatch):
+    client, *_ = env
+
+    class Resp:
+        def __init__(self, data):
+            self.data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps(self.data).encode()
+
+    seen = {}
+
+    def fake_urlopen(req, timeout=0):
+        seen["url"] = req.full_url
+        return Resp([{"number": 12, "title": "OAuth callback", "labels": [{"name": "auth"}], "body": "Users sign in with GitHub"},
+                     {"number": 13, "title": "a pull request", "pull_request": {}, "labels": [], "body": ""}])
+
+    monkeypatch.setattr(server.urllib.request, "urlopen", fake_urlopen)
+    r = client.get("/api/import/github", params={"repo": "https://github.com/acme/web/"}).json()
+    assert seen["url"].startswith("https://api.github.com/repos/acme/web/issues?state=open")
+    assert r["name"] == "acme/web issues (1)" and r["text"].startswith("#12 OAuth callback  [auth]") and "pull request" not in r["text"]
+    assert client.get("/api/import/github", params={"repo": "not a repo"}).status_code == 400
+
+
+def test_prefs_merge(env):
+    client, *_ = env
+    assert client.post("/api/prefs", json={"theme": "light"}).json() == {"theme": "light"}
+    assert client.post("/api/prefs", json={"mode": "plan", "model": "ultra"}).json() == {"theme": "light", "mode": "plan", "model": "ultra"}
+    assert client.get("/api/boot").json()["prefs"]["mode"] == "plan"
+    assert client.post("/api/prefs", json={"model": "gpt-9"}).status_code == 422

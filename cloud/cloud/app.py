@@ -26,8 +26,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
+from agent_s import agent, llm, progress, qa
 from agent_s import digest as agent_digest
-from agent_s import llm, progress, qa
 from hub import cards
 from hub.relay import _Window
 from hub.team import ID_RE, KIND_RE, MAX_EVENT_BYTES, TASK_RE, clean
@@ -175,6 +175,30 @@ class DeviceStartIn(BaseModel):
 class DeviceApproveIn(BaseModel):
     user_code: str = Field(min_length=9, max_length=9)
     team: str
+
+
+class TaskIn(BaseModel):
+    task: str = Field(default="", max_length=30)
+    title: str = Field(min_length=1, max_length=120)
+    owner: Optional[str] = Field(default=None, max_length=64)
+
+
+class TaskPatch(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    owner: Optional[str] = Field(default=None, max_length=64)  # "" unassigns
+    state: Optional[str] = Field(default=None, pattern="^(open|closed)$")
+
+
+class Attachment(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    text: str = Field(max_length=60_000)
+
+
+class AgentIn(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    mode: str = Field(default="manual", pattern="^(plan|manual|auto)$")
+    model: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
+    attachments: list[Attachment] = Field(default_factory=list, max_length=5)
 
 
 # ---- the app --------------------------------------------------------------------------------------
@@ -473,6 +497,11 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
         conn.commit()
         return made
 
+    def planned(conn, team_id: str) -> dict[str, dict]:
+        return {r["task"]: r for r in conn.execute(
+            "select task, title, owner_name, state, extract(epoch from created_at) as at from tasks where team_id = %s",
+            (team_id,))}
+
     def build_board(conn, team_id: str, team_name: str) -> dict:
         now = time.time()
         tasks = conn.execute("select task, extract(epoch from max(received_at)) as last, count(*) as n from events"
@@ -480,8 +509,22 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
                              (team_id,)).fetchall()
         snaps = {r["task"]: r["body"] for r in conn.execute(
             "select distinct on (task) task, body from snapshots where team_id = %s order by task, created_at desc", (team_id,))}
-        out = [cards.card(t["task"], task_events(conn, team_id, t["task"], 200), snaps.get(t["task"]), float(t["last"]), t["n"])
-               for t in tasks]
+        plan = planned(conn, team_id)
+        out = []
+        for t in tasks:  # tasks with session events: live progress; a plan adds its owner, and closing marks it done
+            card = cards.card(t["task"], task_events(conn, team_id, t["task"], 200), snaps.get(t["task"]), float(t["last"]), t["n"])
+            p = plan.pop(t["task"], None)
+            card["owner"] = p["owner_name"] if p else None
+            if p:
+                card["title"] = card["title"] or p["title"]
+                if p["state"] == "closed":
+                    card["status"] = "done"
+            out.append(card)
+        for p in sorted(plan.values(), key=lambda p: p["at"]):  # planned, no session yet
+            if p["state"] == "open":
+                out.append({"task": p["task"], "title": p["title"], "events": 0, "owner": p["owner_name"],
+                            "members": [p["owner_name"]] if p["owner_name"] else [], "tools": [], "pr": None,
+                            "last_activity": float(p["at"]), "status": "todo", "progress": None, "recent": []})
         people = conn.execute(
             "select m.name, extract(epoch from max(e.received_at)) as last from memberships m left join events e"
             " on e.team_id = m.team_id and e.user_id = m.user_id where m.team_id = %s and m.removed_at is null"
@@ -512,7 +555,12 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
         team_id, name, _ = team_scope(c, team, conn)
         evs = task_events(conn, team_id, task)
         if not evs:
-            raise HTTPException(404, "No activity for this task")
+            p = planned(conn, team_id).get(task)
+            if not p:
+                raise HTTPException(404, "No activity for this task")
+            return {"task": task, "title": p["title"], "status": "todo" if p["state"] == "open" else "done", "pr": None,
+                    "members": [p["owner_name"]] if p["owner_name"] else [], "tools": [], "progress": None,
+                    "owner": p["owner_name"], "history": [], "timeline": []}
         history = conn.execute("select extract(epoch from created_at) as at, body from snapshots where team_id = %s and task = %s"
                                " order by created_at desc limit 20", (team_id, task)).fetchall()
         card = next((t for t in build_board(conn, team_id, name)["tasks"] if t["task"] == task), {})
@@ -520,6 +568,89 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
                 "history": [{"at": float(h["at"]), "percent": h["body"].get("percent"), "agent_says": h["body"].get("agent_says_percent")}
                             for h in reversed(history)],
                 "timeline": cards.timeline(evs)}
+
+    # ---- planning: tasks on the board before any session reports on them -----------------------------
+    def member_named(conn, team_id: str, name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+        if not name:
+            return None, None
+        row = conn.execute("select user_id, name from memberships where team_id = %s and removed_at is null"
+                           " and lower(name) = lower(%s) limit 1", (team_id, name.strip())).fetchone()
+        if not row:
+            raise HTTPException(400, f"{name} isn't in this team")
+        return str(row["user_id"]), row["name"]
+
+    def task_ids(conn, team_id: str) -> set[str]:
+        rows = conn.execute("select distinct task from events where team_id = %s and task is not null"
+                            " union select task from tasks where team_id = %s", (team_id, team_id)).fetchall()
+        return {r["task"] for r in rows}
+
+    @app.post("/v1/tasks")
+    def create_task(body: TaskIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        team_id, _, _ = team_scope(c, team, conn)
+        have = task_ids(conn, team_id)
+        task = body.task.strip().upper()
+        if not TASK_RE.match(task) or task in have:
+            task = agent.next_id(have)
+        owner_id, owner = member_named(conn, team_id, body.owner)
+        conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, created_by) values (%s, %s, %s, %s, %s, %s)",
+                     (team_id, task, body.title.strip(), owner_id, owner, c.person.id))
+        return {"task": task, "title": body.title.strip(), "owner": owner, "state": "open"}
+
+    @app.patch("/v1/tasks/{task}")
+    def update_task(task: str, body: TaskPatch, team: Optional[str] = None, c: Caller = Depends(caller),
+                    conn=Depends(db)) -> dict:
+        """Assign, rename, close or reopen. A task that only has session events gets a plan row here."""
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        team_id, name, _ = team_scope(c, team, conn)
+        if task not in task_ids(conn, team_id):
+            raise HTTPException(404, "No such task")
+        row = planned(conn, team_id).get(task)
+        title = body.title or (row["title"] if row else None) or next(
+            (t["title"] for t in build_board(conn, team_id, name)["tasks"] if t["task"] == task), "") or task
+        owner_id, owner = member_named(conn, team_id, body.owner) if body.owner is not None else (None, None)
+        state = body.state or (row["state"] if row else "open")
+        if body.owner is None and row:  # keep the current owner
+            current = conn.execute("select owner_id, owner_name from tasks where team_id = %s and task = %s", (team_id, task)).fetchone()
+            owner_id, owner = (str(current["owner_id"]) if current["owner_id"] else None), current["owner_name"]
+        conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, state, created_by) values"
+                     " (%s, %s, %s, %s, %s, %s, %s) on conflict (team_id, task) do update set title = excluded.title,"
+                     " owner_id = excluded.owner_id, owner_name = excluded.owner_name, state = excluded.state, updated_at = now()",
+                     (team_id, task, title[:120], owner_id, owner, state, c.person.id))
+        return {"task": task, "title": title[:120], "owner": owner, "state": state}
+
+    @app.delete("/v1/tasks/{task}")
+    def delete_task(task: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """Undo a planned task. Session history is never deleted, only the plan."""
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        team_id, _, _ = team_scope(c, team, conn)
+        if not conn.execute("delete from tasks where team_id = %s and task = %s", (team_id, task)).rowcount:
+            raise HTTPException(404, "No planned task with that id")
+        return {"ok": True}
+
+    @app.post("/v1/agent")
+    def agent_turn(body: AgentIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """One turn of the Super Agents chat: an answer with citations, a plan (plan mode) and proposed board changes,
+        which the app applies by mode. The model picker pins a Nemotron tier; Auto uses Ultra for plans and imports."""
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        if not asks.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
+        team_id, name, _ = team_scope(c, team, conn)
+        board = [{k: t.get(k) for k in ("task", "title", "status", "owner")} for t in build_board(conn, team_id, name)["tasks"]]
+        members = [r["name"] for r in conn.execute("select name from memberships where team_id = %s and removed_at is null"
+                                                   " order by created_at", (team_id,))]
+        tier = body.model if body.model != "auto" else ("ultra" if body.mode == "plan" or body.attachments else None)
+        try:
+            with llm.pinned(tier):
+                out = agent.turn(body.message, task_events(conn, team_id), board, members,
+                                 [a.model_dump() for a in body.attachments], body.mode, chat=chat)
+        except Exception:  # noqa: BLE001
+            raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
+        return {**out, "mode": body.mode}
 
     @app.get("/v1/events")
     def cited_events(ids: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
@@ -574,9 +705,10 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
 
     @app.get("/v1/digest")
-    def get_digest(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+    def get_digest(team: Optional[str] = None, model: str = "auto", c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         is_demo = team == "demo" or (c.kind == "anon" and not team)
-        key = "demo" if is_demo else team_scope(c, team, conn)[0]
+        team_key = "demo" if is_demo else team_scope(c, team, conn)[0]
+        key = f"{team_key}:{model}"
         hit = digests.get(key)
         if hit and time.time() - hit[0] < 600:
             return hit[1]
@@ -584,10 +716,11 @@ def create(chat: Optional[Callable] = None) -> FastAPI:
             evs = demo.events()
         else:
             rows = conn.execute("select body from events where team_id = %s and received_at > now() - interval '1 day'"
-                                " order by ts limit 400", (key,)).fetchall()
+                                " order by ts limit 400", (team_key,)).fetchall()
             evs = [r["body"] for r in rows]
         try:
-            out = {**agent_digest.digest(evs, chat=chat), "generated_at": time.time()}
+            with llm.pinned(model):
+                out = {**agent_digest.digest(evs, chat=chat), "generated_at": time.time()}
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "Agent S couldn't write the digest right now; try again in a minute") from None
         digests[key] = (time.time(), out)

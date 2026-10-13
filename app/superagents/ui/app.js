@@ -11,7 +11,8 @@ const KEY = (() => {
   history.replaceState(null, "", "/");
   return k || "";
 })();
-const S = {boot: null, user: null, teams: [], team: null, board: null, laptop: null, view: "chat", events: 0};
+const S = {boot: null, user: null, teams: [], team: null, board: null, laptop: null, view: "chat", events: 0,
+  mode: "manual", model: "auto", files: []};
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 async function api(path, {method = "GET", body} = {}) {
@@ -48,7 +49,29 @@ const ICONS = {
   bolt: '<path d="M13 3 5.5 13.5H12L11 21l7.5-10.5H12Z"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   send: '<path d="M4 12h12M12 6l6 6-6 6"/>',
+  file: '<path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8Z"/><path d="M14 3.5V8h4.5M9 13h6M9 16.5h4"/>',
+  github: '<path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/>',
+  chip: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 3v3.5M14.5 3v3.5M9.5 17.5V21M14.5 17.5V21M3 9.5h3.5M3 14.5h3.5M17.5 9.5H21M17.5 14.5H21"/>',
+  hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10.5V4a1.5 1.5 0 0 1 3 0v6.5M14 10.5V5.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.5 1.5 0 0 1 2.3-1.9L8 15"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01" stroke-width="3"/>',
+  play: '<path d="M7 5.5v13l11-6.5Z"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
 };
+// Like Claude Code's modes: Shift+Tab cycles them.
+const MODES = {
+  manual: {label: "Manual", icon: "hand", desc: "Agent S asks before each change to the board.", short: "Asks before each change"},
+  auto: {label: "Auto", icon: "bolt", desc: "Agent S makes routine changes itself and tells you. You can undo them.", short: "Makes routine changes itself"},
+  plan: {label: "Plan", icon: "list", desc: "Agent S writes a plan first. Nothing changes until you run it.", short: "Writes a plan; you run it"},
+};
+const MODE_ORDER = ["manual", "auto", "plan"];
+const MODELS = {
+  auto: {label: "Auto", desc: "Super for answers, Ultra for plans and imports"},
+  lightning: {label: "Nemotron Lightning", desc: "Fastest replies"},
+  super: {label: "Nemotron Super", desc: "Balanced · 120B"},
+  ultra: {label: "Nemotron Ultra", desc: "Deepest reasoning · 550B"},
+};
+const MAX_FILES = 5, MAX_FILE_BYTES = 200_000;
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ""}</svg>`;
 function paintIcons(root = document) { root.querySelectorAll(".ic[data-ic]").forEach(n => { if (!n.firstElementChild) n.innerHTML = icon(n.dataset.ic); }); }
 function ic(name) { const s = el("span", "ic"); s.innerHTML = icon(name); return s; }
@@ -96,6 +119,8 @@ async function start() {
 function applyBoot(boot) {
   S.boot = boot;
   setTheme((boot.prefs || {}).theme || "dark", false);
+  setMode((boot.prefs || {}).mode || "manual", false);
+  setModel((boot.prefs || {}).model || "auto", false);
   if (!boot.signed_in) return showLogin();
   S.user = boot.user; S.teams = boot.teams; S.team = boot.team; S.laptop = boot.laptop;
   if (boot.offline) toast(boot.offline, true);
@@ -236,8 +261,11 @@ document.addEventListener("keydown", e => {
   if (e.ctrlKey && e.key.toLowerCase() === "n" && !$("shell").hidden) { e.preventDefault(); $("newChat").click(); }
 });
 
-function closeMenus() { $("meMenu").hidden = true; $("teamMenu").hidden = true; }
-document.addEventListener("click", e => { if (!e.target.closest(".menu, #meBtn, #teamBtn")) closeMenus(); });
+function closeMenus() {
+  for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu"]) $(id).hidden = true;
+  document.querySelectorAll('[aria-expanded="true"]').forEach(b => b.setAttribute("aria-expanded", "false"));
+}
+document.addEventListener("click", e => { if (!e.target.closest(".menu, #meBtn, #teamBtn, .cwrap")) closeMenus(); });
 $("meBtn").onclick = () => { const m = $("meMenu"); const open = m.hidden; closeMenus(); m.hidden = !open; };
 $("themeBtn").onclick = () => { setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); closeMenus(); };
 $("signOutBtn").onclick = async () => {
@@ -308,10 +336,9 @@ function renderHello() {
   const first = (S.user && S.user.name || "").split(" ")[0];
   box.append(a, el("h1", null, `${greeting()}, ${first}.`),
     el("p", null, "Ask Agent S about your team's work. Every answer points to the session events it comes from."));
-  const latest = S.board && S.board.tasks[0] ? S.board.tasks[0].task : null;
   const ideas = [["flag", "What's blocked right now?", "Blockers, with the sessions that show them"],
     ["check", "What did the team finish today?", "Done means a merged PR, passing tests or a commit"],
-    ["bolt", latest ? `How far along is ${latest}?` : "Which task moved most today?", "Progress, with evidence"],
+    ["list", "Plan our next tasks and suggest owners", "Proposes changes to the board; you approve them"],
     ["sun", "Write today's digest", "Shipped, in progress, blocked, at risk"]];
   const grid = el("div", "suggest");
   for (const [i, text, small] of ideas) {
@@ -321,42 +348,65 @@ function renderHello() {
     b.onclick = () => (i === "sun" ? digest() : ask(text));
     grid.append(b);
   }
-  box.append(grid); t.append(box);
+  box.append(grid, el("p", "tip", "Tip: + imports a spec or a repo's GitHub issues for Agent S to plan from. Shift+Tab switches mode."));
+  t.append(box);
 }
-function userMsg(text) {
+function fileChip(name, size, onRemove) {
+  const c = el("span", "fchip"); c.append(ic("file"), el("span", null, name));
+  if (size != null) c.append(el("small", null, size >= 1024 ? `${Math.round(size / 1024)} KB` : `${size} B`));
+  if (onRemove) { const x = el("button"); x.type = "button"; x.setAttribute("aria-label", `Remove ${name}`); x.append(ic("x")); x.onclick = onRemove; c.append(x); }
+  return c;
+}
+function userMsg(text, files) {
   const t = $("thread"); const hello = t.querySelector(".hello"); if (hello) hello.remove();
-  const m = el("div", "msg user"); m.append(el("div", "bubble", text)); t.append(m); scrollDown();
+  const m = el("div", "msg user"); const col = el("div", "stack-r"); col.append(el("div", "bubble", text));
+  if (files && files.length) { const f = el("div", "files"); for (const x of files) f.append(fileChip(x.name)); col.append(f); }
+  m.append(col); t.append(m); scrollDown();
 }
 function agentMsg() {
   const m = el("div", "msg agent"); const body = el("div", "body");
   const who = el("div", "who"); who.append("Agent S");
-  const line = el("div", "thinking-line", S.events ? `Reading ${S.events} session events…` : "Reading the team's sessions…");
+  const doing = S.mode === "plan" ? "Planning" : "Reading";
+  const line = el("div", "thinking-line", S.events ? `${doing} from ${S.events} session events…` : `${doing} the team's sessions…`);
   body.append(who, line); m.append(agent("thinking"), body); $("thread").append(m); scrollDown();
   return {m, body, who, line};
 }
 function scrollDown() { const t = $("thread"); requestAnimationFrame(() => t.scrollTo({top: t.scrollHeight, behavior: REDUCED ? "auto" : "smooth"})); }
-function settle(slot, model) { slot.m.querySelector(".agent").classList.remove("thinking"); slot.line.remove(); if (model) slot.who.append(el("small", null, model)); }
+function settle(slot, meta) { slot.m.querySelector(".agent").classList.remove("thinking"); slot.line.remove(); if (meta) slot.who.append(el("small", null, meta)); }
+const shortModel = m => /ultra/i.test(m || "") ? "Nemotron Ultra" : /super/i.test(m || "") ? "Nemotron Super"
+  : /lightning/i.test(m || "") ? "Nemotron Lightning" : (m || "").replace(/^ollama:/, "local ");
+const titleOf = task => ((S.board ? S.board.tasks : []).find(t => t.task === task) || {}).title || "";
 
 async function ask(q) {
   if (!S.team || !q) return;
-  userMsg(q);
+  const files = S.files.splice(0); renderChips();
+  userMsg(q, files);
   const slot = agentMsg();
   $("askBtn").disabled = true;
   try {
-    const r = await hub(withTeam("ask"), {method: "POST", body: {question: q}});
-    settle(slot, r.model);
+    const r = await hub(withTeam("agent"), {method: "POST", body: {message: q, mode: S.mode, model: S.model,
+      attachments: files.map(f => ({name: f.name, text: f.text}))}});
+    settle(slot, `${shortModel(r.model)} · ${MODES[r.mode].label}`);
     const cited = r.citations || [];
-    if (!cited.length) slot.m.classList.add("none");
+    if (r.kind === "work" && !cited.length) slot.m.classList.add("none");
     slot.body.append(el("div", "answer", r.answer));
-    const row = el("div", "row gap");
-    row.append(el("span", "badge " + (cited.length ? "ok" : "none"), cited.length ? `${cited.length} event${cited.length > 1 ? "s" : ""} cited` : "No evidence"));
-    if (cited.length) {
-      const b = el("button", "evidence-btn", "Show evidence"); b.type = "button";
-      b.onclick = () => toggleEvidence(slot.body, cited, b);
-      row.append(b);
-      if (HASH.get("evidence")) { HASH.delete("evidence"); setTimeout(() => b.click(), 50); }
+    if (cited.length || r.kind === "work") {
+      const row = el("div", "row gap");
+      row.append(el("span", "badge " + (cited.length ? "ok" : "none"), cited.length ? `${cited.length} event${cited.length > 1 ? "s" : ""} cited` : "No evidence"));
+      if (cited.length) {
+        const b = el("button", "evidence-btn", "Show evidence"); b.type = "button";
+        b.onclick = () => toggleEvidence(slot.body, cited, b);
+        row.append(b);
+        if (HASH.get("evidence")) { HASH.delete("evidence"); setTimeout(() => b.click(), 50); }
+      }
+      slot.body.append(row);
     }
-    slot.body.append(row);
+    if (r.plan && r.plan.length) {
+      const box = el("div", "plan-box"); box.append(el("div", "label", "Plan")); const ol = el("ol");
+      for (const step of r.plan) ol.append(el("li", null, step));
+      box.append(ol); slot.body.append(box);
+    }
+    if (r.actions && r.actions.length) renderActions(slot.body, r.actions, r.mode);
   } catch (e) { settle(slot); slot.m.classList.add("none"); slot.body.append(el("div", "answer", e.message)); }
   $("askBtn").disabled = false; scrollDown();
 }
@@ -374,17 +424,110 @@ async function toggleEvidence(body, ids, btn) {
       if (e.task) { const t = el("button", "tchip", e.task); t.type = "button"; t.onclick = () => openTask(e.task, ids); row.append(t); } else row.append(el("span"));
       box.append(row);
     }
-    body.append(box); btn.textContent = "Hide evidence"; scrollDown();
+    const plan = body.querySelector(".plan-box, .actions-box");
+    if (plan) body.insertBefore(box, plan); else body.append(box);
+    btn.textContent = "Hide evidence"; scrollDown();
   } catch (e) { toast(e.message, true); }
   btn.disabled = false;
 }
+
+// ---- Agent S's changes to the board, applied by mode -------------------------------------------------
+const ACT = {
+  create_task: {icon: "plus", verb: a => `New ${a.task}`, text: a => a.title + (a.owner ? ` · ${a.owner}` : "")},
+  assign_task: {icon: "user", verb: a => `Assign ${a.task}`, text: a => `${titleOf(a.task) ? titleOf(a.task) + " " : ""}to ${a.owner}`},
+  close_task: {icon: "check", verb: a => `Close ${a.task}`, text: a => a.title || titleOf(a.task)},
+  start_task: {icon: "play", verb: a => `Start ${a.task}`, text: a => `${a.title || titleOf(a.task)} · on this laptop`},
+};
+const UNDO = {
+  create_task: (a, res) => hub(withTeam(`tasks/${encodeURIComponent(res.task)}`), {method: "DELETE"}),
+  assign_task: a => hub(withTeam(`tasks/${encodeURIComponent(a.task)}`), {method: "PATCH", body: {owner: a.prevOwner || ""}}),
+  close_task: a => hub(withTeam(`tasks/${encodeURIComponent(a.task)}`), {method: "PATCH", body: {state: "open"}}),
+};
+function renderActions(body, actions, mode) {
+  const box = el("div", "actions-box");
+  const head = el("div", "actions-head");
+  head.append(el("b", null, `${actions.length} change${actions.length > 1 ? "s" : ""} to the board`), `· ${MODES[mode].short}`);
+  box.append(head);
+  const rows = actions.map(a => {
+    const row = el("div", "act"); const i = el("span", "aic"); i.innerHTML = icon(ACT[a.type].icon);
+    const what = el("div", "what"); const line = el("div"); line.append(el("b", null, ACT[a.type].verb(a)), " ", ACT[a.type].text(a));
+    what.append(line); if (a.why) what.append(el("small", null, a.why));
+    const ctl = el("div", "ctl"); row.append(i, what, ctl); box.append(row);
+    return {a, row, ctl, line};
+  });
+  const foot = el("div", "actions-foot"); box.append(foot);
+  body.append(box); scrollDown();
+  const runAll = async () => { for (const r of rows) if (!r.done && !r.skipped) await run(r); foot.replaceChildren(); };
+  if (mode === "auto") { runAll(); return; }
+  if (mode === "manual") {
+    for (const r of rows) offer(r);
+    const all = el("button", "btn small", "Approve all"); all.type = "button";
+    all.onclick = () => { all.disabled = true; runAll(); };
+    foot.append(all);
+    return;
+  }
+  for (const r of rows) r.ctl.append(el("span", "state", "planned"));
+  const go = el("button", "btn small primary"); go.type = "button"; go.append(ic("play"), "Run plan");
+  const no = el("button", "btn small ghost", "Discard"); no.type = "button";
+  go.onclick = () => { go.disabled = no.disabled = true; runAll(); };
+  no.onclick = () => { for (const r of rows) skip(r); foot.replaceChildren(el("span", "state", "Plan discarded. Nothing changed.")); };
+  foot.append(no, go);
+}
+function offer(r) {
+  r.ctl.replaceChildren();
+  const no = el("button", "btn small ghost", "Skip"); no.type = "button"; no.onclick = () => skip(r);
+  const yes = el("button", "btn small primary", "Approve"); yes.type = "button"; yes.onclick = () => run(r);
+  r.ctl.append(no, yes);
+}
+function skip(r) { r.skipped = true; r.row.className = "act skipped"; r.ctl.replaceChildren(el("span", "state", "skipped")); }
+async function applyAction(a, repo) {
+  const card = (S.board ? S.board.tasks : []).find(t => t.task === a.task);
+  const path = `tasks/${encodeURIComponent(a.task)}`;
+  if (a.type === "create_task") return hub(withTeam("tasks"), {method: "POST", body: {task: a.task, title: a.title, owner: a.owner || null}});
+  if (a.type === "assign_task") { a.prevOwner = card ? card.owner || "" : ""; return hub(withTeam(path), {method: "PATCH", body: {owner: a.owner}}); }
+  if (a.type === "close_task") return hub(withTeam(path), {method: "PATCH", body: {state: "closed"}});
+  return api("/api/laptop/task", {method: "POST", body: {task: a.task, title: a.title || (card && card.title) || "", repo: repo || null}});
+}
+async function run(r, repo) {
+  r.ctl.replaceChildren(el("span", "state", "working…"));
+  try {
+    r.result = await applyAction(r.a, repo);
+    r.done = true; r.row.className = "act done";
+    if (r.result && r.result.task && r.result.task !== r.a.task && r.a.type === "create_task") {
+      r.a.task = r.result.task; r.line.firstChild.textContent = ACT[r.a.type].verb(r.a);
+    }
+    r.ctl.replaceChildren(el("span", "state", "✓ done"));
+    if (UNDO[r.a.type]) { const u = el("button", "link-btn"); u.type = "button"; u.append("Undo"); u.onclick = () => undo(r); r.ctl.append(u); }
+    loadBoard();
+    if (r.a.type === "start_task") refreshLaptop();
+  } catch (e) {
+    const repos = ((S.laptop || {}).repos || []).filter(x => x.ok);
+    if (e.status === 409 && r.a.type === "start_task" && repos.length > 1) return pickRepo(r, repos);
+    r.row.className = "act failed"; r.ctl.replaceChildren(el("span", "state", e.message));
+    const again = el("button", "link-btn", "Retry"); again.type = "button"; again.onclick = () => run(r, repo); r.ctl.append(again);
+  }
+}
+function pickRepo(r, repos) {
+  r.ctl.replaceChildren();
+  const sel = el("select"); sel.setAttribute("aria-label", "Repo");
+  for (const x of repos) { const o = el("option", null, x.name); o.value = x.path; sel.append(o); }
+  const go = el("button", "btn small primary", "Start here"); go.type = "button"; go.onclick = () => run(r, sel.value);
+  r.ctl.append(sel, go);
+}
+async function undo(r) {
+  try {
+    await UNDO[r.a.type](r.a, r.result);
+    r.done = false; r.row.className = "act skipped"; r.ctl.replaceChildren(el("span", "state", "undone")); loadBoard();
+  } catch (e) { toast(e.message, true); }
+}
+
 async function digest() {
   if (!S.team) return;
   userMsg("Today's digest");
   const slot = agentMsg();
   try {
-    const d = await hub(withTeam("digest"));
-    settle(slot, d.model);
+    const d = await hub(withTeam(`digest?model=${S.model}`));
+    settle(slot, shortModel(d.model));
     const box = el("div", "digest"); box.append(el("div", "answer", d.headline));
     for (const [k, label] of [["shipped", "Shipped"], ["in_progress", "In progress"], ["blocked", "Blocked"], ["at_risk", "At risk"]]) {
       if (!d[k] || !d[k].length) continue;
@@ -396,9 +539,83 @@ async function digest() {
   } catch (e) { settle(slot); slot.body.append(el("div", "answer", e.message)); }
   scrollDown();
 }
+
+// ---- the composer: import, mode, model ---------------------------------------------------------------
+function setMode(mode, save = true) {
+  S.mode = MODES[mode] ? mode : "manual";
+  const m = MODES[S.mode];
+  $("modePick").className = `cbtn mode ${S.mode}`; $("modeLabel").textContent = m.label;
+  $("modeIc").innerHTML = icon(m.icon); $("modeHint").textContent = m.desc;
+  if (save) api("/api/prefs", {method: "POST", body: {mode: S.mode}}).catch(() => {});
+}
+function setModel(model, save = true) {
+  S.model = MODELS[model] ? model : "auto";
+  $("modelLabel").textContent = MODELS[S.model].label;
+  if (save) api("/api/prefs", {method: "POST", body: {model: S.model}}).catch(() => {});
+}
+function fillMenu(menuId, entries, current, pick) {
+  const m = $(menuId); m.replaceChildren();
+  for (const [key, label, small, iconName, keyHint] of entries) {
+    const b = el("button", key === current ? "on" : null); b.type = "button";
+    b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(key === current));
+    const words = el("span"); words.append(el("b", null, label), el("small", null, small));
+    b.append(ic(key === current ? "check" : iconName), words);
+    if (keyHint) b.append(el("span", "key", keyHint));
+    b.onclick = () => { closeMenus(); pick(key); $("askIn").focus(); };
+    m.append(b);
+  }
+}
+function toggleMenu(btnId, menuId, fill) {
+  const m = $(menuId); const open = m.hidden; closeMenus(); if (!open) return;
+  fill(); m.hidden = false; $(btnId).setAttribute("aria-expanded", "true");
+}
+$("modePick").onclick = () => toggleMenu("modePick", "modeMenu", () => fillMenu("modeMenu",
+  MODE_ORDER.map((k, i) => [k, MODES[k].label, MODES[k].desc, MODES[k].icon, i === 0 ? "Shift+Tab" : ""]), S.mode, setMode));
+$("modelBtn").onclick = () => toggleMenu("modelBtn", "modelMenu", () => fillMenu("modelMenu",
+  Object.keys(MODELS).map(k => [k, MODELS[k].label, MODELS[k].desc, "chip"]), S.model, setModel));
+$("importBtn").onclick = () => toggleMenu("importBtn", "importMenu", () => {});
+
+function renderChips() {
+  const c = $("chips"); c.replaceChildren();
+  S.files.forEach((f, i) => c.append(fileChip(f.name, f.size, () => { S.files.splice(i, 1); renderChips(); })));
+  c.hidden = !S.files.length;
+}
+async function addFiles(list) {
+  for (const f of list) {
+    if (S.files.length >= MAX_FILES) { toast(`Up to ${MAX_FILES} imports per message.`, true); break; }
+    if (f.size > MAX_FILE_BYTES) { toast(`${f.name} is over ${Math.round(MAX_FILE_BYTES / 1000)} KB.`, true); continue; }
+    const text = await f.text();
+    if (text.slice(0, 4000).includes("\u0000")) { toast(`${f.name} isn't a text file.`, true); continue; }
+    S.files.push({name: f.name, text: text.slice(0, 60000), size: f.size});
+  }
+  renderChips(); $("askIn").focus();
+}
+$("importFiles").onclick = () => { closeMenus(); $("fileIn").click(); };
+$("fileIn").onchange = async () => { await addFiles([...$("fileIn").files]); $("fileIn").value = ""; };
+$("askForm").addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+$("askForm").addEventListener("drop", e => { if (e.dataTransfer.files.length) { e.preventDefault(); addFiles([...e.dataTransfer.files]); } });
+$("importIssues").onclick = () => { closeMenus(); $("issuesForm").hidden = false; $("issuesErr").textContent = ""; $("issuesIn").focus(); };
+$("issuesCancel").onclick = () => { $("issuesForm").hidden = true; };
+$("issuesForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const b = ev.submitter; if (b) b.disabled = true; $("issuesErr").textContent = "";
+  try {
+    if (S.files.length >= MAX_FILES) throw new Error(`Up to ${MAX_FILES} imports per message.`);
+    const r = await api(`/api/import/github?repo=${encodeURIComponent($("issuesIn").value.trim())}`);
+    S.files.push({name: r.name, text: r.text, size: r.text.length}); renderChips();
+    $("issuesForm").hidden = true; $("issuesIn").value = "";
+    if (!askIn.value.trim()) askIn.value = "Plan these issues as tasks and suggest an owner for each.";
+    askIn.focus();
+  } catch (err) { $("issuesErr").textContent = err.message; }
+  if (b) b.disabled = false;
+});
+
 const askIn = $("askIn");
 askIn.addEventListener("input", () => { askIn.style.height = "auto"; askIn.style.height = `${Math.min(askIn.scrollHeight, 180)}px`; });
-askIn.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("askForm").requestSubmit(); } });
+askIn.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("askForm").requestSubmit(); }
+  if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode(MODE_ORDER[(MODE_ORDER.indexOf(S.mode) + 1) % MODE_ORDER.length]); }
+});
 $("askForm").addEventListener("submit", e => { e.preventDefault(); const q = askIn.value.trim(); if (!q) return; askIn.value = ""; askIn.style.height = "auto"; ask(q); });
 $("digestBtn").onclick = digest;
 
@@ -421,8 +638,14 @@ function card(t, members, i) {
   const head = el("div", "card-head"); head.append(mascot(t.members[0] || "team", pose(t, members)));
   const open = el("button", "card-open"); open.type = "button"; open.title = "Open the timeline"; open.onclick = () => openTask(t.task);
   open.append(el("div", "tid", t.task), el("h3", null, t.title || t.task));
-  head.append(open, el("span", "status " + t.status, t.status.replace("_", " "))); c.append(head);
+  head.append(open, el("span", "status " + t.status, t.status === "todo" ? "to do" : t.status.replace("_", " "))); c.append(head);
   const p = t.progress;
+  if (t.status === "todo") {
+    c.classList.add("todo");
+    c.append(el("div", "notyet", t.owner ? `Not started · ${t.owner} is on it` : "Not started · nobody assigned yet"));
+    const foot = el("div", "card-foot"); foot.append(el("span", null, `planned ${ago(t.last_activity)}`)); c.append(foot);
+    return c;
+  }
   const meter = el("div", "meter"), track = el("div", "track"), fill = el("div", "fill");
   fill.style.width = "0%"; track.append(fill); requestAnimationFrame(() => { fill.style.width = `${p ? p.percent : 0}%`; });
   if (p && p.agent_says_percent != null) { const m = el("div", "claim"); m.style.left = `calc(${p.agent_says_percent}% - 1px)`; m.title = "what the coding agent claims"; track.append(m); }
@@ -432,6 +655,7 @@ function card(t, members, i) {
   meter.append(track, legend); c.append(meter);
   if (p) { const lists = el("div", "lists"); for (const r of [list("Blocked", p.blockers, "blockers", t.task), list("Done", p.done, "", t.task), list("Doing", p.doing, "", t.task), list("Next", p.next, "", t.task)]) if (r) lists.append(r); if (lists.childElementCount) c.append(lists); }
   const foot = el("div", "card-foot");
+  if (t.owner && !t.members.includes(t.owner)) foot.append(el("span", "tag", `owner ${t.owner}`));
   for (const m of t.members) foot.append(el("span", "tag", m));
   for (const tool of t.tools) if (TOOLS[tool]) foot.append(el("span", "tag", TOOLS[tool]));
   if (t.pr) foot.append(el("span", "tag pr", [`PR #${t.pr.number}`, t.pr.draft ? "draft" : t.pr.state, t.pr.checks ? `CI ${t.pr.checks}` : ""].filter(Boolean).join(" · ")));
@@ -441,10 +665,10 @@ function card(t, members, i) {
 function renderBoard() {
   const grid = $("cards"); const b = S.board;
   if (!b) { grid.replaceChildren(el("div", "skeleton"), el("div", "skeleton"), el("div", "skeleton")); return; }
-  const counts = {in_progress: 0, blocked: 0, review: 0, done: 0};
+  const counts = {todo: 0, in_progress: 0, blocked: 0, review: 0, done: 0};
   for (const t of b.tasks) counts[t.status] = (counts[t.status] || 0) + 1;
   const tally = $("tally"); tally.replaceChildren();
-  for (const [k, v, cls] of [["tasks", b.tasks.length], ["in progress", counts.in_progress], ["blocked", counts.blocked, counts.blocked ? "bad" : ""], ["in review", counts.review], ["done", counts.done]]) {
+  for (const [k, v, cls] of [["tasks", b.tasks.length], ["to do", counts.todo], ["in progress", counts.in_progress], ["blocked", counts.blocked, counts.blocked ? "bad" : ""], ["in review", counts.review], ["done", counts.done]]) {
     const s = el("span", cls || null); s.append(el("b", null, String(v)), k); tally.append(s);
   }
   $("boardSub").textContent = `${b.room} · Agent S progress from every teammate's sessions`;
@@ -485,6 +709,8 @@ async function openTask(task, highlight) {
     for (const r of [list("Blocked", p.blockers, "blockers"), list("Done", p.done), list("Doing", p.doing), list("Next", p.next)]) if (r) lists.append(r);
     if (lists.childElementCount) body.append(lists);
     body.append(el("div", "label", "Timeline, newest first"));
+    if (!d.timeline.length) body.append(el("p", "sub", d.owner ? `Planned for ${d.owner}. When a session starts on ${d.task}, it shows up here.`
+      : `Planned. When someone starts a session on ${d.task}, it shows up here.`));
     const ol = el("ol", "timeline"); const hit = new Set(highlight || []);
     for (const e of d.timeline) {
       const li = el("li", hit.has(e.id) ? "hit" : null); const t = el("div");

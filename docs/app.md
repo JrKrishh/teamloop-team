@@ -11,6 +11,14 @@ SuperAgents.exe ─ window (WebView2) ─ UI (app/superagents/ui) ─┐ same or
 teamloop.exe ─ hooks and MCP server, run by Claude Code and Codex; sends to the hub with this laptop's tl_ token
 ```
 
+## Agent S: import, modes and models
+The composer works like Claude Code's:
+- **Import (+):** files (specs, task lists, notes; text, Markdown, CSV, JSON, code; up to 5, 200 KB each) or a public repo's open GitHub issues. Agent S reads them next to the team's session timeline.
+- **Mode** (Shift+Tab cycles): Agent S answers, and when you ask it to plan or change the board it proposes changes: create, assign, close or start tasks. **Manual** asks before each change; **Plan** writes numbered steps and changes nothing until you press Run plan; **Auto** applies them and shows each with Undo.
+- **Model:** **Auto** uses Nemotron Super for answers and Nemotron Ultra for plans and imports; or pin **Lightning** (fastest), **Super** or **Ultra**.
+
+Agent S only proposes; the app applies (`POST /v1/agent` returns the answer, plan and checked actions; the app calls `/v1/tasks` and, for "start", this laptop's `teamloop task`). Proposals are checked in code: tasks must exist or be new, owners must be members, at most 12. Claims about the team's work still need cited events. Planned tasks show on the board as **to do** until a session reports on them; then they show live progress.
+
 ## Signing in
 - **GitHub:** the app opens your normal browser (where you're already signed in to GitHub) on Supabase's authorize page with a PKCE challenge. GitHub sends you back to `http://127.0.0.1:<port>/auth/callback` on this laptop; the app trades the code for a Supabase session, then for the hub's own session (`POST /v1/app/session`), kept in `~/.teamloop/app.json`. Same pattern as `gh auth login` (RFC 8252).
 - **Email and password:** the app calls Supabase directly; no browser.
