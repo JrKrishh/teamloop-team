@@ -22,6 +22,7 @@ The hub and board ship as one Docker image (`Dockerfile` at the repo root). Ever
    | `CCBRIDGE_OPEN_ROOMS` | `0` |
    | `GITHUB_WEBHOOK_SECRET` | see [github-setup.md](github-setup.md) |
    | `HUB_GITHUB_REPOS` | see [github-setup.md](github-setup.md) |
+   | `HUB_NOTIFY_WEBHOOK` | optional: a Discord or Slack incoming-webhook URL; the lead gets a ping when an agent marks a task blocked |
 
 4. The image sets `HUB_DEMO_ROOM=demo`. Anyone opening the Space URL sees the public sample team, read-only. Teammates sign in to their own room with its token.
 

@@ -31,7 +31,8 @@ Research behind this plan (read these for sources):
 | Nebius credits + smoke test | **blocked on Yang's bank card** | `scripts/smoke_nebius.py` |
 | Outside teams (≥3) | **not started**: the real risk now | §20 |
 | S2 daily digest | **done** (big model; every line cited; 10-min cache) | `agent_s/digest.py`, board "Today's digest" |
-| S1 Cursor, S3 blocker pings, S5 Tavily | not started | |
+| S3 blocker pings | **done** (Discord/Slack webhook; mentions defused; one ping per new block) | `hub/hub/notify.py` |
+| S1 Cursor, S5 Tavily | not started | |
 
 **Live end-to-end:** a real Claude Code session and a real Codex session ran in parallel into one hub, and Agent S wrote cited progress (see `docs/research/live-run-20261013.md`).
 
