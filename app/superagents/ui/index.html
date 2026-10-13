@@ -121,6 +121,7 @@
         <button type="button" class="pill" id="teamBtn" aria-haspopup="menu"><span class="dot"></span><span id="teamName"></span><span class="ic" data-ic="chev"></span></button>
         <div class="menu" id="teamMenu" role="menu" hidden></div>
       </div>
+      <button type="button" class="status-chip usage-chip" id="usageChip" hidden title="AI usage today"></button>
       <button type="button" class="status-chip" id="laptopChip"></button>
       <div class="pane-btns" role="group" aria-label="Side panel">
         <button type="button" class="icon-btn" data-pane="files" title="Files" aria-label="Files"><span class="ic" data-ic="folder"></span></button>
@@ -178,12 +179,21 @@
     </section>
 
     <section class="view" id="view-team" hidden>
-      <div class="view-head"><div><h1>Team</h1><p class="sub" id="teamSub"></p></div></div>
-      <div class="invite-card" id="inviteCard" hidden>
-        <div><h3>Invite a teammate</h3><p class="sub">A link that works for 7 days and up to 20 people. They sign in with GitHub or email.</p></div>
-        <div class="invite-row"><input id="inviteOut" readonly placeholder="Make a link to share"><button type="button" class="btn primary" id="inviteBtn">Make link</button></div>
+      <div class="view-head">
+        <div><h1>Team</h1><p class="sub" id="teamSub"></p></div>
+        <div class="tabs" id="teamTabs" role="tablist">
+          <button type="button" role="tab" data-tab="people" class="on">People</button>
+          <button type="button" role="tab" data-tab="usage">Usage</button>
+        </div>
       </div>
-      <div class="people" id="people"></div>
+      <div class="tab" id="team-people">
+        <div class="invite-card" id="inviteCard" hidden>
+          <div><h3>Invite a teammate</h3><p class="sub">A link that works for 7 days and up to 20 people. They sign in with GitHub or email.</p></div>
+          <div class="invite-row"><input id="inviteOut" readonly placeholder="Make a link to share"><button type="button" class="btn primary" id="inviteBtn">Make link</button></div>
+        </div>
+        <div class="people" id="people"></div>
+      </div>
+      <div class="tab" id="team-usage" hidden></div>
     </section>
 
     <section class="view" id="view-agents" hidden>

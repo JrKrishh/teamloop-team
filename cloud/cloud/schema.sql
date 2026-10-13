@@ -106,7 +106,25 @@ create table public.tasks (
   primary key (team_id, task)
 );
 
+-- v3 (migration teamloop_cloud_v3_usage): Super Agents' own model use, for the usage counter: the app's agent steps
+-- (/v1/llm), Agent S's answers, plans, progress and digests. Coding agents' tokens ride on their turn events instead.
+-- user_id is null for work Agent S does for the whole team (progress, digest).
+create table public.agent_usage (
+  id bigserial primary key,
+  team_id uuid not null references public.teams(id) on delete cascade,
+  user_id uuid,
+  member text,
+  source text not null check (source in ('app', 'ask', 'agent', 'digest', 'progress')),
+  model text,
+  calls int not null default 0,
+  tokens_in bigint not null default 0,
+  tokens_out bigint not null default 0,
+  at timestamptz not null default now()
+);
+create index agent_usage_team_at_idx on public.agent_usage (team_id, at);
+
 alter table public.teams enable row level security;
+alter table public.agent_usage enable row level security;
 alter table public.tasks enable row level security;
 alter table public.memberships enable row level security;
 alter table public.invites enable row level security;

@@ -37,7 +37,7 @@ from .runtime import tools as runtime_tools
 
 UI = Path(__file__).parent / "ui"
 # what the UI may ask the hub for, through /api/cloud/<path>
-CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events"
+CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events|usage"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?)"
                          r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40})$")
 
@@ -545,11 +545,12 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
             return data
         return call
 
-    def llm_step(messages: list, tools: list, tier: str) -> dict:
+    def llm_step(messages: list, tools: list, tier: str, team: str) -> dict:
+        """One model step through the hub; its tokens count toward the team's usage."""
         payload = {"tier": tier, "messages": messages, "tools": tools, "max_tokens": 1800}
-        code, data = cloud(state, "POST", "/v1/llm", payload)
+        code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
         if code == 502 and tier not in ("auto", "super"):  # a pinned tier that can't take tools: Super can
-            code, data = cloud(state, "POST", "/v1/llm", {**payload, "tier": "super"})
+            code, data = cloud(state, "POST", "/v1/llm", {**payload, "tier": "super"}, {"team": team})
         if code != 200:
             raise RuntimeError(data.get("detail") or f"The model said {code}")
         return data
@@ -559,7 +560,8 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         chat = (runtime_loop.load_chat(body.chat) if body.chat else {}) or runtime_loop.new_chat(body.agent)
         files = [{"name": str(a.get("name", "file"))[:120], "text": str(a.get("text", ""))[:60_000]} for a in body.attachments]
         turn = runtime_loop.Turn(chat=chat, agent=agent_store.get(body.agent), message=body.message, attachments=files,
-                                 mode=body.mode, model=body.model, hub=team_hub(body.team), llm=llm_step, mcp=state.mcp,
+                                 mode=body.mode, model=body.model, hub=team_hub(body.team), mcp=state.mcp,
+                                 llm=lambda messages, tools, tier: llm_step(messages, tools, tier, body.team),
                                  person=(store.load().get("profile") or {}).get("name") or "you")
         state.turns[turn.id] = turn
         threading.Thread(target=turn.run, daemon=True).start()

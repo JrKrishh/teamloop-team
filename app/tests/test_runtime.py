@@ -95,6 +95,30 @@ def test_manual_asks_before_a_change_and_reads_run_free(home):
     assert saved["title"] == "plan it" and saved["view"][0]["answer"] == "Added T-4."
 
 
+def test_the_answer_carries_the_turns_usage_and_agents_can_read_the_teams(home):
+    hub_calls = []
+    step = call("team_usage", {"days": 7})
+    llm, sent = script({**step, "usage": {"in": 900, "out": 40}}, {**answer("T-3 cost the most."), "usage": {"in": 1500, "out": 60}})
+    summary = {"days": 7, "scope": "team", "coding": {"tokens": 2_400_000, "turns": 31, "sessions": 4, "cr": 90_000_000},
+               "tools": {"claude_code": {"tokens": 2_000_000}, "codex": {"tokens": 400_000}},
+               "agents": {"tokens": 52_000, "calls": 40},
+               "tasks": [{"task": "T-3", "tokens": 1_900_000, "people": ["Yang"]}],
+               "people": [{"name": "Asha", "total": 400_000}, {"name": "Yang", "total": 2_052_000}],
+               "by_day": [{"day": "2026-10-13", "claude_code": 900_000, "codex": 0, "agents": 2000}]}
+
+    def hub(method, path, body=None):
+        return summary if path.startswith("usage") else fake_hub(hub_calls)(method, path, body)
+
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="Which task cost the most?",
+                  attachments=[], mode="manual", model="auto", hub=hub, llm=llm, mcp=NoMcp(), person="Yang")
+    t.run()
+    result = [m["content"] for m in sent[1]["messages"] if m["role"] == "tool"][0]
+    assert "Coding agents: 2.4M tokens over 31 turns in 4 sessions (Claude Code 2.0M, Codex 400k; cache reads 90.0M)" in result
+    assert "T-3 1.9M (Yang)" in result and "By person: Asha 400k; Yang 2.1M" in result and "10-13 902k" in result
+    assert t.events[-2]["usage"] == {"calls": 2, "in": 2400, "out": 100}
+    assert loop.load_chat(t.chat["id"])["view"][0]["usage"]["calls"] == 2
+
+
 def test_declining_stops_the_change(home):
     hub_calls = []
     llm, sent = script(call("close_task", {"task": "T-3"}), answer("Left it open."))

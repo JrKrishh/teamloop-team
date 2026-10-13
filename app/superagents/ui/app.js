@@ -71,6 +71,7 @@ const ICONS = {
   external: '<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M17.5 14v4a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h4"/>',
   caret: '<path d="m10 7 5 5-5 5"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
+  gauge: '<path d="M4.2 16.5a8 8 0 1 1 15.6 0"/><path d="m12 16.5 3.6-4.6"/><circle cx="12" cy="16.5" r="1.2"/>',
 };
 // Like Claude Code's modes: Shift+Tab cycles them.
 const MODES = {
@@ -280,22 +281,25 @@ function showShell() {
   loadAgents().then(() => { if ($("thread").querySelector(".hello")) renderHello(); loadChats(); });
   api("/api/connectors").then(r => { S.connectors = r.items; }).catch(() => {});
   loadBoard().then(() => { if (HASH.get("ask")) { ask(HASH.get("ask")); HASH.delete("ask"); } });
+  loadUsageChip();
   if (HASH.get("pane")) { openPane(HASH.get("pane")); HASH.delete("pane"); }
   clearInterval(pollTimer);
-  pollTimer = setInterval(() => { if (!document.hidden) { loadBoard(); refreshLaptop(); } }, 20000);
+  let ticks = 0;
+  pollTimer = setInterval(() => { if (!document.hidden) { loadBoard(); refreshLaptop(); if (++ticks % 3 === 0) loadUsageChip(); } }, 20000);
 }
 function go(view) {
   S.view = VIEWS.includes(view) ? view : "chat";
   for (const b of document.querySelectorAll("#nav button")) b.classList.toggle("on", b.dataset.view === S.view);
   for (const v of VIEWS) $(`view-${v}`).hidden = v !== S.view;
   if (S.view === "board") renderBoard();
-  if (S.view === "team") loadTeam();
+  if (S.view === "team") showTeamTab(teamTab);
   if (S.view === "agents") showAgentTab(agentTab);
   if (S.view === "laptop") refreshLaptop(true);
   if (S.view === "chat") setTimeout(() => $("askIn").focus(), 50);
 }
 for (const b of document.querySelectorAll("#nav button")) b.onclick = () => go(b.dataset.view);
 $("laptopChip").onclick = () => go("laptop");
+$("usageChip").onclick = () => { teamTab = "usage"; go("team"); };
 $("newChat").onclick = () => newChat();
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") { closeMenus(); if (!$("drawer").hidden) closeDrawer(); }
@@ -445,7 +449,7 @@ async function openChat(id) {
       userMsg(v.user, (v.files || []).map(name => ({name})));
       const st = turnState(agentMsg(S.agents.find(a => a.id === v.agent) || currentAgent()), null, v.mode);
       for (const e of v.events || []) handleEvent(st, e, true);
-      finishAnswer(st, v.answer, MODES[v.mode] ? MODES[v.mode].label : "");
+      finishAnswer(st, v.answer, (MODES[v.mode] ? MODES[v.mode].label : "") + spentLine(v.usage));
     }
     renderChats(); go("chat"); scrollDown(true);
   } catch (e) { toast(e.message, true); }
@@ -462,7 +466,7 @@ function renderHello() {
     el("p", null, ag.id === "agent-s" ? "Ask Agent S about your team's work, or have it plan, read your repos, run commands and browse. Answers about the team point to the session events they come from."
       : `${ag.name} is ready. ${agentLine(ag).replace(/[.!]$/, "")}.`));
   const ideas = [["flag", "What's blocked right now?", "Blockers, with the sessions that show them"],
-    ["check", "What did the team finish today?", "Done means a merged PR, passing tests or a commit"],
+    ["gauge", "Which tasks used the most AI this week?", "Tokens by task, tool and person, from every laptop"],
     ["list", "Plan our next tasks and suggest owners", "Proposes changes to the board; you approve them"],
     ["sun", "Write today's digest", "Shipped, in progress, blocked, at risk"]];
   const grid = el("div", "suggest");
@@ -502,6 +506,7 @@ function scrollDown(force) {
   requestAnimationFrame(() => t.scrollTo({top: t.scrollHeight, behavior: REDUCED ? "auto" : "smooth"}));
 }
 function settle(slot, meta) { slot.m.querySelector(".agent").classList.remove("thinking"); slot.line.remove(); if (meta) slot.who.append(el("small", null, meta)); }
+const spentLine = u => (u && u.calls ? ` · ${fmtTok((u.in || 0) + (u.out || 0))} tokens` : "");
 const shortModel = m => /ultra/i.test(m || "") ? "Nemotron Ultra" : /super/i.test(m || "") ? "Nemotron Super"
   : /lightning/i.test(m || "") ? "Nemotron Lightning" : (m || "").replace(/^ollama:/, "local ");
 function setRunning(on) {
@@ -524,7 +529,7 @@ async function ask(q) {
     S.chat = r.chat; S.turn = r.turn;
     await follow(turnState(slot, r.turn, S.mode), 0);
   } catch (e) { settle(slot); slot.m.classList.add("none"); slot.body.append(el("div", "answer", e.message)); }
-  setRunning(false); S.turn = null; loadChats(); loadBoard();
+  setRunning(false); S.turn = null; loadChats(); loadBoard(); loadUsageChip();
 }
 function turnState(slot, turnId, mode) { return {slot, turn: turnId, steps: slot.steps, cards: {}, cited: new Set(), mode: mode || "manual"}; }
 async function follow(st, after) {
@@ -554,7 +559,7 @@ function handleEvent(st, e, past) {
   } else if (e.kind === "browser") {
     if (!past) openBrowser(e.url);
   } else if (e.kind === "answer") {
-    finishAnswer(st, e.text, `${shortModel(e.model)} · ${MODES[st.mode].label}`);
+    finishAnswer(st, e.text, `${shortModel(e.model)} · ${MODES[st.mode].label}${spentLine(e.usage)}`);
   } else if (e.kind === "error") {
     failTurn(st, e.text);
   } else if (e.kind === "end") {
@@ -587,6 +592,7 @@ const TOOL_UI = {
   team_board: ["board", "Read the board", () => ""],
   team_ask: ["spark", "Asked the team's history", a => a.question],
   team_task: ["board", "Read task", a => a.task],
+  team_usage: ["gauge", "Read the team's AI usage", a => (a.days ? `last ${a.days} days` : "")],
   create_task: ["plus", "Create task", a => (a.title || "") + (a.owner ? ` · ${a.owner}` : "")],
   assign_task: ["user", "Assign", a => `${a.task} → ${a.owner}`],
   close_task: ["check", "Close", a => a.task],
@@ -866,6 +872,7 @@ function card(t, members, i) {
   for (const m of t.members) foot.append(el("span", "tag", m));
   for (const tool of t.tools) if (TOOLS[tool]) foot.append(el("span", "tag", TOOLS[tool]));
   if (t.pr) foot.append(el("span", "tag pr", [`PR #${t.pr.number}`, t.pr.draft ? "draft" : t.pr.state, t.pr.checks ? `CI ${t.pr.checks}` : ""].filter(Boolean).join(" · ")));
+  if (t.usage && t.usage.tokens) { const u = el("span", "tag", `${fmtTok(t.usage.tokens)} tokens`); u.title = `${t.usage.turns} turns of AI coding on ${t.task}`; foot.append(u); }
   foot.append(el("span", null, `${ago(t.last_activity)} · ${t.events} events`));
   c.append(foot); return c;
 }
@@ -917,6 +924,7 @@ async function openTask(task, highlight) {
   try {
     const d = await hub(withTeam(`tasks/${encodeURIComponent(task)}`));
     const nodes = [sparkline(d.history || [])];
+    if (d.usage && d.usage.tokens) nodes.push(el("div", "label", `AI usage · ${fmtTok(d.usage.tokens)} tokens over ${d.usage.turns} turns`));
     const p = d.progress || {}; const lists = el("div", "lists");
     for (const r of [list("Blocked", p.blockers, "blockers"), list("Done", p.done), list("Doing", p.doing), list("Next", p.next)]) if (r) lists.append(r);
     if (lists.childElementCount) nodes.push(lists);
@@ -1440,7 +1448,110 @@ $("brReload").onclick = () => { if (BR.url) { const f = $("frame"); f.src = "abo
 const popOut = () => { const u = normalizeUrl($("urlIn").value) || BR.url; if (u) api("/api/browser/window", {method: "POST", body: {url: u}}).catch(e => toast(e.message, true)); };
 $("brPop").onclick = popOut; $("brPop2").onclick = popOut;
 
-// ---- team -------------------------------------------------------------------------------------------------
+// ---- team: people and usage ------------------------------------------------------------------------------
+let teamTab = "people";
+function showTeamTab(tab) {
+  teamTab = tab;
+  for (const b of $("teamTabs").children) b.classList.toggle("on", b.dataset.tab === tab);
+  $("team-people").hidden = tab !== "people"; $("team-usage").hidden = tab !== "usage";
+  const t = team(); $("teamSub").textContent = t ? `${t.name} · ${t.role === "lead" ? "you lead this team" : "member"}` : "";
+  if (tab === "people") loadTeam(); else loadUsage();
+}
+for (const b of $("teamTabs").children) b.onclick = () => showTeamTab(b.dataset.tab);
+
+// The usage counter: what the team's AI uses. Coding agents' tokens are counted on each laptop from the agent's own
+// log (numbers only); Super Agents counts its Nemotron calls. "Tokens" = fresh input + cache writes + output.
+const fmtTok = n => (n = n || 0) >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
+  : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n);
+const TZ = -new Date().getTimezoneOffset();
+const USAGE = {days: 7, data: null};
+const SERIES = [["claude_code", "Claude Code", "--u-claude"], ["codex", "Codex", "--u-codex"], ["agents", "Super Agents", "--u-agents"]];
+async function loadUsageChip() {
+  if (!S.team) return;
+  try {
+    const u = await hub(withTeam(`usage?days=1&tz=${TZ}`));
+    const c = $("usageChip"); c.hidden = false; c.replaceChildren(ic("gauge"), `${fmtTok(u.total)} tokens today`);
+    c.title = `AI usage today · coding agents ${fmtTok(u.coding.tokens)} · Super Agents ${fmtTok(u.agents.tokens)}`;
+  } catch (e) { /* next poll */ }
+}
+async function loadUsage() {
+  const box = $("team-usage");
+  if (!USAGE.data) box.replaceChildren(el("div", "skeleton"));
+  try { USAGE.data = await hub(withTeam(`usage?days=${USAGE.days}&tz=${TZ}`)); }
+  catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  renderUsage();
+}
+function figure(label, value, small, color, dim) {
+  const f = el("div", "figure" + (dim ? " dim" : "")); const l = el("div", "label"); const i = el("i");
+  if (color) i.style.setProperty("--c", `var(${color})`); l.append(i, label);
+  f.append(l, el("b", null, fmtTok(value)), el("span", null, small)); return f;
+}
+function usageChart(days) {
+  // drawn at the width it's shown at, so the axis text stays at its CSS size
+  const W = Math.max(480, ($("team-usage").clientWidth || 760) - 34), H = 168, top = 10, bottom = 22, left = 44, n = days.length;
+  const total = d => d.claude_code + d.codex + d.agents;
+  const max = Math.max(1, ...days.map(total));
+  const y = v => H - bottom - (v / max) * (H - top - bottom);
+  const slot = (W - left) / n, bw = Math.max(3, Math.min(34, slot * 0.62));
+  const s = svg("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "AI tokens per day"});
+  for (const g of [0, 0.5, 1]) {
+    s.append(svg("line", {x1: left, x2: W, y1: y(max * g), y2: y(max * g), class: "grid"}));
+    const t = svg("text", {x: left - 8, y: y(max * g) + 4, "text-anchor": "end"}); t.textContent = fmtTok(Math.round(max * g)); s.append(t);
+  }
+  days.forEach((d, i) => {
+    const g = svg("g", {}); const x = left + i * slot + (slot - bw) / 2; let base = 0;
+    for (const [key, , color] of SERIES) {
+      if (!d[key]) continue;
+      g.append(svg("rect", {x, y: y(base + d[key]), width: bw, height: Math.max(1, y(base) - y(base + d[key])), rx: 2, fill: `var(${color})`}));
+      base += d[key];
+    }
+    const tip = svg("title", {}); tip.textContent = `${d.day} · ${SERIES.map(([k, label]) => `${label} ${fmtTok(d[k])}`).join(" · ")}`; g.append(tip);
+    if (n <= 10 || i % 5 === n % 5 || i === n - 1) { const t = svg("text", {x: x + bw / 2, y: H - 6, "text-anchor": "middle"}); t.textContent = d.day.slice(8); g.append(t); }
+    s.append(g);
+  });
+  const box = el("div", "usage-chart"); const legend = el("div", "legend-row");
+  for (const [, label, color] of SERIES) { const span = el("span"); const i = el("i"); i.style.setProperty("--c", `var(${color})`); span.append(i, label); legend.append(span); }
+  box.append(s, legend); return box;
+}
+function table(head, rows) {
+  const t = el("table", "ut"); const tr = el("tr");
+  for (const [label, num] of head) tr.append(el("th", num ? "num" : null, label));
+  const thead = el("thead"); thead.append(tr); const tbody = el("tbody");
+  for (const r of rows) tbody.append(r);
+  t.append(thead, tbody); return t;
+}
+function renderUsage() {
+  const u = USAGE.data; const box = $("team-usage");
+  const bar = el("div", "usage-bar");
+  bar.append(segEl([[1, "Today"], [7, "7 days"], [30, "30 days"]], USAGE.days, d => { USAGE.days = d; loadUsage(); }),
+    el("span", "sub", u.scope === "team" ? "You lead this team, so you see everyone's numbers." : "You see the team's totals and your own numbers; the lead sees everyone's."));
+  const tiles = el("div", "usage-top");
+  tiles.append(figure("Coding agents", u.coding.tokens, `${u.coding.turns} turns · ${u.coding.sessions} sessions · Claude Code ${fmtTok(u.tools.claude_code.tokens)}, Codex ${fmtTok(u.tools.codex.tokens)}`, "--u-claude"),
+    figure("Super Agents", u.agents.tokens, `${u.agents.calls} Nemotron calls`, "--u-agents"),
+    figure("Cache reads", u.coding.cr, "Context the agents re-read each call. Not in the totals.", null, true));
+  const nodes = [bar, tiles];
+  if (u.days > 1) nodes.push(usageChart(u.by_day));
+  const titles = Object.fromEntries((S.board ? S.board.tasks : []).map(t => [t.task, t.title]));
+  const taskRows = u.tasks.map(t => {
+    const tr = el("tr"); const cell = el("td", "t"); const b = el("button", "tchip", t.task); b.type = "button"; b.onclick = () => openTask(t.task);
+    cell.append(b, " ", titles[t.task] || ""); cell.append(el("small", null, t.people.join(", ")));
+    tr.append(cell, el("td", "num", fmtTok(t.tokens)), el("td", "num", String(t.turns))); return tr;
+  });
+  const peopleRows = u.people.map(p => {
+    const tr = el("tr"); const name = el("td", "t", p.name); if (p.you) name.append(el("span", "you", "you"));
+    tr.append(name, el("td", "num", fmtTok(p.coding.tokens)), el("td", "num", fmtTok(p.agents.tokens)), el("td", "num", String(p.sessions))); return tr;
+  });
+  const left = el("section", "panel"); left.append(el("h3", null, "By task"),
+    taskRows.length ? table([["Task"], ["Tokens", 1], ["Turns", 1]], taskRows) : el("p", "sub", "No task has AI usage in this range yet."));
+  const right = el("section", "panel"); right.append(el("h3", null, u.scope === "team" ? "By person" : "You"),
+    peopleRows.length ? table([["Name"], ["Coding", 1], ["Agents", 1], ["Sessions", 1]], peopleRows) : el("p", "sub", "Nothing in this range yet."));
+  const cols = el("div", "usage-cols"); cols.append(left, right); nodes.push(cols);
+  if (u.models.length) { const m = el("div", "models"); for (const x of u.models) m.append(el("span", "tag", `${x.model} · ${fmtTok(x.tokens)}`)); nodes.push(m); }
+  if (!u.total) nodes.splice(2, 0, el("div", "empty", "No AI usage in this range yet. Each teammate's next Claude Code or Codex turn shows up here once their Super Agents is up to date."));
+  nodes.push(el("p", "sub small", "Tokens = fresh input + cache writes + output. Coding agents' tokens are counted on each laptop from the agent's own log; only the numbers leave it. Kept 30 days."));
+  box.replaceChildren(...nodes);
+}
+
 async function loadTeam() {
   const t = team(); const lead = t && t.role === "lead";
   $("inviteCard").hidden = !lead;
@@ -1554,7 +1665,7 @@ function renderLaptop() {
   const never = el("section", "panel"); never.append(el("h3", null, "Never leaves this laptop"));
   const nv = el("div", "never");
   for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
-  nv.append(el("p", "sub", "What goes: a one-line summary per turn, written on this laptop, plus facts such as files changed and tests passed or failed."),
+  nv.append(el("p", "sub", "What goes: a one-line summary per turn, written on this laptop, plus facts such as files changed, tests passed or failed, and token counts."),
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);
   grid.append(left, right);

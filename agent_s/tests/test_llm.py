@@ -21,7 +21,8 @@ def server(script):
             self.send_response(status)
             self.end_headers()
             if status == 200:
-                self.wfile.write(json.dumps({"choices": [{"message": {"content": json.dumps({"ok": True})}}]}).encode())
+                self.wfile.write(json.dumps({"choices": [{"message": {"content": json.dumps({"ok": True})}}],
+                                             "usage": {"prompt_tokens": 120, "completion_tokens": 30}}).encode())
 
         def log_message(self, *a):
             pass
@@ -34,7 +35,7 @@ def server(script):
 @pytest.fixture
 def provider(monkeypatch):
     def use(url):
-        cfg = {"url": url, "key": None, "extra": {}, "models": {"progress": "mid", "qa": "mid", "digest": "big"}}
+        cfg = {"url": url, "key": None, "extra": {}, "models": {"progress": "mid", "qa": "mid", "digest": "big", "agent": "mid"}}
         monkeypatch.setitem(llm.PROVIDERS, "test", cfg)
         monkeypatch.setenv("AGENT_S_PROVIDER", "test")
         monkeypatch.setattr(llm.time, "sleep", lambda s: None)
@@ -59,3 +60,15 @@ def test_client_errors_are_not_retried(provider):
     with pytest.raises(llm.urllib.error.HTTPError):
         llm.chat_json("progress", [], {})
     assert seen == ["mid"]
+
+
+def test_the_meter_counts_every_answered_call(provider):
+    s, seen = server([503, 200, 200])
+    provider(f"http://127.0.0.1:{s.server_port}/v1/chat/completions")
+    with llm.meter() as m:
+        llm.chat_json("progress", [], {})  # a failed try and an answer: one call counted
+        step = llm.chat_tools([{"role": "user", "content": "hi"}], [])
+    assert step["usage"] == {"in": 120, "out": 30}
+    assert m == {"calls": 2, "in": 240, "out": 60, "model": "test:mid"}
+    llm.chat_tools([{"role": "user", "content": "hi"}], [])  # outside a meter: nothing to count into
+    assert m["calls"] == 2

@@ -33,6 +33,7 @@ PROVIDERS = {
     },
 }
 _pinned: ContextVar[str | None] = ContextVar("agent_s_tier", default=None)
+_meter: ContextVar[dict | None] = ContextVar("agent_s_meter", default=None)
 
 
 @contextmanager
@@ -44,6 +45,28 @@ def pinned(tier: str | None):
         yield
     finally:
         _pinned.reset(token)
+
+
+@contextmanager
+def meter():
+    """Count the model usage of every call inside this block: {"calls", "in", "out", "model"}. The hub records it
+    per team and person for the usage counter."""
+    m = {"calls": 0, "in": 0, "out": 0, "model": ""}
+    token = _meter.set(m)
+    try:
+        yield m
+    finally:
+        _meter.reset(token)
+
+
+def _count(model: str, raw: dict) -> dict:
+    """A response's token counts, added to the open meter (if any)."""
+    u = raw.get("usage") or {}
+    used = {"in": int(u.get("prompt_tokens") or 0), "out": int(u.get("completion_tokens") or 0)}
+    m = _meter.get()
+    if m is not None:
+        m.update(calls=m["calls"] + 1, model=f"{provider()}:{model}", **{k: m[k] + used[k] for k in ("in", "out")})
+    return used
 
 
 def provider() -> str:
@@ -71,8 +94,9 @@ def _call(p: dict, model: str, job: str, messages: list[dict], schema: dict, max
         headers["Authorization"] = f"Bearer {os.environ[p['key']]}"
     req = urllib.request.Request(p["url"], json.dumps(body).encode(), headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        content = json.loads(r.read())["choices"][0]["message"]["content"]
-    return json.loads(content)
+        raw = json.loads(r.read())
+    _count(model, raw)
+    return json.loads(raw["choices"][0]["message"]["content"])
 
 
 MAX_TOKENS = {"agent": 2000}  # a plan with a dozen actions needs room; the other jobs fit in 1200
@@ -80,7 +104,7 @@ MAX_TOKENS = {"agent": 2000}  # a plan with a dozen actions needs room; the othe
 
 def chat_tools(messages: list[dict], tools: list[dict], max_tokens: int = 2000, timeout: float = 90) -> dict:
     """One step of an agent's tool loop (the Super Agents app runs the loop on the laptop and calls this through
-    POST /v1/llm). OpenAI-style tools in, {content, tool_calls, model} out. Same retry rule as chat_json."""
+    POST /v1/llm). OpenAI-style tools in, {content, tool_calls, model, usage} out. Same retry rule as chat_json."""
     p = PROVIDERS[provider()]
     model = _model("agent")
     body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2, **p["extra"]}
@@ -94,8 +118,10 @@ def chat_tools(messages: list[dict], tools: list[dict], max_tokens: int = 2000, 
         try:
             req = urllib.request.Request(p["url"], json.dumps(body).encode(), headers)
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                msg = json.loads(r.read())["choices"][0]["message"]
-            return {"content": msg.get("content"), "tool_calls": msg.get("tool_calls") or [], "model": f"{provider()}:{model}"}
+                raw = json.loads(r.read())
+            msg = raw["choices"][0]["message"]
+            return {"content": msg.get("content"), "tool_calls": msg.get("tool_calls") or [], "model": f"{provider()}:{model}",
+                    "usage": _count(model, raw)}
         except urllib.error.HTTPError as e:
             if e.code != 429 and e.code < 500:
                 raise
