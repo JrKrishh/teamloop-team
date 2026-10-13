@@ -91,13 +91,15 @@ def test_init_wires_codex_when_installed(project, monkeypatch):
     assert [r for r in doctor.checks(project) if r[0] == "fail"] == []
 
 
-def test_no_command_explains_how_to_start(tmp_path, monkeypatch, capsys):
-    from teamloop import cli, launch
+def test_no_command_on_a_new_laptop_starts_sign_in(monkeypatch, capsys):
+    from teamloop import cli, launch, login
 
+    hubs = []
     monkeypatch.setattr(launch, "_hub_running", lambda: False)
+    monkeypatch.setattr(login, "device_login", lambda hub: hubs.append(hub) or 1)
     monkeypatch.setattr("builtins.input", lambda *a: "")
     assert cli.main([]) == 0
-    assert "teamloop hub" in capsys.readouterr().out
+    assert hubs == ["https://teamloop.vercel.app"] and "sign in" in capsys.readouterr().out
 
 
 def test_no_command_opens_a_running_hub(monkeypatch):
@@ -105,5 +107,16 @@ def test_no_command_opens_a_running_hub(monkeypatch):
 
     opened = []
     monkeypatch.setattr(launch, "_hub_running", lambda: True)
-    monkeypatch.setattr(launch.webbrowser, "open", opened.append)
+    monkeypatch.setattr(launch.window, "open_app", opened.append)
     assert cli.main([]) == 0 and opened == ["http://localhost:8799"]
+
+
+def test_no_command_opens_the_cloud_board_when_signed_in(monkeypatch, teamloop_home):
+    from teamloop import cli, launch
+
+    opened = []
+    teamloop_home.mkdir(parents=True, exist_ok=True)
+    (teamloop_home / "config.json").write_text(json.dumps({"mode": "cloud", "url": "https://example.test", "token": "tl_x"}))
+    monkeypatch.setattr(launch, "_hub_running", lambda: True)  # even with a self-hosted hub around
+    monkeypatch.setattr(launch.window, "open_app", opened.append)
+    assert cli.main([]) == 0 and opened == ["https://example.test"]

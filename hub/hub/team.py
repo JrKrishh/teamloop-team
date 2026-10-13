@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 
 from agent_s import digest, llm, progress, qa
 
-from . import notify
+from . import cards, notify
 from .safety import NAME_RE, ROOM_RE, sanitize
 
 log = logging.getLogger("teamloop.hub")
@@ -290,38 +290,8 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
             members = conn.execute("SELECT member, MAX(received_at) AS last FROM events WHERE room = ? AND member != 'github'"
                                    " GROUP BY member",
                                    (room,)).fetchall()
-        out = []
-        for t in tasks:
-            evs = events_for(room, t["task"], 200)
-            titles = [e["facts"].get("title") for e in evs if e.get("kind") == "task_start" and e.get("facts", {}).get("title")]
-            if not titles:  # no task_start title (e.g. Codex without MCP): fall back to the branch, T-7-multiply -> "Multiply"
-                branch = next((e["branch"] for e in reversed(evs) if (e.get("branch") or "").startswith(t["task"] + "-")), "")
-                words = branch[len(t["task"]) + 1:].replace("-", " ").replace("_", " ").strip()
-                titles = [words[:1].upper() + words[1:]] if words else []
-            snap = latest_snapshot(room, t["task"])
-            last_block = max((e["ts"] for e in evs if e["kind"] == "blocked"), default="")
-            last_move = max((e["ts"] for e in evs if e["kind"] in ("self_report", "turn_end") and e.get("status") != "blocked"),
-                            default="")
-            gh = {k: [e for e in evs if e["kind"] == k] for k in ("pr", "review", "check")}
-            pr = gh["pr"][-1]["facts"] if gh["pr"] else None
-            if last_block and last_block >= last_move:
-                status = "blocked"
-            elif pr and pr.get("state") == "merged":
-                status = "done"
-            elif pr and pr.get("state") == "open" and not pr.get("draft"):
-                status = "review"
-            else:
-                status = (snap or {}).get("status", "in_progress")
-            out.append({
-                "task": t["task"], "title": titles[-1] if titles else "", "events": t["n"],
-                "members": sorted({e["member"] for e in evs if e["member"] != "github"}),
-                "tools": sorted({e["tool"] for e in evs if e.get("tool")}),
-                "pr": pr and {**pr, "checks": gh["check"][-1]["facts"].get("conclusion") if gh["check"] else None,
-                              "review": gh["review"][-1]["facts"].get("state") if gh["review"] else None},
-                "last_activity": t["last"], "status": status, "progress": snap,
-                "recent": [{"id": e["id"], "ts": e.get("ts"), "member": e["member"], "line": progress.describe(e)}
-                           for e in evs[-12:] if progress.describe(e)],
-            })
+        out = [cards.card(t["task"], events_for(room, t["task"], 200), latest_snapshot(room, t["task"]), t["last"], t["n"])
+               for t in tasks]
         return {"room": room, "generated_at": now, "tasks": out, "demo": room == demo_room,
                 "members": [{"name": m["member"], "last_activity": m["last"], "active": now - m["last"] < ACTIVE_SECONDS}
                             for m in members]}
@@ -345,8 +315,7 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
         return {**{k: card.get(k) for k in ("task", "title", "status", "pr", "members", "tools", "progress")},
                 "history": [{"at": s["at"], "percent": s.get("percent"), "agent_says": s.get("agent_says_percent")}
                             for s in snaps][-20:],
-                "timeline": [{"id": e["id"], "ts": e.get("ts"), "member": e["member"], "tool": e.get("tool"),
-                              "kind": e["kind"], "line": progress.describe(e)} for e in reversed(evs) if progress.describe(e)]}
+                "timeline": cards.timeline(evs)}
 
     @app.get("/v1/team")
     def team_view(a: Access = Depends(access)) -> dict:
@@ -457,9 +426,8 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
             if now - failed_at.get(key, 0) < 60:
                 continue
             evs = events_for(row["room"], row["task"])
-            titles = [e["facts"].get("title") for e in evs if e.get("kind") == "task_start" and e.get("facts", {}).get("title")]
             try:
-                snap = progress.estimate(row["task"], evs, titles[-1] if titles else "", chat=chat)
+                snap = progress.estimate(row["task"], evs, cards.title_for(row["task"], evs), chat=chat)
             except Exception as e:  # noqa: BLE001 - retry in a minute
                 failed_at[key] = now
                 log.warning("progress for %s failed: %s", key, e)

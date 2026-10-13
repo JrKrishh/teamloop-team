@@ -105,10 +105,12 @@ def checks(cwd: Path) -> list[tuple[str, str, str]]:
     from teamloop import send
 
     cfg = send.config()
-    if cfg:
+    if cfg and cfg.get("mode") == "cloud":
+        add("ok", f"connected to {cfg.get('url')} as {cfg.get('name')} (team {(cfg.get('team') or {}).get('name')})")
+    elif cfg:
         add("ok", f"connected to {cfg.get('url')} as {cfg.get('name')} (room {cfg.get('room')})")
     else:
-        add("warn", "not connected to a team hub, so nothing is shared yet", "teamloop login <invite from your lead>")
+        add("warn", "not connected to a team, so nothing is shared yet", "teamloop login")
     return rows
 
 

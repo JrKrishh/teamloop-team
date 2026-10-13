@@ -1,0 +1,23 @@
+[project]
+name = "teamloop-cloud"
+version = "0.1.0"
+description = "TeamLoop cloud hub: Supabase sign-in, teams, invite links, Postgres storage."
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["fastapi>=0.110", "pydantic>=2.5", "psycopg[binary]>=3.2", "teamloop-agent-s", "teamloop-hub"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.26", "pgserver>=0.1.4"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["cloud*"]
+
+[tool.setuptools.package-data]
+cloud = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

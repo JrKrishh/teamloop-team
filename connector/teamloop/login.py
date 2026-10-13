@@ -1,5 +1,6 @@
-"""`teamloop invite` (lead) and `teamloop login <invite>` (everyone). Invites use ccbridge's format,
-base64url of {"u": hub url, "r": room, "t": room token}, so a ccbridge invite works here too."""
+"""`teamloop login`: with no invite, sign in to the cloud hub (device flow, docs/cloud.md). With an invite, join a
+self-hosted hub: `teamloop invite` (lead) makes those in ccbridge's format, base64url of {"u": hub url, "r": room,
+"t": room token}, so a ccbridge invite works here too."""
 
 from __future__ import annotations
 
@@ -10,7 +11,9 @@ import json
 import os
 import re
 import secrets
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from teamloop import spool
@@ -55,8 +58,15 @@ _session: dict[str, str] = {}
 
 
 def request(cfg: dict, method: str, path: str, body: dict | None = None) -> dict:
-    """A hub call with ccbridge auth: room token + the session from /v1/join. A 401 means the session expired
-    or the hub restarted: join again once and retry."""
+    """A hub call. Cloud hub: the connector token from `teamloop login`. Self-hosted hub: ccbridge auth, room
+    token + the session from /v1/join; a 401 there means the session expired or the hub restarted, so join again
+    once and retry."""
+    if cfg.get("mode") == "cloud":
+        req = urllib.request.Request(cfg["url"] + path, json.dumps(body).encode() if body is not None else None, {
+            "Content-Type": "application/json", "Authorization": f"Bearer {cfg['token']}"}, method=method)
+        with urllib.request.urlopen(req, timeout=60) as r:  # a board read may wait on Agent S
+            raw = r.read()
+            return json.loads(raw) if raw else {}
     for attempt in (1, 2):
         if "id" not in _session:
             _session["id"] = join(cfg)
@@ -116,6 +126,45 @@ def login(invite: str, name: str | None = None) -> int:
     save(cfg)
     print(f"Joined {room} as {name}. Your sessions' summaries and facts now go to {url}.")
     return 0
+
+
+def _call(url: str, method: str = "GET", body: dict | None = None) -> dict:
+    req = urllib.request.Request(url, json.dumps(body).encode() if body is not None else None,
+                                 {"Content-Type": "application/json"}, method=method)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+def device_login(hub: str, open_url=None, sleep=time.sleep) -> int:
+    """`teamloop login` without an invite: sign in on the cloud hub in a browser window, like `gh auth login`.
+    The CLI shows a code, the person approves it on the web (Google or email sign-in), the CLI gets a token once."""
+    from teamloop import window
+
+    open_url = open_url or window.open_app
+    hub = hub.rstrip("/")
+    try:
+        start = _call(hub + "/v1/device/start", "POST", {"label": default_name()})
+    except (OSError, ValueError) as e:
+        print(f"Couldn't reach TeamLoop at {hub}: {e}")
+        return 1
+    print(f"Your code: {start['user_code']}")
+    print(f"Approve it in the window that opens (sign in with Google or email): {start['verify_url']}")
+    open_url(start["verify_url"])
+    deadline = time.time() + start.get("expires_in", 900)
+    while time.time() < deadline:
+        sleep(start.get("interval", 3))
+        try:
+            got = _call(hub + "/v1/device/poll?" + urllib.parse.urlencode({"device_code": start["device_code"]}))
+        except (OSError, ValueError):
+            continue  # a blip; keep waiting
+        if got["status"] == "approved":
+            save({"mode": "cloud", "url": got["url"].rstrip("/"), "token": got["token"], "name": got["name"], "team": got["team"]})
+            print(f"Connected to {got['team']['name']} as {got['name']}. Next, in your repo: teamloop init")
+            return 0
+        if got["status"] != "pending":
+            break
+    print("That code expired before it was approved. Run `teamloop login` again.")
+    return 1
 
 
 def invite(url: str, room: str, token: str | None = None) -> str:

@@ -1,4 +1,4 @@
-# Upload only what the hub needs: api/, hub/hub, agent_s/agent_s, requirements.txt, vercel.json, LICENSE
+# Upload only what the hub needs: api/, hub/hub, agent_s/agent_s, cloud/cloud, requirements.txt, vercel.json, LICENSE
 connector
 scripts
 docs
@@ -9,6 +9,7 @@ docs
 **/*.egg-info
 **/.pytest_cache
 hub/tests
+cloud/tests
 agent_s/tests
 agent_s/golden
 agent_s/golden_qa.json

@@ -1,9 +1,10 @@
 {
+  "regions": ["bom1"],
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "includeFiles": "{hub/hub,agent_s/agent_s}/**"
+      "includeFiles": "{hub/hub,agent_s/agent_s,cloud/cloud}/**"
     }
   }
 }
