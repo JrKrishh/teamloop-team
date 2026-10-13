@@ -281,3 +281,12 @@ def test_old_events_are_swept_after_retention(app, env, monkeypatch):
     fresh = golden("real_codex_multiply_done.json")
     TestClient(app).post("/v1/events", json={"events": fresh}, headers=headers)
     assert [t["task"] for t in yang.get("/v1/board", params={"team": team}).json()["tasks"]] == ["T-7"]
+
+
+def test_the_demo_needs_no_database(app, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://nobody@127.0.0.1:1/none?connect_timeout=1")  # unreachable
+    c = TestClient(app)
+    assert c.get("/v1/me").json()["user"] is None
+    board = c.get("/v1/board").json()
+    assert board["demo"] and board["tasks"]
+    assert c.get("/v1/team").json()["members"] and c.get("/v1/config").json()["mode"] == "cloud"
