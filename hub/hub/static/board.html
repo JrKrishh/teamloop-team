@@ -84,6 +84,46 @@ button.ghost{background:transparent;color:var(--text);border:1px solid var(--lin
 .signin form{display:flex;flex-direction:column;gap:10px;width:100%}
 .err{color:var(--bad);font-size:13px;min-height:1em}
 .demo{margin:16px 0 0;padding:10px 14px;border:1px dashed var(--line2);border-radius:10px;color:var(--muted);font-size:13px;max-width:90ch}
+/* tabs */
+.tabs{display:flex;gap:6px;margin-top:18px}
+.tabs button{background:transparent;color:var(--muted);border:1px solid var(--line);font:700 13px/1 var(--fb);padding:9px 14px}
+.tabs button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+/* clickable bits */
+button.link{all:unset;cursor:pointer;display:block}
+button.link:hover .t,button.link:focus-visible .t{text-decoration:underline}
+button.cite{all:unset;cursor:pointer;font:500 11px var(--fm);color:var(--faint);margin-left:4px;border-bottom:1px dotted var(--faint)}
+button.cite:hover,button.cite:focus-visible{color:var(--brick);border-color:var(--brick)}
+/* task drawer */
+.scrim{position:fixed;inset:0;background:rgba(24,23,27,.35);z-index:10}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--bg);border-left:2px solid var(--text);z-index:11;
+  overflow:auto;padding:calc(env(safe-area-inset-top,0px) + 18px) 20px calc(env(safe-area-inset-bottom,0px) + 30px);display:flex;flex-direction:column;gap:16px}
+.drawer .dhead{display:flex;gap:12px;align-items:flex-start}
+.drawer .dhead button{margin-left:auto;flex:none}
+.drawer h2{font:800 24px/1.15 var(--ft);margin:4px 0 0;overflow-wrap:anywhere}
+.spark{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.spark svg{display:block;width:100%;height:auto}
+.spark .lg{display:flex;gap:14px;font:500 11px/1.3 var(--fm);color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.spark .lg i{display:inline-block;width:10px;height:3px;background:var(--bar);vertical-align:middle;margin-right:4px}
+.spark .lg i.c{height:8px;width:8px;border-radius:50%;background:var(--claim)}
+.timeline{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.timeline li{display:grid;grid-template-columns:48px minmax(0,1fr);gap:10px;padding:7px 8px;border-radius:8px;font-size:14px}
+.timeline li.hit{background:var(--bg2);box-shadow:inset 3px 0 0 var(--brick)}
+.timeline time{font:500 12px/1.6 var(--fm);color:var(--faint)}
+.timeline .who{font:600 12px var(--fb);color:var(--muted);margin-right:6px}
+.timeline .line{overflow-wrap:anywhere}
+.section-label{font:700 11px/1 var(--fm);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+/* team view */
+.people-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;align-items:start;margin-top:16px}
+.member{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;gap:12px;min-width:0}
+.member img{width:48px;height:64px;object-fit:contain;flex:none}
+.member h3{font:800 18px/1.2 var(--ft);margin:0}
+.member .sub{font:500 12px/1.4 var(--fm);color:var(--muted);margin:2px 0 8px}
+.member ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:3px;font-size:14px}
+.invite{margin-top:22px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:10px;max-width:720px}
+.invite h3{font:800 18px/1.2 var(--ft);margin:0}
+.invite p{margin:0;color:var(--muted);font-size:14px}
+.invite form{display:flex;gap:8px;flex-wrap:wrap}
+.invite pre{font-variant-ligatures:none;margin:0;background:var(--bg2);border-radius:9px;padding:10px 12px;font:500 12.5px/1.5 var(--fm);overflow-x:auto;white-space:pre-wrap;word-break:break-all}
 @media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}aside{position:static}.people{margin-left:0}.wrap{padding-inline:16px}}
 </style>
 </head>
@@ -108,6 +148,20 @@ button.ghost{background:transparent;color:var(--text);border:1px solid var(--lin
   </section>
 
   <p class="demo" id="demo" hidden>Public demo with a sample team. The events are scripted in the exact shapes TeamLoop records; the progress, done/next lists and answers come from the real Agent S. Your own team's board is private to your room.</p>
+  <nav class="tabs" id="tabs" hidden><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="team">Team</button></nav>
+  <section id="teamView" hidden>
+    <div class="people-grid" id="members"></div>
+    <section class="invite" id="invite">
+      <h3>Invite a teammate</h3>
+      <p>Paste your room token. The invite is built here in your browser; nothing is sent anywhere.</p>
+      <form id="inviteForm"><input id="inviteToken" type="password" placeholder="Room token" autocomplete="off" required><button>Make invite</button></form>
+      <div id="inviteOut" hidden>
+        <div class="section-label">Send them this, then they run the commands below</div>
+        <pre id="inviteText"></pre>
+        <button type="button" class="ghost" id="copyInvite">Copy setup</button>
+      </div>
+    </section>
+  </section>
   <div class="layout" id="main" hidden>
     <section>
       <div class="tally" id="tally"></div>
@@ -123,6 +177,16 @@ button.ghost{background:transparent;color:var(--text);border:1px solid var(--lin
     </aside>
   </div>
 </div>
+
+<div class="scrim" id="scrim" hidden></div>
+<section class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dTitle">
+  <div class="dhead"><div style="min-width:0"><div class="id" id="dId"></div><h2 id="dTitle"></h2></div><span class="pill" id="dPill"></span><button type="button" class="ghost" id="dClose">Close</button></div>
+  <div class="spark" id="dSpark"></div>
+  <div class="lists" id="dLists"></div>
+  <div class="foot" id="dFoot"></div>
+  <div class="section-label">Timeline, newest first</div>
+  <ol class="timeline" id="dTimeline"></ol>
+</section>
 
 <script>
 // Peer text (titles, summaries, self-reports) is untrusted: everything goes in with textContent, never innerHTML.
@@ -144,18 +208,27 @@ function pose(task, members) {
   return task.members.some(m => active.has(m)) ? "idle" : "sleep";
 }
 
-function list(label, items, cls) {
+function list(label, items, cls, task) {
   if (!items || !items.length) return null;
   const row = el("div", "row " + (cls || "")); row.append(el("span", null, label));
   const ul = el("ul");
-  for (const it of items) { const li = el("li", null, it.text); li.append(el("span", "cite", `${it.evidence_ids.length} cited`)); ul.append(li); }
+  for (const it of items) {
+    const li = el("li", null, it.text);
+    const n = it.evidence_ids.length;
+    const cite = el("button", "cite", `${n} cited`); cite.type = "button";
+    cite.title = "Show the events behind this"; cite.onclick = () => openTask(task, it.evidence_ids);
+    li.append(cite); ul.append(li);
+  }
   row.append(ul); return row;
 }
 
 function card(t, members) {
   const c = el("article", "card" + (t.status === "blocked" ? " blocked" : ""));
   const head = el("div", "head"); head.append(mascot(t.members[0] || "team", pose(t, members)));
-  const name = el("div"); name.style.minWidth = "0"; name.append(el("div", "id", t.task), el("h3", "title", t.title || t.task));
+  const name = el("div"); name.style.minWidth = "0";
+  const open = el("button", "link"); open.type = "button"; open.title = "Open the full timeline"; open.onclick = () => openTask(t.task);
+  open.append(el("div", "id", t.task), el("h3", "title t", t.title || t.task));
+  name.append(open);
   head.append(name, el("span", "pill " + t.status, t.status.replace("_", " "))); c.append(head);
 
   const p = t.progress;
@@ -170,7 +243,7 @@ function card(t, members) {
 
   if (p) {
     const lists = el("div", "lists");
-    for (const r of [list("Blocked", p.blockers, "blockers"), list("Done", p.done), list("Doing", p.doing), list("Next", p.next)]) if (r) lists.append(r);
+    for (const r of [list("Blocked", p.blockers, "blockers", t.task), list("Done", p.done, "", t.task), list("Doing", p.doing, "", t.task), list("Next", p.next, "", t.task)]) if (r) lists.append(r);
     if (lists.childNodes.length) c.append(lists);
   }
   const foot = el("div", "foot");
@@ -197,7 +270,7 @@ function card(t, members) {
 }
 
 function render(b) {
-  $("room").textContent = `room · ${b.room}`;
+  $("room").textContent = `room · ${b.room}`; currentRoom = b.room;
   $("demo").hidden = !b.demo;
   const people = $("people"); people.replaceChildren();
   for (const m of b.members) {
@@ -218,7 +291,9 @@ let stream = null, pollTimer = null;
 function poll(ms) { clearInterval(pollTimer); pollTimer = setInterval(load, ms); }
 
 function show(b, live) {
-  $("signin").hidden = true; $("main").hidden = false;
+  $("signin").hidden = true; $("tabs").hidden = false;
+  $("main").hidden = view !== "board"; $("teamView").hidden = view !== "team";
+  if (view === "team") loadTeam();
   const key = JSON.stringify(b.tasks) + JSON.stringify(b.members.map(m => [m.name, m.active]));
   if (key !== last) { last = key; render(b); }
   const at = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
@@ -288,6 +363,128 @@ $("askForm").addEventListener("submit", async ev => {
   } catch (e) { a.textContent = "Couldn't reach the hub."; }
   btn.disabled = false; btn.textContent = "Ask"; $("question").value = "";
 });
+
+// ---- task drawer: full timeline, progress over time, and the evidence behind each claim ----
+let openedFrom = null, currentRoom = "";
+const SVGNS = "http://www.w3.org/2000/svg";
+function svg(tag, attrs) { const n = document.createElementNS(SVGNS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; }
+
+function sparkline(history) {
+  const box = $("dSpark"); box.replaceChildren();
+  if (!history.length) { box.append(el("div", "section-label", "No Agent S estimate yet")); return; }
+  const W = 500, H = 90, pad = 8, n = history.length;
+  const x = i => n === 1 ? W / 2 : pad + i * (W - 2 * pad) / (n - 1);
+  const y = p => H - pad - (Math.max(0, Math.min(100, p)) / 100) * (H - 2 * pad);
+  const s = svg("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Agent S progress over time"});
+  for (const g of [0, 50, 100]) s.append(svg("line", {x1: 0, x2: W, y1: y(g), y2: y(g), stroke: "currentColor", "stroke-opacity": .12}));
+  const pts = history.map((h, i) => `${x(i)},${y(h.percent)}`).join(" ");
+  s.append(svg("polyline", {points: pts, fill: "none", stroke: "var(--bar)", "stroke-width": 3, "stroke-linejoin": "round"}));
+  history.forEach((h, i) => {
+    s.append(svg("circle", {cx: x(i), cy: y(h.percent), r: 3.5, fill: "var(--bar)"}));
+    if (h.agent_says != null) s.append(svg("circle", {cx: x(i), cy: y(h.agent_says), r: 4, fill: "var(--claim)"}));
+  });
+  const lg = el("div", "lg");
+  const a = el("span"); a.append(el("i"), `Agent S (now ${history[n - 1].percent}%)`); lg.append(a);
+  if (history.some(h => h.agent_says != null)) { const c = el("span"); c.append(el("i", "c"), "the agent's own claim"); lg.append(c); }
+  lg.append(el("span", null, `${n} estimate${n > 1 ? "s" : ""}`));
+  box.append(s, lg);
+}
+
+function highlight(ids) {
+  const items = [...$("dTimeline").children];
+  items.forEach(li => li.classList.toggle("hit", ids.includes(li.dataset.id)));
+  const first = items.find(li => li.classList.contains("hit"));
+  if (first) first.scrollIntoView({block: "center", behavior: "smooth"});
+}
+
+async function openTask(task, ids) {
+  openedFrom = document.activeElement;
+  try {
+    const r = await fetch(`/v1/tasks/${encodeURIComponent(task)}`, {credentials: "same-origin"});
+    if (!r.ok) return;
+    const d = await r.json();
+    $("dId").textContent = d.task; $("dTitle").textContent = d.title || d.task;
+    const pill = $("dPill"); pill.className = "pill " + d.status; pill.textContent = d.status.replace("_", " ");
+    sparkline(d.history);
+    const lists = $("dLists"); lists.replaceChildren();
+    const p = d.progress || {};
+    for (const [label, items, cls] of [["Blocked", p.blockers, "blockers"], ["Done", p.done], ["Doing", p.doing], ["Next", p.next]]) {
+      if (!items || !items.length) continue;
+      const row = el("div", "row " + (cls || "")); row.append(el("span", null, label));
+      const ul = el("ul");
+      for (const it of items) {
+        const li = el("li", null, it.text);
+        const b = el("button", "cite", `${it.evidence_ids.length} cited`); b.type = "button"; b.onclick = () => highlight(it.evidence_ids);
+        li.append(b); ul.append(li);
+      }
+      row.append(ul); lists.append(row);
+    }
+    const foot = $("dFoot"); foot.replaceChildren();
+    for (const m of d.members || []) foot.append(el("span", "chip", m));
+    for (const tool of d.tools || []) if (TOOLS[tool]) foot.append(el("span", "chip", TOOLS[tool]));
+    if (p.model) foot.append(el("span", null, `· estimated by ${p.model}`));
+    const ol = $("dTimeline"); ol.replaceChildren();
+    for (const e of d.timeline) {
+      const li = el("li"); li.dataset.id = e.id;
+      const t = el("time", null, e.ts ? new Date(e.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", hour12: false}) : "");
+      const body = el("div"); body.append(el("span", "who", `${e.member}${TOOLS[e.tool] ? " · " + TOOLS[e.tool] : ""}`), el("span", "line", e.line));
+      li.append(t, body); ol.append(li);
+    }
+    $("scrim").hidden = false; $("drawer").hidden = false; $("dClose").focus();
+    if (ids) highlight(ids);
+  } catch (e) { /* the board keeps working; the drawer just doesn't open */ }
+}
+
+function closeTask() { $("drawer").hidden = true; $("scrim").hidden = true; if (openedFrom) openedFrom.focus(); }
+$("dClose").onclick = closeTask; $("scrim").onclick = closeTask;
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("drawer").hidden) closeTask(); });
+
+// ---- tabs and the Team view ----
+let view = "board";
+for (const b of document.querySelectorAll("#tabs button")) b.onclick = () => showView(b.dataset.view);
+function showView(v) {
+  view = v;
+  for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.view === v);
+  $("main").hidden = v !== "board"; $("teamView").hidden = v !== "team";
+  if (v === "team") loadTeam();
+}
+
+async function loadTeam() {
+  const r = await fetch("/v1/team", {credentials: "same-origin"}); if (!r.ok) return;
+  const t = await r.json();
+  $("invite").hidden = t.demo;
+  const grid = $("members"); grid.replaceChildren();
+  if (!t.members.length) grid.append(el("div", "empty", "Nobody has reported yet. Make an invite below and send it to a teammate."));
+  for (const m of t.members) {
+    const card = el("article", "member"); card.append(mascot(m.name, m.active ? "idle" : "sleep"));
+    const body = el("div"); body.style.minWidth = "0";
+    body.append(el("h3", null, m.name), el("div", "sub", m.active ? "active now" : `last seen ${ago(m.last_activity)}`));
+    const chips = el("div", "foot"); for (const tool of m.tools) chips.append(el("span", "chip", TOOLS[tool])); body.append(chips);
+    const ul = el("ul");
+    for (const task of m.tasks.slice(0, 6)) {
+      const li = el("li"); const b = el("button", "link"); b.type = "button"; b.onclick = () => openTask(task.task);
+      b.append(el("span", "t", task.task)); li.append(b, el("span", "cite", ` ${ago(task.last_activity)}`)); ul.append(li);
+    }
+    body.append(ul); card.append(body); grid.append(card);
+  }
+}
+
+function inviteFor(token) {  // same format as `teamloop invite` (ccbridge's): base64url of {"u","r","t"}
+  const json = JSON.stringify({u: location.origin, r: currentRoom, t: token});
+  return btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+$("inviteForm").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const inv = inviteFor($("inviteToken").value.trim()); $("inviteToken").value = "";
+  $("inviteText").textContent = `teamloop login ${inv} --name <your name>\ncd <your repo>\nteamloop init\nteamloop task T-<id> "what you're working on"`;
+  $("inviteOut").hidden = false;
+});
+$("copyInvite").onclick = async () => {
+  const text = $("inviteText").textContent;
+  try { await navigator.clipboard.writeText(text); $("copyInvite").textContent = "Copied"; }
+  catch (e) { const r = document.createRange(); r.selectNodeContents($("inviteText")); getSelection().removeAllRanges(); getSelection().addRange(r); $("copyInvite").textContent = "Selected: press Ctrl+C"; }
+  setTimeout(() => { $("copyInvite").textContent = "Copy setup"; }, 2500);
+};
 
 load(); poll(5000);
 </script>
