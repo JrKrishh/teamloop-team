@@ -73,3 +73,24 @@ def test_paused_records_nothing(tmp_path, teamloop_home):
 def test_unknown_events_are_ignored(tmp_path, teamloop_home):
     r, _ = call({"hook_event_name": "UserPromptSubmit", "prompt": "secret plans"}, teamloop_home, tmp_path)
     assert r.returncode == 0 and spool.pending() == []
+
+
+def test_session_end_flushes_the_spool_in_the_background(tmp_path, teamloop_home):
+    """The MCP server (and its sender) exits with the session, so the session-end hook starts a detached send."""
+    from test_send import Hub, config
+
+    hub = Hub()
+    teamloop_home.mkdir(parents=True, exist_ok=True)
+    (teamloop_home / "config.json").write_text(json.dumps(config(hub.url)))
+    stop = {"hook_event_name": "Stop", "session_id": "s1", "cwd": str(tmp_path), "last_assistant_message": "done"}
+    end = {"hook_event_name": "SessionEnd", "session_id": "s1", "cwd": str(tmp_path), "reason": "other"}
+    call(stop, teamloop_home, tmp_path)
+    r, secs = call(end, teamloop_home, tmp_path)
+    assert r.returncode == 0 and secs < 1.5  # the hook itself doesn't wait for the send
+    for _ in range(100):
+        if hub.bodies:
+            break
+        time.sleep(0.1)
+    hub.server.shutdown()
+    kinds = [e["kind"] for b in hub.bodies for e in json.loads(b)["events"]]
+    assert "turn_end" in kinds and "session_end" in kinds

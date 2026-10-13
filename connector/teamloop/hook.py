@@ -1,6 +1,6 @@
 """`teamloop hook <tool>`: hook JSON on stdin -> normalize -> redact -> spool.
 
-Rules: no network, no subprocess, print nothing (Claude Code adds SessionStart stdout to the model's context),
+Rules: no network, no subprocess (except one detached `send` at session end), print nothing (Claude Code adds SessionStart stdout to the model's context),
 and always exit 0 so a TeamLoop bug can never block the developer's session.
 """
 
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 import traceback
@@ -29,7 +30,25 @@ def handle(tool: str, raw: bytes) -> dict | None:
     event["task"] = repo.task(found)
     event = redact.redact_obj(event)
     spool.append(event)
+    if event["kind"] == "session_end":
+        flush_detached()
     return event
+
+
+def flush_detached() -> None:
+    """The one exception to 'no subprocess': at session end the MCP server (which hosts the sender) is exiting,
+    so the session's last events, including its final summary, would wait for the next session. Start one
+    detached `teamloop send` that outlives this hook; Popen returns at once, so the hook stays fast."""
+    if not (spool.home() / "config.json").is_file():
+        return
+    from teamloop import claude
+
+    kwargs: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen([*claude.launcher(), "send"], **kwargs)
 
 
 def main(tool: str) -> int:

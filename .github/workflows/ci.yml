@@ -1,5 +1,5 @@
 name: ci
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   connector:
     strategy:
@@ -38,3 +38,20 @@ jobs:
           python-version: "3.12"
       - run: pip install -e agent_s -e connector -e "hub[dev]"
       - run: cd hub && python -m pytest -q
+  exe:
+    # teamloop.exe for Windows: on demand (Actions tab) or on a version tag, not every push
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e connector -e agent_s -e hub pyinstaller
+      - run: pyinstaller packaging/teamloop.spec --distpath dist --workpath build/pyi --noconfirm
+      - run: dist/teamloop/teamloop.exe status
+      - run: Copy-Item packaging/install.ps1 dist/teamloop/; Compress-Archive -Path dist/teamloop -DestinationPath teamloop-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: teamloop-windows-x64
+          path: teamloop-windows-x64.zip

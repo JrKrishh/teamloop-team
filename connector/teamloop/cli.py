@@ -85,6 +85,13 @@ def main(argv: list[str] | None = None) -> int:
     inv.add_argument("--url", required=True)
     inv.add_argument("--room", required=True)
     inv.add_argument("--token", help="room token (default: a new random one)")
+    hb = sub.add_parser("hub", help="(lead) run your team's hub and board on this machine")
+    hb.add_argument("--port", type=int, default=8799)
+    hb.add_argument("--host", default="127.0.0.1", help="0.0.0.0 to let teammates on your LAN reach it")
+    hb.add_argument("--room", default="teamloop")
+    hb.add_argument("--public-url", help="the https URL teammates use (e.g. a cloudflared tunnel); goes into the invite")
+    hb.add_argument("--no-browser", action="store_true")
+    hb.add_argument("--demo", action="store_true", help="also serve the public sample room")
     sub.add_parser("send", help="summarize and send everything waiting in the spool, once")
     sub.add_parser("daemon", help="keep sending in the background (every 5 s, backs off when the hub is down)")
     args = ap.parse_args(argv)
@@ -123,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
 
         print(login.invite(args.url, args.room, args.token))
         return 0
+    if args.cmd == "hub":
+        from teamloop import hubcmd
+
+        return hubcmd.run(args.port, args.host, args.room, args.public_url, not args.no_browser, args.demo)
     if args.cmd in ("send", "daemon"):
         from teamloop import send
 

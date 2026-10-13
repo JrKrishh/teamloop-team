@@ -102,7 +102,13 @@ def checks(cwd: Path) -> list[tuple[str, str, str]]:
         add("ok", "NEBIUS_API_KEY set")
     else:
         add("warn", "NEBIUS_API_KEY not set: turn summaries need it", "set NEBIUS_API_KEY")
-    add("info", "hub: not connected yet (`teamloop login` arrives with the hub)")
+    from teamloop import send
+
+    cfg = send.config()
+    if cfg:
+        add("ok", f"connected to {cfg.get('url')} as {cfg.get('name')} (room {cfg.get('room')})")
+    else:
+        add("warn", "not connected to a team hub, so nothing is shared yet", "teamloop login <invite from your lead>")
     return rows
 
 
