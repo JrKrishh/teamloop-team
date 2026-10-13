@@ -135,7 +135,8 @@ def test_a_phone_starts_a_turn_watches_it_and_answers_its_question(home):
     [ph] = remote.status(r.online)["phones"]
     assert ph["id"] == pid and ph["name"] == "iPhone · Safari" and ph["online"] and ph["paired"]
     relay.on_message(phone(key, pid, {"t": "send", "agent": "agent-s", "mode": "manual", "message": "Is main clean?"}, id="m2"))
-    assert wait_for(lambda: any(m["t"] == "events" and m["events"][-1]["kind"] == "end" for m in heard(relay, key, pid)))
+    assert wait_for(lambda: any(m.get("re") == "m2" for m in heard(relay, key, pid))  # the reply can come after the events
+                    and any(m["t"] == "events" and m["events"][-1]["kind"] == "end" for m in heard(relay, key, pid)))
     got = heard(relay, key, pid)
     started = next(m for m in got if m.get("re") == "m2")
     assert started["t"] == "turn" and started["turn"] == "turn-0001" and started["chat"] == "c-2"
