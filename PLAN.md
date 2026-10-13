@@ -30,6 +30,7 @@ Research behind this plan (read these for sources):
 | Deploy (demo URL) | Dockerfile + guide ready; **not deployed** (needs Yang's HF account; image not built locally) | `Dockerfile`, `docs/deploy.md` |
 | Nebius key + smoke test | **done**: all 3 Nemotron IDs live; thinking-off honoured (0 reasoning tokens on Lightning); JSON and tool calls work | `docs/research/smoke-20261013.md` |
 | Outside teams (≥3) | **not started**: the real risk now | §20 |
+| Roles (§12.3) | **done**: lead key per room (invite, remove/restore members, settings); members see the board; demo visitors are viewers; signed role in the cookie | `hub/hub/team.py`, `hub/tests/test_roles.py` |
 | S2 daily digest | **done** (big model; every line cited; 10-min cache) | `agent_s/digest.py`, board "Today's digest" |
 | S3 blocker pings | **done** (Discord/Slack webhook; mentions defused; one ping per new block) | `hub/hub/notify.py` |
 | S1 Cursor, S5 Tavily | not started | |

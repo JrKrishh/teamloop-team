@@ -18,7 +18,8 @@ The hub and board ship as one Docker image (`Dockerfile` at the repo root). Ever
    |---|---|
    | `NEBIUS_API_KEY` | Agent S on NVIDIA Nemotron |
    | `HUB_SECRET` | a long random string for cookie signing |
-   | `CCBRIDGE_ROOMS` | `teamloop:<room token>` for your real team's room |
+   | `CCBRIDGE_ROOMS` | `teamloop:<room token>` for your real team's room. Members (and their connectors) use this token |
+   | `HUB_LEAD_KEYS` | `teamloop:<lead key>`: signing in to the board with it makes you lead (invite, remove members, settings). Without it, the room-token holder is lead |
    | `CCBRIDGE_OPEN_ROOMS` | `0` |
    | `GITHUB_WEBHOOK_SECRET` | see [github-setup.md](github-setup.md) |
    | `HUB_GITHUB_REPOS` | see [github-setup.md](github-setup.md) |

@@ -18,6 +18,7 @@ import re
 import secrets
 import threading
 import time
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 from pathlib import Path
@@ -31,7 +32,7 @@ from pydantic import BaseModel, Field
 from agent_s import digest, llm, progress, qa
 
 from . import notify
-from .safety import ROOM_RE, sanitize
+from .safety import NAME_RE, ROOM_RE, sanitize
 
 log = logging.getLogger("teamloop.hub")
 
@@ -54,6 +55,12 @@ CREATE TABLE IF NOT EXISTS snapshots (
     body       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots ON snapshots (room, task, created_at);
+CREATE TABLE IF NOT EXISTS removed (
+    room TEXT NOT NULL,
+    name TEXT NOT NULL,
+    at   REAL NOT NULL,
+    PRIMARY KEY (room, name)
+);
 """
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 KIND_RE = re.compile(r"^[a-z_]{1,32}$")
@@ -77,6 +84,13 @@ class EventsIn(BaseModel):
 
 class AskIn(BaseModel):
     question: str = Field(min_length=1, max_length=500)
+
+
+@dataclass(frozen=True)
+class Access:
+    room: str
+    role: str                   # "lead", "member" or "viewer"
+    name: Optional[str] = None  # set for connector sessions
 
 
 class BoardLogin(BaseModel):
@@ -123,39 +137,103 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     def index() -> FileResponse:
         return FileResponse(STATIC / "board.html")
 
-    # ---- board sign-in (cookie) -------------------------------------------------------------
-    def _sign(room: str, expires: int) -> str:
-        mac = hmac.new(secret, f"{room}|{expires}".encode(), hashlib.sha256).hexdigest()
-        return f"{room}|{expires}|{mac}"
+    # ---- who is asking: lead, member or viewer ------------------------------------------------
+    # lead:   signed in with the room's lead key (HUB_LEAD_KEYS="room:key,..."), or with the room token when the
+    #         room has no lead key. Can invite, remove members, and see settings.
+    # member: signed in with the room token, or a connector session. Sees the whole board, like the lead.
+    # viewer: the public demo room, read-only.
+    from .relay import _hash_token  # the relay's own token hashing
 
-    def board_room(teamloop_board: Optional[str] = Cookie(default=None),
-                   authorization: Optional[str] = Header(default=None),
-                   x_ccbridge_room: Optional[str] = Header(default=None),
-                   x_ccbridge_session: Optional[str] = Header(default=None)) -> str:
+    lead_keys = {room.strip(): _hash_token(key.strip()) for room, _, key in
+                 (e.partition(":") for e in os.getenv("HUB_LEAD_KEYS", "").split(",") if ":" in e)}
+
+    def _sign(room: str, role: str, expires: int) -> str:
+        mac = hmac.new(secret, f"{room}|{role}|{expires}".encode(), hashlib.sha256).hexdigest()
+        return f"{room}|{role}|{expires}|{mac}"
+
+    def access(teamloop_board: Optional[str] = Cookie(default=None),
+               authorization: Optional[str] = Header(default=None),
+               x_ccbridge_room: Optional[str] = Header(default=None),
+               x_ccbridge_session: Optional[str] = Header(default=None)) -> Access:
         if teamloop_board:
-            room, _, rest = teamloop_board.partition("|")
-            expires, _, _ = rest.partition("|")
-            if expires.isdigit() and int(expires) > time.time() and hmac.compare_digest(
-                    teamloop_board, _sign(room, int(expires))):
-                return room
+            parts = teamloop_board.split("|")
+            if len(parts) == 4:
+                room, role, expires, _ = parts
+                if role in ("lead", "member") and expires.isdigit() and int(expires) > time.time() and \
+                        hmac.compare_digest(teamloop_board, _sign(room, role, int(expires))):
+                    return Access(room, role, None)
         if demo_room and not authorization:  # public demo: read the demo room's board, never write
-            return demo_room
-        return caller(authorization, x_ccbridge_room, x_ccbridge_session).room
+            return Access(demo_room, "viewer", None)
+        who = caller(authorization, x_ccbridge_room, x_ccbridge_session)
+        return Access(who.room, "member", who.display_name)
+
+    def board_room(a: Access = Depends(access)) -> str:
+        return a.room
+
+    def lead_only(a: Access = Depends(access)) -> Access:
+        if a.role != "lead":
+            raise HTTPException(403, "Only the team lead can do that")
+        return a
 
     @app.post("/v1/board/login")
     def board_login(req: BoardLogin, response: Response) -> dict:
         if not ROOM_RE.match(req.room):
             raise HTTPException(400, "Invalid room name")
-        from .relay import _hash_token  # same hashing as the relay's room tokens
-
-        with lock:
-            row = conn.execute("SELECT token_hash FROM rooms WHERE room = ?", (req.room,)).fetchone()
-        if row is None or not hmac.compare_digest(row["token_hash"], _hash_token(req.token)):
-            raise HTTPException(403, "Unknown room or wrong token")
+        given, lead_hash = _hash_token(req.token), lead_keys.get(req.room)
+        if lead_hash and hmac.compare_digest(lead_hash, given):
+            role = "lead"
+        else:
+            with lock:
+                row = conn.execute("SELECT token_hash FROM rooms WHERE room = ?", (req.room,)).fetchone()
+            if row is None or not hmac.compare_digest(row["token_hash"], given):
+                raise HTTPException(403, "Unknown room or wrong token")
+            role = "member" if lead_hash else "lead"  # no lead key set: whoever holds the room token leads
         expires = int(time.time()) + COOKIE_DAYS * 86400
-        response.set_cookie(COOKIE, _sign(req.room, expires), max_age=COOKIE_DAYS * 86400, httponly=True,
+        response.set_cookie(COOKIE, _sign(req.room, role, expires), max_age=COOKIE_DAYS * 86400, httponly=True,
                             samesite="strict", secure=os.getenv("HUB_SECURE_COOKIE", "1") != "0")
-        return {"ok": True, "room": req.room}
+        return {"ok": True, "room": req.room, "role": role}
+
+    @app.get("/v1/me")
+    def me(a: Access = Depends(access)) -> dict:
+        return {"room": a.room, "role": a.role, "name": a.name, "demo": a.room == demo_room}
+
+    # ---- lead-only: remove a member, see settings -----------------------------------------------
+    @app.delete("/v1/members/{name}")
+    def remove_member(name: str, a: Access = Depends(lead_only)) -> dict:
+        """Revoke a member: their identity key stops working (so the name can't be rejoined with it), their
+        sessions end, and any event they still send is refused. Their history stays on the board."""
+        if not NAME_RE.match(name):
+            raise HTTPException(400, "Invalid name")
+        with lock:
+            if not conn.execute("SELECT 1 FROM identities WHERE room = ? AND display_name = ?", (a.room, name)).fetchone():
+                raise HTTPException(404, "No one by that name has joined this room")
+            conn.execute("UPDATE identities SET key_hash = ? WHERE room = ? AND display_name = ?",
+                         (_hash_token(secrets.token_urlsafe(32)), a.room, name))
+            conn.execute("DELETE FROM sessions WHERE room = ? AND display_name = ?", (a.room, name))
+            conn.execute("INSERT OR REPLACE INTO removed VALUES (?, ?, ?)", (a.room, name, time.time()))
+            conn.commit()
+        return {"ok": True, "removed": name}
+
+    @app.post("/v1/members/{name}/restore")
+    def restore_member(name: str, a: Access = Depends(lead_only)) -> dict:
+        """Let a removed member back in: the name is freed, and they rejoin with `teamloop login`."""
+        with lock:
+            gone = conn.execute("DELETE FROM removed WHERE room = ? AND name = ?", (a.room, name)).rowcount
+            conn.execute("DELETE FROM identities WHERE room = ? AND display_name = ?", (a.room, name))
+            conn.commit()
+        if not gone:
+            raise HTTPException(404, "That member isn't removed")
+        return {"ok": True, "restored": name}
+
+    @app.get("/v1/settings")
+    def settings(a: Access = Depends(lead_only)) -> dict:
+        repos = [repo.strip() for repo, _, room in (e.partition("=") for e in os.getenv("HUB_GITHUB_REPOS", "").split(","))
+                 if room.strip() == a.room and repo.strip()]
+        return {"room": a.room, "lead_key_set": a.room in lead_keys, "github_repos": repos,
+                "github_secret_set": bool(os.getenv("GITHUB_WEBHOOK_SECRET")),
+                "notify_webhook_set": bool(os.getenv("HUB_NOTIFY_WEBHOOK")),
+                "agent_s_model": llm.model_for("progress"), "retention_days": RETENTION_DAYS,
+                "posts_per_minute": POSTS_PER_MINUTE}
 
     # ---- events in ----------------------------------------------------------------------------
     @app.post("/v1/events")
@@ -163,6 +241,9 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
         now, rows = time.time(), []
         with lock:
             allowed = posts.allow(f"{who.room}\0{who.display_name}", now)
+            banned = conn.execute("SELECT 1 FROM removed WHERE room = ? AND name = ?", (who.room, who.display_name)).fetchone()
+        if banned:
+            raise HTTPException(403, "This member was removed by the team lead")
         if not allowed:
             raise HTTPException(429, "Too many event batches; the connector will retry")
         for e in body.events:
@@ -266,13 +347,14 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
                               "kind": e["kind"], "line": progress.describe(e)} for e in reversed(evs) if progress.describe(e)]}
 
     @app.get("/v1/team")
-    def team_view(room: str = Depends(board_room)) -> dict:
+    def team_view(a: Access = Depends(access)) -> dict:
         """Members with their tools and tasks, for the board's Team view."""
         now = time.time()
         with lock:
             rows = conn.execute(
                 "SELECT member, task, MAX(received_at) AS last, GROUP_CONCAT(DISTINCT json_extract(body, '$.tool')) AS tools"
-                " FROM events WHERE room = ? AND member != 'github' GROUP BY member, task", (room,)).fetchall()
+                " FROM events WHERE room = ? AND member != 'github' GROUP BY member, task", (a.room,)).fetchall()
+            removed = {r["name"] for r in conn.execute("SELECT name FROM removed WHERE room = ?", (a.room,))}
         people: dict[str, dict] = {}
         for r in rows:
             p = people.setdefault(r["member"], {"name": r["member"], "last_activity": 0.0, "tools": set(), "tasks": []})
@@ -283,8 +365,9 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
         out = []
         for p in sorted(people.values(), key=lambda p: -p["last_activity"]):
             p["tasks"].sort(key=lambda t: -t["last_activity"])
-            out.append({**p, "tools": sorted(p["tools"]), "active": now - p["last_activity"] < ACTIVE_SECONDS})
-        return {"room": room, "demo": room == demo_room, "members": out}
+            out.append({**p, "tools": sorted(p["tools"]), "active": now - p["last_activity"] < ACTIVE_SECONDS,
+                        "removed": p["name"] in removed})
+        return {"room": a.room, "demo": a.room == demo_room, "role": a.role, "members": out}
 
     # ---- live board (SSE) -----------------------------------------------------------------------
     streams: dict[str, int] = {}

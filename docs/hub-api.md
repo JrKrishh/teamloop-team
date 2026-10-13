@@ -53,6 +53,15 @@ The lead's browser uses `POST /v1/board/login {room, token}` instead. It sets an
 - `POST /v1/ask {question}`: Agent S Q&A with citations, or 503 when the model is down.
 - **Agent S worker:** re-estimates a task once its events go quiet for `HUB_DEBOUNCE` seconds (default 30); after a failure it waits 60 s.
 
+## Roles (13 Oct)
+| Role | How | Can |
+|---|---|---|
+| lead | board sign-in with the room's lead key (`HUB_LEAD_KEYS`), or with the room token when no lead key is set | everything a member can, plus `DELETE /v1/members/{name}` (revoke: the identity key stops working, sessions end, events are refused, history stays), `POST /v1/members/{name}/restore`, `GET /v1/settings` |
+| member | board sign-in with the room token, or a connector session | board, `/v1/tasks/{task}`, `/v1/team`, stream, ask, digest. Teammates see each other's work by design |
+| viewer | public demo room (`HUB_DEMO_ROOM`) | read only |
+
+`GET /v1/me` returns `{room, role, name, demo}`. The role is signed into the cookie (`room|role|expires|hmac`), so a forged role fails verification.
+
 ## Next (hub side)
 - `GET /v1/stream`: SSE for the board.
 - `GET /v1/board`: snapshot of teams, tasks, sessions and progress.
