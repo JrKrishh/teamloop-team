@@ -12,13 +12,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "hub"), str(ROOT / "agent_s"), str(ROOT / "cloud")]
 
-if os.environ.get("DATABASE_URL"):
-    from cloud.app import create  # noqa: E402
 
-    app = create()
-else:
+def _create():
+    if os.environ.get("DATABASE_URL"):
+        from cloud.app import create
+
+        return create()
     os.environ.setdefault("HUB_DB", "/tmp/teamloop-hub.db")
     os.environ.setdefault("HUB_DEMO_ROOM", "demo")
-    from hub.app import app_from_env  # noqa: E402
+    from hub.app import app_from_env
 
-    app = app_from_env()
+    return app_from_env()
+
+
+app = _create()  # Vercel finds the function by this top-level `app`
