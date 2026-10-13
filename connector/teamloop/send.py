@@ -16,6 +16,7 @@ from typing import Callable
 from teamloop import spool, summarize
 
 BATCH = 50
+MAX_BATCH_BYTES = 48_000  # the hub (ccbridge relay) refuses bodies over 64 KB
 SUMMARIZED = ("turn_end", "subagent_end")
 
 
@@ -54,13 +55,21 @@ def send_once(post: Callable = _post, summarizer: Callable | None = None) -> tup
     if not paths:
         return 0, None
     try:
-        events = [{**prepare(spool.read(p), summarizer), "member": cfg.get("name")} for p in paths]
+        events, used, size = [], [], 0
+        for p in paths:  # stay under the relay's 64 KB body limit, or one big batch would retry forever
+            event = {**prepare(spool.read(p), summarizer), "member": cfg.get("name")}
+            n = len(json.dumps(event, ensure_ascii=False).encode())
+            if events and size + n > MAX_BATCH_BYTES:
+                break
+            events.append(event)
+            used.append(p)
+            size += n
         post(cfg, events)
     except Exception as e:  # noqa: BLE001 - keep the spool, report, retry later
         return 0, f"{type(e).__name__}: {e}"[:200]
-    for p in paths:
+    for p in used:
         p.unlink(missing_ok=True)
-    return len(paths), None
+    return len(used), None
 
 
 def my_turn(stale: float = 30.0) -> bool:

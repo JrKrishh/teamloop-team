@@ -60,6 +60,10 @@ TASK_RE = re.compile(r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
 ACTIVE_SECONDS = 300
 COOKIE = "teamloop_board"
 MAX_STREAMS_PER_ROOM = 25
+MAX_EVENT_BYTES = 8192  # ccbridge's message cap
+POSTS_PER_MINUTE = int(os.getenv("HUB_POSTS_PER_MINUTE", "60"))
+RETENTION_DAYS = float(os.getenv("HUB_RETENTION_DAYS", "30"))
+KEEP_SNAPSHOTS = 20
 STREAM_POLL_SECONDS = float(os.getenv("HUB_STREAM_POLL", "1"))
 STATIC = Path(__file__).parent / "static"
 COOKIE_DAYS = 7
@@ -108,6 +112,7 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     from .relay import _Window  # ccbridge's sliding-window limiter
 
     demo_asks = _Window(int(os.getenv("HUB_DEMO_ASKS_PER_10MIN", "20")), 600.0)
+    posts = _Window(POSTS_PER_MINUTE, 60.0)  # per member; the connector sends a batch at most every few seconds
 
     # ---- the board page ----------------------------------------------------------------------
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -154,6 +159,10 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
     @app.post("/v1/events")
     def post_events(body: EventsIn, who=Depends(caller)) -> dict:
         now, rows = time.time(), []
+        with lock:
+            allowed = posts.allow(f"{who.room}\0{who.display_name}", now)
+        if not allowed:
+            raise HTTPException(429, "Too many event batches; the connector will retry")
         for e in body.events:
             if "local" in e:
                 raise HTTPException(400, "Events must not carry 'local': that text never leaves the laptop")
@@ -161,8 +170,10 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
                 raise HTTPException(422, "Each event needs a 32-hex id and a lowercase kind")
             task = e.get("task") if TASK_RE.match(str(e.get("task") or "")) else None
             e = {**clean(e), "member": who.display_name, "task": task}  # the session says who, not the body
-            rows.append((e["id"], who.room, who.display_name, task, e["kind"], str(e.get("ts", ""))[:32],
-                         json.dumps(e, ensure_ascii=False), now))
+            stored = json.dumps(e, ensure_ascii=False)
+            if len(stored.encode()) > MAX_EVENT_BYTES:
+                raise HTTPException(413, f"An event is over {MAX_EVENT_BYTES} bytes")
+            rows.append((e["id"], who.room, who.display_name, task, e["kind"], str(e.get("ts", ""))[:32], stored, now))
         with lock:
             accepted = sum(conn.execute("INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", r).rowcount
                            for r in rows)
@@ -312,14 +323,33 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
             done.append(f"{row['room']}/{row['task']}")
         return done
 
+    def prune(now: Optional[float] = None) -> int:
+        """The hub faces the internet, so nothing grows forever: events and snapshots older than the retention
+        window go, and each task keeps only its latest snapshots."""
+        now = time.time() if now is None else now
+        cutoff = now - RETENTION_DAYS * 86400
+        with lock:
+            gone = conn.execute("DELETE FROM events WHERE received_at < ?", (cutoff,)).rowcount
+            conn.execute("DELETE FROM snapshots WHERE created_at < ?", (cutoff,))
+            conn.execute("DELETE FROM snapshots WHERE rowid NOT IN (SELECT rowid FROM (SELECT rowid, ROW_NUMBER() OVER"
+                         " (PARTITION BY room, task ORDER BY created_at DESC) AS n FROM snapshots) WHERE n <= ?)",
+                         (KEEP_SNAPSHOTS,))
+            conn.commit()
+        return gone
+
     app.state.refresh_progress = refresh
     app.state.build_board = build_board
+    app.state.prune_events = prune
 
     if start_worker:
         def loop() -> None:
+            last_prune = 0.0
             while True:
                 try:
                     refresh()
+                    if time.time() - last_prune > 3600:
+                        prune()
+                        last_prune = time.time()
                 except Exception:  # noqa: BLE001
                     log.exception("progress worker")
                 time.sleep(every)

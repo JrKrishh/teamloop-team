@@ -128,3 +128,38 @@ def test_untitled_task_takes_its_title_from_the_branch(hub):
     e = {**golden("synthetic_early_sse.json")[2], "id": "f" * 32, "task": "T-7", "branch": "T-7-add-multiply"}
     client.post("/v1/events", json={"events": [e]}, headers=s)
     assert client.get("/v1/board", headers=s).json()["tasks"][0]["title"] == "Add multiply"
+
+
+def test_members_are_rate_limited(monkeypatch):
+    from hub import team
+
+    monkeypatch.setattr(team, "POSTS_PER_MINUTE", 2)
+    client = TestClient(create(":memory:", chat=fake_chat, start_worker=False))
+    yang = member(client, "yang")
+    e = golden("real_fix_add_done.json")
+    codes = [client.post("/v1/events", json={"events": [e[i]]}, headers=yang).status_code for i in range(3)]
+    assert codes == [200, 200, 429]
+
+
+def test_oversized_event_is_refused(hub):
+    _, client = hub
+    yang = member(client, "yang")
+    e = {**golden("real_fix_add_done.json")[0], "facts": {"note": "x" * 9000}}
+    assert client.post("/v1/events", json={"events": [e]}, headers=yang).status_code == 413
+
+
+def test_old_events_and_extra_snapshots_are_pruned(hub):
+    import time
+
+    app, client = hub
+    yang = member(client, "yang")
+    client.post("/v1/events", json={"events": golden("real_fix_add_done.json")}, headers=yang)
+    with app.state.lock:
+        for i in range(25):
+            app.state.conn.execute("INSERT INTO snapshots VALUES ('teamloop', 'T-3', ?, '{}')", (time.time() + i,))
+        app.state.conn.commit()
+    assert app.state.prune_events(time.time()) == 0  # nothing old yet
+    with app.state.lock:
+        assert app.state.conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 20
+    assert app.state.prune_events(time.time() + 31 * 86400) > 0  # a month later the events are gone
+    assert client.get("/v1/board", headers=yang).json()["tasks"] == []
