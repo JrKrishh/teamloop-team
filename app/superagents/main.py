@@ -18,7 +18,8 @@ import uvicorn
 
 from teamloop import spool
 
-from . import server
+from . import laptop, server, store
+from .runtime import superteam
 
 CLOUD = os.environ.get("TEAMLOOP_HUB", "https://teamloop.vercel.app")
 BG_DARK, BG_LIGHT = 0x00141112, 0x00E8F1F6  # COLORREF (0x00BBGGRR) of #121114 and #F6F1E8
@@ -96,6 +97,11 @@ def main(argv: list[str] | None = None) -> int:
             break
         time.sleep(0.025)
     url = f"http://127.0.0.1:{state.port}/#k={state.key}"
+    # Super Team: run teammates' prompts in this laptop's sessions, by your rules (only while the app is open)
+    state.runner = superteam.Runner(lambda method, path, body=None, query=None: server.cloud(state, method, path, body, query),
+                                    team=lambda: (laptop.status().get("team") or {}).get("id") if store.load().get("session") else None,
+                                    repos=lambda: laptop.status()["repos"])
+    state.runner.start()
 
     if args.browser or args.serve:
         print(f"Super Agents: {url}", flush=True)

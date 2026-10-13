@@ -1,4 +1,4 @@
--- TeamLoop cloud hub, v1 (applied to Supabase project `teamloop` as migration teamloop_cloud_v1).
+-- TeamLoop cloud hub: the whole schema for a fresh database. A live one gets migrations.sql, in order.
 -- Every table has RLS on and no policies: nothing is reachable through PostgREST (anon/authenticated);
 -- only the hub's server-side connection reads and writes.
 
@@ -103,6 +103,7 @@ create table public.tasks (
   created_by uuid not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  due date,  -- v4
   primary key (team_id, task)
 );
 
@@ -123,7 +124,48 @@ create table public.agent_usage (
 );
 create index agent_usage_team_at_idx on public.agent_usage (team_id, at);
 
+-- v4 (migration teamloop_cloud_v4_super_team): Super Team. A teammate or the lead sends a prompt into someone's coding
+-- session; the owner's rules (off, ask each time, automatic; read-only or edit; tokens per teammate per day) decide,
+-- the owner's Super Agents runs it as a fork of that session, and every prompt stays on record. Plus task deadlines.
+create table public.session_access (
+  team_id uuid not null references public.teams(id) on delete cascade,
+  user_id uuid not null,
+  mode text not null default 'ask' check (mode in ('off', 'ask', 'auto')),
+  access text not null default 'read' check (access in ('read', 'edit')),
+  daily_tokens bigint check (daily_tokens is null or daily_tokens > 0),
+  app_seen_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (team_id, user_id)
+);
+create table public.session_prompts (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  from_user uuid not null,
+  from_name text not null,
+  to_user uuid not null,
+  to_name text not null,
+  session text not null,
+  tool text not null check (tool in ('claude_code', 'codex')),
+  repo text,
+  task text,
+  prompt text not null check (char_length(prompt) between 1 and 4000),
+  access text not null check (access in ('read', 'edit')),
+  status text not null default 'pending'
+    check (status in ('pending', 'approved', 'running', 'done', 'failed', 'denied', 'cancelled', 'stopped')),
+  decided_by text check (decided_by in ('owner', 'auto')),
+  budget bigint,
+  run_session text,
+  result text,
+  tokens bigint not null default 0,
+  created_at timestamptz not null default now(),
+  decided_at timestamptz,
+  finished_at timestamptz
+);
+create index session_prompts_team_idx on public.session_prompts (team_id, created_at desc);
+
 alter table public.teams enable row level security;
+alter table public.session_access enable row level security;
+alter table public.session_prompts enable row level security;
 alter table public.agent_usage enable row level security;
 alter table public.tasks enable row level security;
 alter table public.memberships enable row level security;

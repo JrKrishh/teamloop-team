@@ -15,6 +15,8 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 **Never shared:** prompts, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking.
 
 ## In the app
+- **Super Team.** Anyone on the team can prompt a teammate's live Claude Code or Codex session (the agent that has the context), by that owner's rules: off, ask each time, or automatic; read only or edit; a daily token limit per teammate. It runs on the owner's laptop as a copy of the session, and every prompt is on record: who asked what, who allowed it, what it used.
+- **Lead tools.** Agent S plans with deadlines, assigns work, and reviews code (a branch's diff, a GitHub pull request, or the author's own session), in Manual, Plan or Auto mode.
 - **Team usage.** A counter for the team's AI: tokens per task, per day, per tool (Claude Code, Codex, Super Agents) and per person, counted on each laptop from the agents' own logs. Leads see everyone; members see themselves.
 - **Agents with their own behaviour.** Agent S is built in; add a reviewer, a release manager, anyone: each with its own instructions, default Nemotron model and mode, skills, MCP connectors and tools.
 - **Manual, Plan and Auto modes**, as in Claude Code (Shift+Tab). Manual asks before every change, Plan queues changes until you run the plan, Auto runs them with Undo. Shell commands always ask.

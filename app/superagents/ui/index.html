@@ -93,7 +93,7 @@
     <nav class="nav" id="nav">
       <button type="button" data-view="chat" class="on"><span class="ic" data-ic="spark"></span>Chat</button>
       <button type="button" data-view="board"><span class="ic" data-ic="board"></span>Board</button>
-      <button type="button" data-view="team"><span class="ic" data-ic="team"></span>Team</button>
+      <button type="button" data-view="team"><span class="ic" data-ic="team"></span>Super Team<span class="nav-badge" id="promptBadge" hidden></span></button>
       <button type="button" data-view="agents"><span class="ic" data-ic="bot"></span>Agents</button>
       <button type="button" data-view="laptop"><span class="ic" data-ic="laptop"></span>This laptop</button>
     </nav>
@@ -180,9 +180,11 @@
 
     <section class="view" id="view-team" hidden>
       <div class="view-head">
-        <div><h1>Team</h1><p class="sub" id="teamSub"></p></div>
+        <div><h1>Super Team</h1><p class="sub" id="teamSub"></p></div>
         <div class="tabs" id="teamTabs" role="tablist">
           <button type="button" role="tab" data-tab="people" class="on">People</button>
+          <button type="button" role="tab" data-tab="sessions">Sessions</button>
+          <button type="button" role="tab" data-tab="prompts">Prompts</button>
           <button type="button" role="tab" data-tab="usage">Usage</button>
         </div>
       </div>
@@ -193,6 +195,8 @@
         </div>
         <div class="people" id="people"></div>
       </div>
+      <div class="tab" id="team-sessions" hidden></div>
+      <div class="tab" id="team-prompts" hidden></div>
       <div class="tab" id="team-usage" hidden></div>
     </section>
 

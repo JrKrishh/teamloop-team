@@ -349,14 +349,14 @@ def test_planned_tasks_show_on_the_board_until_sessions_take_over(app):
     join(app, yang, team, "asha")
     q = {"team": team}
     t = yang.post("/v1/tasks", params=q, json={"title": "Build the OAuth callback", "owner": "ASHA"}).json()
-    assert t == {"task": "T-1", "title": "Build the OAuth callback", "owner": "asha", "state": "open"}
+    assert t == {"task": "T-1", "title": "Build the OAuth callback", "owner": "asha", "state": "open", "due": None}
     assert yang.post("/v1/tasks", params=q, json={"task": "T-1", "title": "Rate limits"}).json()["task"] == "T-2"  # taken
     assert yang.post("/v1/tasks", params=q, json={"title": "x", "owner": "a stranger"}).status_code == 400
     cards = {c["task"]: c for c in yang.get("/v1/board", params=q).json()["tasks"]}
     assert cards["T-1"]["status"] == "todo" and cards["T-1"]["owner"] == "asha" and cards["T-1"]["members"] == ["asha"]
     assert yang.get("/v1/tasks/T-1", params=q).json()["timeline"] == []
     assert yang.patch("/v1/tasks/T-2", params=q, json={"owner": "yang"}).json()["owner"] == "yang"
-    assert yang.patch("/v1/tasks/T-2", params=q, json={"state": "closed"}).json() == {"task": "T-2", "title": "Rate limits", "owner": "yang", "state": "closed"}
+    assert yang.patch("/v1/tasks/T-2", params=q, json={"state": "closed"}).json() == {"task": "T-2", "title": "Rate limits", "owner": "yang", "state": "closed", "due": None}
     assert "T-2" not in {c["task"] for c in yang.get("/v1/board", params=q).json()["tasks"]}  # closed before any session
     assert yang.delete("/v1/tasks/T-1", params=q).json() == {"ok": True}  # undo
     assert yang.delete("/v1/tasks/T-1", params=q).status_code == 404
@@ -464,3 +464,80 @@ def test_usage_counts_tokens_by_task_tool_day_and_person(env):
     assert cards["T-3"]["usage"] == {"tokens": 3020, "turns": 2} and cards["T-4"]["usage"]["tokens"] == 2300
     assert yang.get("/v1/tasks/T-3", params={"team": team}).json()["usage"]["turns"] == 2
     assert signin(app, "other").get("/v1/usage", params={"team": team}).status_code == 403
+
+
+def a_session(n, session, tool="claude_code", task="T-22", repo="acme-web"):
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return [{"v": 1, "id": f"{n:032x}", "ts": ts, "tool": tool, "session": session, "kind": "session_start", "task": task,
+             "repo": repo, "facts": {}},
+            {"v": 1, "id": f"{n + 1:032x}", "ts": ts, "tool": tool, "session": session, "kind": "turn_end", "task": task,
+             "repo": repo, "facts": {}}]
+
+
+def test_super_team_prompts_follow_the_owners_rules(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha, sourabh = join(app, yang, team, "asha"), join(app, yang, team, "sourabh")
+    TestClient(app).post("/v1/events", json={"events": a_session(100, "sess-asha")}, headers=connect(app, asha, team))
+    TestClient(app).post("/v1/events", json={"events": a_session(200, "sess-yang", tool="codex", repo="api")},
+                         headers=connect(app, yang, team))
+    q = {"team": team}
+    listed = yang.get("/v1/sessions", params=q).json()
+    assert {s["session"]: (s["owner"]["name"], s["mode"], s["app_online"], s["mine"]) for s in listed["sessions"]} == {
+        "sess-asha": ("asha", "ask", False, False), "sess-yang": ("yang", "ask", False, True)}
+    assert listed["me"] == {"mode": "ask", "access": "read", "daily_tokens": None}  # the default: ask me, read only
+
+    # ask (the default): Yang's prompt waits for Asha, and only Asha decides
+    p = yang.post("/v1/prompts", params=q, json={"session": "sess-asha", "prompt": "What's left on T-22?"}).json()
+    assert (p["status"], p["to"]["name"], p["access"], p["repo"], p["task"]) == ("pending", "asha", "read", "acme-web", "T-22")
+    assert yang.post("/v1/prompts", params=q, json={"session": "sess-yang", "prompt": "x"}).status_code == 400  # your own
+    assert yang.post("/v1/prompts", params=q, json={"session": "sess-nope", "prompt": "x"}).status_code == 404
+    assert yang.post(f"/v1/prompts/{p['id']}/decide", params=q, json={"approve": True}).status_code == 409
+    assert asha.get("/v1/prompts/runnable", params=q).json()["prompts"] == []  # nothing runs before she says so
+    [waiting] = asha.get("/v1/prompts", params={**q, "box": "in"}).json()["prompts"]
+    assert waiting["yours_to_decide"] and waiting["from"]["name"] == "yang"
+    assert asha.post(f"/v1/prompts/{p['id']}/decide", params=q, json={"approve": True}).json()["decided_by"] == "owner"
+    [run] = asha.get("/v1/prompts/runnable", params=q).json()["prompts"]
+    assert asha.post(f"/v1/prompts/{run['id']}/claim", params=q).json()["budget"] is None  # unlimited
+    assert asha.post(f"/v1/prompts/{run['id']}/claim", params=q).status_code == 409  # it runs once
+    assert asha.post(f"/v1/prompts/{run['id']}/finish", params=q,
+                     json={"status": "done", "result": "Two steps left.", "tokens": 4200, "run_session": "fork-1"}).json()["tokens"] == 4200
+    assert yang.get(f"/v1/prompts/{p['id']}", params=q).json()["result"] == "Two steps left."
+    assert yang.get("/v1/sessions", params=q).json()["sessions"][-1]["app_online"] is True  # Asha's app asked for work
+
+    # automatic, edits allowed, 5,000 tokens a day for each teammate
+    assert asha.put("/v1/sessions/access", params=q, json={"mode": "auto", "access": "edit", "daily_tokens": 5000}).status_code == 200
+    p2 = yang.post("/v1/prompts", params=q, json={"session": "sess-asha", "prompt": "Fix the typo in README"}).json()
+    assert (p2["status"], p2["decided_by"], p2["access"]) == ("approved", "auto", "edit")
+    assert asha.post(f"/v1/prompts/{p2['id']}/claim", params=q).json()["budget"] == 800  # 5,000 less the 4,200 used today
+    asha.post(f"/v1/prompts/{p2['id']}/finish", params=q, json={"status": "stopped", "result": "Stopped at the limit.", "tokens": 900})
+    r = yang.post("/v1/prompts", params=q, json={"session": "sess-asha", "prompt": "One more"})
+    assert r.status_code == 429 and "5,000" in r.json()["detail"]
+    assert asha.put("/v1/sessions/access", params=q, json={"mode": "off"}).json()["daily_tokens"] is None
+    assert sourabh.post("/v1/prompts", params=q, json={"session": "sess-asha", "prompt": "hi"}).status_code == 403  # off
+
+    # the record: the lead sees every prompt, a member what they sent or received; a sender can cancel before it runs
+    p3 = sourabh.post("/v1/prompts", params=q, json={"session": "sess-yang", "prompt": "How does /v1/stream work?"}).json()
+    assert p3["tool"] == "codex" and p3["status"] == "pending"
+    assert len(yang.get("/v1/prompts", params=q).json()["prompts"]) == 3
+    assert [x["prompt"] for x in sourabh.get("/v1/prompts", params=q).json()["prompts"]] == ["How does /v1/stream work?"]
+    assert len(asha.get("/v1/prompts", params=q).json()["prompts"]) == 2
+    assert asha.get(f"/v1/prompts/{p3['id']}", params=q).status_code == 404
+    assert sourabh.post(f"/v1/prompts/{p3['id']}/cancel", params=q).json()["status"] == "cancelled"
+    assert sourabh.post(f"/v1/prompts/{p3['id']}/cancel", params=q).status_code == 409
+    assert yang.get("/v1/usage", params=q).json()["prompted"] == [{"from": "yang", "to": "asha", "prompts": 2, "tokens": 5100}]
+    assert asha.get("/v1/usage", params=q).json()["prompted"][0]["tokens"] == 5100
+
+
+def test_tasks_have_deadlines(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    q = {"team": team}
+    t = yang.post("/v1/tasks", params=q, json={"title": "Ship v0.3", "owner": "yang", "due": "2026-10-30"}).json()
+    assert t["due"] == "2026-10-30"
+    assert yang.get("/v1/board", params=q).json()["tasks"][0]["due"] == "2026-10-30"
+    assert yang.patch(f"/v1/tasks/{t['task']}", params=q, json={"owner": "yang"}).json()["due"] == "2026-10-30"  # kept
+    assert yang.patch(f"/v1/tasks/{t['task']}", params=q, json={"due": "2026-10-25"}).json()["due"] == "2026-10-25"
+    assert yang.get(f"/v1/tasks/{t['task']}", params=q).json()["due"] == "2026-10-25"
+    assert yang.patch(f"/v1/tasks/{t['task']}", params=q, json={"due": ""}).json()["due"] is None  # cleared
+    assert yang.post("/v1/tasks", params=q, json={"title": "x", "due": "30/10/2026"}).status_code == 422

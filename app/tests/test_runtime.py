@@ -87,7 +87,7 @@ def test_manual_asks_before_a_change_and_reads_run_free(home):
     t = run_turn("manual", llm, hub_calls)
     assert statuses(t, "team_board") == ["running", "done"]
     assert statuses(t, "create_task") == ["asking", "running", "done"]
-    assert ("POST", "tasks", {"title": "Rate limits", "owner": "Asha", "task": ""}) in hub_calls
+    assert ("POST", "tasks", {"title": "Rate limits", "owner": "Asha", "task": "", "due": None}) in hub_calls
     assert [e["kind"] for e in t.events][-2:] == ["answer", "end"] and t.events[-2]["text"] == "Added T-4."
     tool_msgs = [m for m in sent[2]["messages"] if m["role"] == "tool"]
     assert tool_msgs[-1]["content"] == "Created T-4: Rate limits (owner Asha)"
@@ -194,7 +194,8 @@ def test_the_prompt_carries_skills_instructions_and_tool_groups(home):
 
 
 def test_agents_store(home):
-    assert [a["id"] for a in agents.all_agents()] == ["agent-s"] and agents.get("agent-s")["skills"] == ["karpathy-guidelines"]
+    assert [a["id"] for a in agents.all_agents()] == ["agent-s"]
+    assert agents.get("agent-s")["skills"] == ["karpathy-guidelines", "code-review"]
     a = agents.save(None, {"name": "  Release   manager ", "color": "#3E9B6B", "model": "ultra", "mode": "plan", "bogus": 1})
     assert a["name"] == "Release manager" and a["model"] == "ultra" and "bogus" not in a
     agents.save("agent-s", {"instructions": "Be brief."})
