@@ -17,7 +17,7 @@ teamloop.exe ─ hooks and MCP server, run by Claude Code and Codex; sends to th
 Agent S is built in; add more on **Agents** (a reviewer, a release manager, a researcher). Each agent has its own:
 - **Instructions**: its behaviour (role, tone, what to check, what never to do), added to every message.
 - **Default model and mode**, applied when you pick it in the composer.
-- **Tools**, in groups: **Team board** (read the board and the team's history; create, assign, close, start tasks), **Files** (read, search and write in the repos connected on This laptop), **Terminal** (run shell commands; always asks first), **Browser** (read pages; show a page in the browser panel), **Memory** (`remember`, `forget`, `recall`; below).
+- **Tools**, in groups: **Team board** (read the board and the team's history; create, assign, close, start tasks), **Files and git** (read, search and write in the repos connected on This laptop; branch, commit, push and open pull requests, below), **Terminal** (run shell commands; always asks first), **Browser** (read pages; show a page in the browser panel), **Memory** (`remember`, `forget`, `recall`; below).
 - **Skills** and **Connectors** (below).
 
 Agents live in `~/.teamloop/agents.json`. Agent S's instructions are editable; it can't be deleted.
@@ -34,6 +34,12 @@ The loop runs on this laptop (`runtime/loop.py`), like Claude Code's: the model 
 **Model:** Auto uses Nemotron Super for chats (Ultra for the digest); or pin Lightning, Super or Ultra.
 
 **Import (+):** files (specs, task lists, notes; up to 5, 200 KB each) or a public repo's open GitHub issues, added to the message.
+
+## Git, like Claude Code
+Agents ship work the way Claude Code does: `git_branch`, edit, `git_commit`, `git_push`, `open_pr` (plus `git_status` and `git_pull`).
+- **Your own sign-in.** They use this laptop's git and its GitHub sign-in (Git Credential Manager, part of Git for Windows), and the GitHub CLI for pull requests when it's signed in; otherwise GitHub's new pull request page opens with the title and description filled in, for you to click Create. Super Agents keeps no GitHub token.
+- **Rules.** A commit takes only the files it names (whatever else is staged stays yours) and never lands on the default branch; a push never forces and never goes to the default branch; a pull only fast-forwards. Pushes and pull requests always ask, in every mode; branches, commits and pulls follow the mode. In a connected repo, the commit hook adds the task to agents' commits too.
+- **Team projects** (This laptop): the lead links the team's GitHub repos; a teammate clicks **Get the project**, picks a folder, and the app clones it with their own sign-in and connects it. The panel also says whether git, a credential helper and the GitHub CLI are here.
 
 ## Skills
 Skills use Claude Code's format: a folder with `SKILL.md` (frontmatter `name` and `description`, then instructions) and any files it refers to. An agent sees each of its skills' names and descriptions and reads a skill in full (`load_skill`) when the task calls for it; an "always on" skill is in every message.

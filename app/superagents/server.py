@@ -12,6 +12,7 @@ import json
 import platform
 import re
 import secrets
+import subprocess
 import threading
 import time
 import urllib.error
@@ -39,7 +40,7 @@ from .runtime import tools as runtime_tools
 UI = Path(__file__).parent / "ui"
 # what the UI may ask the hub for, through /api/cloud/<path>
 CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events|usage"
-                         r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?)"
+                         r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)"
                          r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40}"
                          r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread"
                          r"|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?)$")
@@ -148,6 +149,11 @@ class TeamIn(BaseModel):
 
 class RepoIn(BaseModel):
     path: Optional[str] = Field(default=None, max_length=1000)
+
+
+class CloneIn(BaseModel):
+    url: str = Field(min_length=10, max_length=300)
+    parent: Optional[str] = Field(default=None, max_length=1000)
 
 
 class PauseIn(BaseModel):
@@ -398,6 +404,23 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         if not path:
             return {"cancelled": True}
         return laptop.connect_repo(path)
+
+    @app.get("/api/laptop/git")
+    def laptop_git() -> dict:
+        return laptop.git_info(laptop.status()["repos"])
+
+    @app.post("/api/laptop/clone")
+    def laptop_clone(body: CloneIn) -> dict:
+        slug = runtime_tools.github_repo(body.url)
+        if not slug:
+            raise HTTPException(400, "That isn't a GitHub repo URL (https://github.com/owner/repo)")
+        parent = body.parent or (pick_folder() if pick_folder else None)
+        if not parent:
+            return {"cancelled": True}
+        try:
+            return laptop.clone(f"https://github.com/{slug}.git", parent)
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+            raise HTTPException(400, str(e)[:800]) from None
 
     @app.post("/api/laptop/pause")
     def laptop_pause(body: PauseIn) -> dict:

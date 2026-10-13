@@ -163,7 +163,18 @@ create table public.session_prompts (
 );
 create index session_prompts_team_idx on public.session_prompts (team_id, created_at desc);
 
+-- v5 (migration teamloop_cloud_v5_team_repos): the team's GitHub repos, so a teammate gets the project in one click
+-- (the app clones it with their own GitHub sign-in and connects it).
+create table public.team_repos (
+  team_id uuid not null references public.teams(id) on delete cascade,
+  url text not null check (url ~ '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'),
+  added_by uuid not null,
+  added_at timestamptz not null default now(),
+  primary key (team_id, url)
+);
+
 alter table public.teams enable row level security;
+alter table public.team_repos enable row level security;
 alter table public.session_access enable row level security;
 alter table public.session_prompts enable row level security;
 alter table public.agent_usage enable row level security;

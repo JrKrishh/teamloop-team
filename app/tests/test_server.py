@@ -148,6 +148,20 @@ def test_connect_this_laptop_and_a_repo(env, monkeypatch, tmp_path):
     assert client.post("/api/laptop/repos", json={}).json() == {"cancelled": True}  # no folder picked
     assert client.post("/api/laptop/pause", json={"paused": True}).json()["paused"] and spool.paused()
     assert client.post("/api/laptop/pause", json={"paused": False}).json()["paused"] is False
+    git = client.get("/api/laptop/git").json()
+    assert git["git"] is True and set(git["origins"]) == {str(root.resolve())}  # proj has no origin: ""
+
+
+def test_get_the_project_clones_only_github_repos(env, monkeypatch, tmp_path):
+    client, hub, *_ = env
+    cloned = []
+    monkeypatch.setattr(server.laptop, "clone", lambda url, parent: cloned.append((url, parent)) or {"ok": True, "path": parent})
+    assert client.post("/api/laptop/clone", json={"url": "https://gitlab.com/acme/web"}).status_code == 400
+    assert client.post("/api/laptop/clone", json={"url": "https://github.com/acme/web"}).json() == {"cancelled": True}
+    assert client.post("/api/laptop/clone", json={"url": "git@github.com:acme/web.git", "parent": str(tmp_path)}).json()["ok"]
+    assert cloned == [("https://github.com/acme/web.git", str(tmp_path))]
+    client.get(f"/api/cloud/teams/{TEAM}/repos")
+    assert hub.calls[-1][1] == f"/v1/teams/{TEAM}/repos"  # the UI may reach the team's repos
 
 
 def test_sign_out_stops_this_laptop_reporting(env, monkeypatch):

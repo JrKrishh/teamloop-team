@@ -574,3 +574,21 @@ def test_tasks_have_deadlines(app):
     assert yang.get(f"/v1/tasks/{t['task']}", params=q).json()["due"] == "2026-10-25"
     assert yang.patch(f"/v1/tasks/{t['task']}", params=q, json={"due": ""}).json()["due"] is None  # cleared
     assert yang.post("/v1/tasks", params=q, json={"title": "x", "due": "30/10/2026"}).status_code == 422
+
+
+def test_the_lead_links_the_teams_github_repos_for_get_the_project(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha = join(app, yang, team, "asha")
+    path = f"/v1/teams/{team}/repos"
+    assert asha.get(path).json() == {"repos": [], "can_edit": False}
+    for url in ["git@github.com:acme/web.git", "https://github.com/acme/web/", "https://github.com/acme/api"]:
+        r = yang.post(path, json={"url": url})
+        assert r.status_code == 200, r.text
+    assert [x["name"] for x in r.json()["repos"]] == ["acme/web", "acme/api"]  # one acme/web, however it was written
+    assert asha.get(path).json()["repos"][0]["url"] == "https://github.com/acme/web"
+    assert asha.post(path, json={"url": "https://github.com/acme/x"}).status_code == 403  # only the lead links repos
+    assert yang.post(path, json={"url": "https://gitlab.com/acme/web"}).status_code == 400
+    assert yang.delete(path, params={"url": "https://github.com/acme/web.git"}).json()["repos"][0]["name"] == "acme/api"
+    other = signin(app, "zed")
+    assert other.get(path).status_code == 403  # not in the team
