@@ -21,7 +21,7 @@ from typing import Callable, Optional
 
 import hub
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
@@ -296,11 +296,15 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     import mimetypes
 
     mimetypes.add_type("image/webp", ".webp")
+    mimetypes.add_type("application/manifest+json", ".webmanifest")
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     # The website is the landing page and invite links; the product is the Super Agents app. /auth and /device stay
     # for `teamloop login` from a terminal (the device flow signs in on the web).
     app.mount("/site", StaticFiles(directory=SITE), name="site")
+    # the phone remote (an installable web app): pairs from a QR code in the Super Agents app, then talks to the laptop
+    # end to end encrypted through the relay below (or Supabase Realtime)
+    app.mount("/remote", StaticFiles(directory=SITE / "remote", html=True), name="remote")
 
     def landing() -> FileResponse:
         return FileResponse(SITE / "index.html")
@@ -322,8 +326,52 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     @app.get("/v1/config")
     def config() -> dict:
-        return {"mode": "cloud", "supabase_url": os.environ.get("SUPABASE_URL"),
-                "supabase_key": os.environ.get("SUPABASE_PUBLISHABLE_KEY")}
+        url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+        # the phone remote's relay: Supabase Realtime when there's Supabase; else this hub's own socket (not on
+        # Vercel: its instances don't share the rooms below)
+        relay = "supabase" if url and key else None if os.environ.get("VERCEL") else "hub"
+        return {"mode": "cloud", "supabase_url": url, "supabase_key": key, "relay": relay}
+
+    rooms: dict[str, set] = {}
+
+    @app.websocket("/v1/relay")
+    async def relay(ws: WebSocket) -> None:
+        """The phone remote's relay for development and self-hosting: the part of Supabase Realtime's protocol it
+        uses (join a channel, broadcast to the others on it, heartbeat). Messages are sealed end to end; this only
+        passes them on, to whoever joined the channel, and keeps nothing."""
+        await ws.accept()
+        joined: set[str] = set()
+
+        async def reply(topic: str, ref) -> None:
+            await ws.send_text(json.dumps({"topic": topic, "event": "phx_reply", "payload": {"status": "ok", "response": {}}, "ref": ref}))
+        try:
+            while True:
+                raw = await ws.receive_text()
+                if len(raw) > 1_000_000:
+                    break
+                m = json.loads(raw)
+                topic, event = m.get("topic"), m.get("event")
+                if event == "phx_join" and isinstance(topic, str) and topic.startswith("realtime:") and len(topic) <= 80:
+                    rooms.setdefault(topic, set()).add(ws)
+                    joined.add(topic)
+                    await reply(topic, m.get("ref"))
+                elif event == "heartbeat":
+                    await reply("phoenix", m.get("ref"))
+                elif event == "broadcast" and topic in joined:
+                    out = json.dumps({"topic": topic, "event": "broadcast", "payload": m.get("payload")})
+                    for peer in list(rooms.get(topic, ())):
+                        if peer is not ws:
+                            try:
+                                await peer.send_text(out)
+                            except Exception:  # noqa: BLE001 - that peer left
+                                rooms[topic].discard(peer)
+        except Exception:  # noqa: BLE001 - closed, or not JSON
+            pass
+        finally:
+            for t in joined:
+                rooms.get(t, set()).discard(ws)
+                if not rooms.get(t):
+                    rooms.pop(t, None)
 
     # ---- sign-in -----------------------------------------------------------------------------------
     def new_session(body: SessionIn, conn) -> tuple[str, auth.Person]:

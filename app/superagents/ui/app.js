@@ -38,6 +38,7 @@ const ICONS = {
   board: '<rect x="3.5" y="4" width="7" height="16" rx="2"/><rect x="13.5" y="4" width="7" height="9" rx="2"/><path d="M13.5 17h7"/>',
   team: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9.5" r="2.4"/><path d="M15.6 14.7c2.3.1 4.2 1.6 4.9 4.8"/>',
   laptop: '<rect x="4.5" y="5" width="15" height="10.5" rx="1.8"/><path d="M2.5 19h19"/>',
+  phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
   dots: '<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
   moon: '<path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z"/>',
   sunny: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/>',
@@ -2457,6 +2458,9 @@ function renderSettings() {
     share.append(groupBox("Apps agents use without asking (Desktop)", list));
   }).catch(() => {});
 
+  const phone = el("section", "panel"); phone.append(el("h3", null, "Phone"));
+  api("/api/remote").then(r => phonePanel(phone, r)).catch(() => {});
+
   const keys = el("section", "panel"), dl = el("dl", "keys");
   for (const [what, combo] of SHORTCUTS) {
     const dd = el("dd"); combo.split(" · ").forEach((c, i) => { if (i) dd.append(" · "); dd.append(el("kbd", null, c)); });
@@ -2470,8 +2474,48 @@ function renderSettings() {
     btn("Website", "ghost", page("https://teamloop.vercel.app"), "globe"));
   about.append(el("h3", null, "About"), el("p", "sub", `Super Agents ${S.boot.version}. Open source under the MIT licence. The agents run on NVIDIA Nemotron through Nebius Token Factory.`), links);
 
-  box.replaceChildren(acct, look, share, keys, about);
+  box.replaceChildren(acct, look, share, phone, keys, about);
   if (S.team) hub(withTeam("sessions")).then(d => { if (share.isConnected) share.after(rulesCard(d.me)); }).catch(() => {});
+}
+// Remote control from a phone (remote.py): paired here with a QR code; the phone and this laptop talk end to end
+// encrypted, and the agents keep running here.
+function phonePanel(panel, r) {
+  panel.replaceChildren(el("h3", null, "Phone"));
+  panel.append(switchEl("Use Super Agents from my phone", r.on ? "Paired phones see your chats, send messages, and approve or stop steps. The agents run here; what passes between is end-to-end encrypted."
+    : "Off: no phone can reach this laptop.", r.on, "Remote control from a phone", async () => {
+    try { phonePanel(panel, await api("/api/remote", {method: "PUT", body: {enabled: !r.on}})); } catch (e) { toast(e.message, true); }
+  }));
+  if (!r.on) return;
+  if (!r.ready) panel.append(el("p", "sub", "The server this app uses can't relay to phones yet, so a phone can't reach this laptop."));
+  for (const p of r.phones) {
+    const row = el("div", "phone-row"), words = el("div");
+    words.append(el("b", null, p.name), el("small", null, p.online ? "Online now" : `Paired ${ago(p.paired)}`));
+    row.append(ic("phone"), words, btn("Unpair", "ghost", async () => {
+      try { phonePanel(panel, await api(`/api/remote/phones/${encodeURIComponent(p.id)}`, {method: "DELETE"})); toast(`${p.name} can't reach this laptop now.`); }
+      catch (e) { toast(e.message, true); }
+    }));
+    panel.append(row);
+  }
+  const pair = btn("Pair a phone", "", async () => {
+    try {
+      const q = await api("/api/remote/pair", {method: "POST"});
+      const box = el("div", "pair-qr"), code = el("div", "qr"), words = el("div");
+      code.innerHTML = q.qr;  // an SVG this laptop made from its own link
+      words.append(el("b", null, "Scan this with your phone's camera"),
+        el("p", "sub", "It opens Super Agents Remote on the phone and pairs it. Anyone who scans this code can use your agents, so keep it to yourself. Unused, it expires in 10 minutes."),
+        btn("Copy the link", "ghost", () => navigator.clipboard.writeText(q.url).then(() => toast("Link copied. Open it on your phone."), () => toast("Couldn't copy the link.", true)), "copy"));
+      box.append(code, words); pair.replaceWith(box);
+      const until = Date.now() + 600000;
+      const check = async () => {  // the phone's first hello pairs it
+        if (!box.isConnected || Date.now() > until) return;
+        const r2 = await api("/api/remote").catch(() => null);
+        if (r2 && r2.phones.some(p => p.id === q.id)) { toast("Phone paired."); phonePanel(panel, r2); return; }
+        setTimeout(check, 2000);
+      };
+      setTimeout(check, 2000);
+    } catch (e) { toast(e.message, true); }
+  }, "plus");
+  panel.append(pair);
 }
 
 start();

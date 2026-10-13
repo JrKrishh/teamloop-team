@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>Super Agents Remote</title>
+<meta name="description" content="Your laptop's Super Agents, from your phone. End-to-end encrypted.">
+<meta name="theme-color" content="#111013" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F6F1E8" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Super Agents">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <button type="button" class="icon" id="back" aria-label="Back to chats" hidden><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+  <div class="title"><b id="title">Super Agents</b><small id="status"><i></i><span>Connecting…</span></small></div>
+  <button type="button" class="icon" id="newChat" aria-label="New chat" hidden><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+</header>
+
+<main>
+  <section id="pair" class="pair" hidden>
+    <img src="icon-192.png" alt="" width="72" height="72">
+    <h1>Pair this phone</h1>
+    <ol>
+      <li>Open Super Agents on your laptop.</li>
+      <li>Go to <b>Settings → Phone</b> and press <b>Pair a phone</b>.</li>
+      <li>Scan the code with this phone's camera.</li>
+    </ol>
+    <p class="fine">Your agents keep running on the laptop. Messages between it and this phone are end-to-end encrypted with a key only the two of them have.</p>
+  </section>
+
+  <section id="home" hidden>
+    <div id="live" class="live"></div>
+    <h2 class="label">Chats</h2>
+    <ul id="chats" class="chats"></ul>
+  </section>
+
+  <section id="chat" hidden>
+    <div id="thread" class="thread"></div>
+  </section>
+</main>
+
+<form id="composer" class="composer" hidden>
+  <div class="opts">
+    <select id="agent" aria-label="Agent"></select>
+    <select id="mode" aria-label="Mode">
+      <option value="manual" title="Asks before each change">Manual</option>
+      <option value="auto" title="Makes routine changes itself; commands still ask">Auto</option>
+      <option value="plan" title="Nothing changes until you run the plan">Plan</option>
+    </select>
+  </div>
+  <div class="row">
+    <textarea id="input" rows="1" placeholder="Message your laptop's agents" aria-label="Message"></textarea>
+    <button type="submit" class="send" id="send" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+  </div>
+</form>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
