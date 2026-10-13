@@ -524,10 +524,44 @@ function userMsg(text, files) {
 function agentMsg(a = currentAgent()) {
   const m = el("div", "msg agent"); const body = el("div", "body");
   const who = el("div", "who"); who.append(a.name);
-  const steps = el("div", "steps");
+  // Like Claude Code: the steps (tools, commands, what the agent said along the way) fold into one line you can open;
+  // what waits for you (an approval, a planned change) stays in view below it.
+  const box = el("div", "steps-box collapsed"), head = el("button", "steps-head"), steps = el("div", "steps"), needs = el("div", "needs");
+  head.type = "button"; head.setAttribute("aria-expanded", "false"); box.hidden = true;
+  head.onclick = () => head.setAttribute("aria-expanded", String(!box.classList.toggle("collapsed")));
+  box.append(head, steps);
   const line = el("div", "thinking-line", S.mode === "plan" ? "Planning…" : "Thinking…");
-  body.append(who, steps, line); m.append(agent("thinking", a.color), body); $("thread").append(m); scrollDown();
-  return {m, body, who, line, steps, agent: a};
+  body.append(who, box, needs, line); m.append(agent("thinking", a.color), body); $("thread").append(m); scrollDown();
+  return {m, body, who, line, steps, box, head, needs, agent: a};
+}
+// The folded line says what the steps did, the way Claude Code does: "Read 3 files, ran a command, took 4 browser steps".
+const STEP_SAID = [[/^read_file$/, "read a file", "read # files"], [/^search_files$/, "searched the code", "searched the code # times"],
+  [/^list_files$/, "listed a folder", "listed # folders"], [/^write_file$/, "edited a file", "edited # files"],
+  [/^run_command$/, "ran a command", "ran # commands"], [/^(git_|github_pr$|open_pr$)/, "used git", "took # git steps"],
+  [/^(browser_|fetch_url$|dev_server$)/, "used the browser", "took # browser steps"], [/^desktop_/, "used an app", "took # desktop steps"],
+  [/^(remember|forget|recall)$/, "used memory", "took # memory steps"], [/^(share_|take_share$|team_files$)/, "used team files", "took # sharing steps"],
+  [/^mcp__/, "used a connector", "made # connector calls"], [/^(load_skill|read_skill_file)$/, "used a skill", "took # skill steps"],
+  [/^(create_task|assign_task|close_task|set_deadline|start_task)$/, "changed the board", "made # board changes"],
+  [/./, "looked up the team", "made # team lookups"]];
+function updateHead(st) {
+  const cards = Object.values(st.cards).filter(c => c.box.parentElement === st.steps);  // not the ones waiting for you
+  st.slot.box.hidden = !cards.length && !st.steps.querySelector(".narr");
+  if (st.slot.box.hidden) return;
+  const counts = new Map(); let failed = 0, skipped = 0, now = null;
+  for (const c of cards) {
+    if (["asking", "planned", "discarded", "declined"].includes(c.status)) { skipped++; continue; }  // never ran: not "ran a command"
+    const k = STEP_SAID.find(([re]) => re.test(c.e.name));
+    counts.set(k, (counts.get(k) || 0) + 1);
+    if (c.status === "failed") failed++;
+    if (c.status === "running") now = c;
+  }
+  const said = [...counts].map(([[, one, many], n]) => (n === 1 ? one : many.replace("#", n))).join(", ") || (skipped ? "" : "Notes along the way");
+  const head = st.slot.head;
+  head.replaceChildren(ic("caret"));
+  if (said) head.append(el("span", "sh-said", said[0].toUpperCase() + said.slice(1)));
+  if (skipped) head.append(el("span", "sh-skip", `${skipped} step${skipped === 1 ? "" : "s"} not run`));
+  if (failed) head.append(el("span", "sh-bad", `${failed} failed`));
+  if (now) head.append(el("span", "sh-now", `${toolUi(now.e)[1]} ${now.target ? now.target.textContent : ""}`.trim()));
 }
 function scrollDown(force) {
   const t = $("thread");
@@ -577,11 +611,12 @@ async function follow(st, after) {
 function handleEvent(st, e, past) {
   const s = st.slot;
   if (e.kind === "start") {
-    for (const [cid, msg] of Object.entries(e.mcp_errors || {})) st.steps.append(el("div", "warnline", `${connName(cid)} isn't available: ${msg}`));
+    for (const [cid, msg] of Object.entries(e.mcp_errors || {})) s.body.insertBefore(el("div", "warnline", `${connName(cid)} isn't available: ${msg}`), s.box);
   } else if (e.kind === "thinking") {
     if (!past) { s.line.textContent = st.mode === "plan" ? "Planning…" : "Thinking…"; s.body.append(s.line); }
   } else if (e.kind === "text") {
     st.steps.append(el("div", "narr", e.text));
+    updateHead(st);
   } else if (e.kind === "tool") {
     toolCard(st, e, past);
     if (!past && (e.status === "asking" || e.status === "running")) { s.line.textContent = e.status === "asking" ? "Waiting for you…" : "Working…"; s.body.append(s.line); }
@@ -720,6 +755,10 @@ function setCard(c, status, st, past) {
   c.tst.append(STATUS[status] || status);
   c.box.querySelector(".ask-box")?.remove();
   if (status === "asking" && !past) c.box.append(askBox(c, st));
+  // waiting for the person: in view; anything else: folded into the steps
+  const home = !past && (status === "asking" || status === "planned") ? st.slot.needs : st.steps;
+  if (c.box.parentElement !== home) home.append(c.box);
+  updateHead(st);
 }
 function toggleOut(c) {
   if (!c.result) return;

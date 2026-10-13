@@ -23,7 +23,7 @@ Agent S is built in; add more on **Agents** (a reviewer, a release manager, a re
 Agents live in `~/.teamloop/agents.json`. Agent S's instructions are editable; it can't be deleted.
 
 ## How a turn runs
-The loop runs on this laptop (`runtime/loop.py`), like Claude Code's: the model gets the agent's instructions, its skills and its tools, calls tools, sees the results and answers. Each model step goes through the hub's `POST /v1/llm` (the hub holds the Nebius key; signed-in people only, rate limited), so the app needs no key of its own. The window follows the turn as it happens: tool cards with their state, then the answer in Markdown. Claims about what the team did come from `team_ask`, which answers with cited events (Show evidence).
+The loop runs on this laptop (`runtime/loop.py`), like Claude Code's: the model gets the agent's instructions, its skills and its tools, calls tools, sees the results and answers. Each model step goes through the hub's `POST /v1/llm` (the hub holds the Nebius key; signed-in people only, rate limited), so the app needs no key of its own. The window follows the turn as it happens: the steps (tool cards, commands and what the agent says along the way) fold into one line that says what they did ("Read 3 files, ran a command") and what's running now, and open with a click; anything waiting for you (an approval, a planned change) stays in view. Then the answer in Markdown. Claims about what the team did come from `team_ask`, which answers with cited events (Show evidence).
 
 **Modes** (Shift+Tab cycles them), as in Claude Code:
 - **Manual**: reads run; every change (tasks, file writes, connector actions) waits for Allow or Deny.
