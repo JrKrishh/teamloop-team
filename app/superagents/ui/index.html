@@ -250,15 +250,18 @@
       </section>
       <section class="pane browser" id="pane-browser" hidden>
         <form class="urlbar" id="urlForm">
+          <button type="button" class="icon-btn small" id="brBack" aria-label="Back" title="Back"><span class="ic" data-ic="back"></span></button>
           <button type="button" class="icon-btn small" id="brReload" aria-label="Reload" title="Reload"><span class="ic" data-ic="reload"></span></button>
           <input id="urlIn" placeholder="Enter an address, e.g. localhost:3000" autocomplete="off" spellcheck="false" aria-label="Address">
           <button type="button" class="icon-btn small" id="brPop" aria-label="Open in its own window" title="Open in its own window"><span class="ic" data-ic="external"></span></button>
         </form>
-        <div class="frame-wrap">
-          <iframe id="frame" title="Browser" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" referrerpolicy="no-referrer" hidden></iframe>
+        <div class="bview" id="live" tabindex="0" aria-label="The browser you share with your agents; click and type to use it">
+          <img id="liveImg" alt="" draggable="false" hidden>
+          <span class="live-ring" id="liveRing" hidden></span>
+          <div class="live-badge" id="liveBadge" hidden></div>
           <div class="frame-empty" id="frameEmpty"></div>
         </div>
-        <div class="frame-note">Some sites refuse to show inside another app. <button type="button" class="link-btn" id="brPop2">Open in its own window</button> always works.</div>
+        <div class="frame-note" id="liveNote">You and your agents share this browser: click and type in it to use it yourself.</div>
       </section>
     </aside>
     </div>

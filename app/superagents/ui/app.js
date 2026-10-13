@@ -73,6 +73,7 @@ const ICONS = {
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
   gauge: '<path d="M4.2 16.5a8 8 0 1 1 15.6 0"/><path d="m12 16.5 3.6-4.6"/><circle cx="12" cy="16.5" r="1.2"/>',
   sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>',
+  back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   branch: '<circle cx="7" cy="5.5" r="2.2"/><circle cx="7" cy="18.5" r="2.2"/><circle cx="17" cy="8" r="2.2"/><path d="M7 7.7v8.6M17 10.2c0 4.3-6.5 3.2-9.3 6.4"/>',
   prefs: '<path d="M4 7.5h9M18 7.5h2M4 16.5h3M12 16.5h8"/><circle cx="15.5" cy="7.5" r="2.3"/><circle cx="9.5" cy="16.5" r="2.3"/>',
   expand: '<path d="M14.5 4.5h5v5M9.5 19.5h-5v-5M19.5 4.5 13.5 10.5M4.5 19.5l6-6"/>',
@@ -584,7 +585,7 @@ function handleEvent(st, e, past) {
     toolCard(st, e, past);
     if (!past && (e.status === "asking" || e.status === "running")) { s.line.textContent = e.status === "asking" ? "Waiting for you…" : "Working…"; s.body.append(s.line); }
   } else if (e.kind === "browser") {
-    if (!past) openBrowser(e.url);
+    if (!past && SIDE.pane !== "browser") openPane("browser");  // the person watches the agent use it
   } else if (e.kind === "answer") {
     finishAnswer(st, e.text, `${shortModel(e.model)} · ${MODES[st.mode].label}${spentLine(e.usage)}`);
   } else if (e.kind === "error") {
@@ -636,7 +637,19 @@ const TOOL_UI = {
   open_pr: ["github", "Pull request", a => a.title],
   git_pull: ["reload", "Pull", a => a.repo || ""],
   fetch_url: ["globe", "Read page", a => a.url],
-  open_in_browser: ["globe", "Open", a => a.url],
+  browser_open: ["globe", "Open", a => a.url],
+  browser_snapshot: ["globe", "Read the page", a => (a.find ? `“${a.find}”` : "")],
+  browser_click: ["globe", "Click", a => a.ref + (a.double ? " twice" : "")],
+  browser_type: ["edit", "Type", a => `“${(a.text || "").slice(0, 40)}” into ${a.ref}${a.submit ? " and submit" : ""}`],
+  browser_select: ["globe", "Choose", a => `${a.option} in ${a.ref}`],
+  browser_press: ["globe", "Press", a => a.key],
+  browser_scroll: ["globe", "Scroll", a => a.ref || a.direction || "down"],
+  browser_wait: ["globe", "Wait for", a => a.text || `${a.seconds || 5} s`],
+  browser_screenshot: ["globe", "Screenshot", () => ""],
+  browser_console: ["term", "Read the console", () => ""],
+  browser_eval: ["term", "Run in the page", a => (a.code || "").slice(0, 60)],
+  browser_batch: ["list", "Steps", a => `${(a.steps || []).length} in one go`],
+  dev_server: ["play", "Dev server", a => `${a.action || "start"}${a.repo ? ` · ${a.repo}` : ""}`],
   load_skill: ["book", "Use skill", a => a.name],
   read_skill_file: ["book", "Read skill file", a => `${a.name}/${a.file}`],
 };
@@ -659,7 +672,7 @@ function toolCard(st, e, past) {
     const what = describe(e.args || {}) || "";
     let target;
     if (["read_file", "write_file"].includes(e.name) && what) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openFile(what); }; }
-    else if (["fetch_url", "open_in_browser"].includes(e.name) && what) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openBrowser(what); }; }
+    else if (["fetch_url", "browser_open"].includes(e.name) && /^https?:/.test(what)) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openBrowser(what); }; }
     else target = el("span", "targ", what);
     const tst = el("button", "tst"); tst.type = "button"; tst.setAttribute("aria-expanded", "false");
     row.append(tic, el("b", null, label), target, tst);
@@ -671,6 +684,12 @@ function toolCard(st, e, past) {
   c.e = {...c.e, ...e};
   setCard(c, e.status, st, past);
   if (e.result != null) { c.result = e.result; if (c.out) c.out.textContent = e.result; }
+  const shot = e.name === "browser_screenshot" && /\[screenshot (sh_[0-9a-f]{10})\]/.exec(c.result || "");
+  if (shot && !c.img) {  // the proof, in the chat: the person sees what the agent checked
+    c.img = el("img", "tshot"); c.img.alt = "Screenshot of the page"; c.box.append(c.img);
+    fetch(`/api/browser/shot/${shot[1]}`, {headers: {"X-App-Key": KEY}}).then(r => (r.ok ? r.blob() : null))
+      .then(b => { if (b) c.img.src = URL.createObjectURL(b); else c.img.remove(); }).catch(() => c.img.remove());
+  }
   if (e.status === "done" && e.name === "team_ask") for (const id of e.citations || []) st.cited.add(id);
   if (e.status === "done" && !past) undoable(c, st);
   if (e.status === "done" && !past && e.name === "write_file" && FILES.current === (e.args || {}).path) openFile(FILES.current);
@@ -699,6 +718,10 @@ function askBox(c, st) {
   else if (e.name === "git_push") box.append(el("p", null, `${who} wants to push the current branch${a.repo ? ` of ${a.repo}` : ""} to GitHub, with your sign-in. Your team will see it there.`));
   else if (e.name === "open_pr") box.append(el("p", null, `${who} wants to open a pull request${a.base ? ` into ${a.base}` : ""}:`), el("pre", null, `${a.title || ""}\n\n${a.body || ""}`));
   else if ((e.group || "").startsWith("mcp:")) box.append(el("p", null, `${who} wants to use ${toolUi(e)[1]} with:`), el("pre", null, JSON.stringify(a, null, 2)));
+  else if (e.name === "browser_open") box.append(el("p", null, `${who} wants to open ${a.url} in the browser you share.`));
+  else if (e.name === "browser_eval") box.append(el("p", null, `${who} wants to run this in the page:`), el("pre", null, a.code || ""));
+  else if (e.name === "dev_server") box.append(el("p", null, `${who} wants to ${a.action === "stop" ? "stop" : "start"} the dev server of ${a.repo || "your repo"} (its launch.json or dev script).`));
+  else if (e.name.startsWith("browser_")) box.append(el("p", null, `${who} wants to ${toolUi(e)[1].toLowerCase()} ${toolUi(e)[2](a) || ""} on ${BR.state.url || "this page"}.`));
   else box.append(el("p", null, `${who} wants to make this change.`));
   const row = el("div", "row gap");
   const no = el("button", "btn small ghost", "Deny"), yes = el("button", "btn small primary", e.name === "run_command" ? "Run it" : "Allow");
@@ -709,7 +732,20 @@ function askBox(c, st) {
     catch (err) { toast(err.message, true); no.disabled = yes.disabled = false; }
   };
   no.onclick = () => decide(false); yes.onclick = () => decide(true);
-  row.append(no, yes); box.append(row);
+  // a site agents haven't been allowed on: once, or always (Settings → Privacy lists the sites)
+  let site = "";
+  if (e.access === "ask" && e.name.startsWith("browser_") && e.name !== "browser_eval") {
+    try { site = new URL(/^https?:/.test(a.url || "") ? a.url : BR.state.url).hostname; } catch (err) { site = ""; }
+  }
+  if (site) {
+    const always = el("button", "btn small", `Always allow ${site}`); always.type = "button";
+    always.onclick = async () => {
+      try { await api("/api/browser/sites", {method: "POST", body: {site, allowed: true}}); } catch (err) { toast(err.message, true); return; }
+      decide(true);
+    };
+    yes.textContent = "Allow once"; row.append(no, always, yes);
+  } else row.append(no, yes);
+  box.append(row);
   return box;
 }
 // Undo for the board changes that can be put back exactly.
@@ -1347,10 +1383,10 @@ function openPane(name) {
   for (const p of ["files", "terminal", "browser"]) $(`pane-${p}`).hidden = p !== name;
   if (name === "files") loadTree();
   if (name === "terminal") { if (!TERMS.list.length) newTerminal(); else showTerm(TERMS.active || TERMS.list[0]); }
-  if (name === "browser" && !BR.url) browserEmpty();
+  if (name === "browser") { if (!BR.state.url || BR.state.url === "about:blank") browserEmpty(); liveConnect(); } else liveDisconnect();
 }
 function closePane() {
-  $("side").hidden = true; SIDE.pane = null; setSideWide(false);
+  $("side").hidden = true; SIDE.pane = null; setSideWide(false); liveDisconnect();
   for (const b of document.querySelectorAll("[data-pane]")) b.classList.remove("on");
 }
 function togglePane(name) { if (SIDE.pane === name) closePane(); else openPane(name); }
@@ -1540,8 +1576,9 @@ function renderTermTabs() {
   add.onclick = newTerminal; bar.append(add);
 }
 
-// Browser: pages in a frame (dev servers, docs, what an agent opens); "open in its own window" for sites that refuse frames.
-const BR = {url: ""};
+// Browser: the browser you share with your agents (a real Edge, run by this laptop), live: what an agent does shows here,
+// and clicks, scrolling and typing here go to it. "Open in its own window" shows a page in a plain Super Agents window.
+const BR = {ws: null, state: {}, frameUrl: null, sizeTimer: null, retry: null};
 function normalizeUrl(raw) {
   let u = (raw || "").trim(); if (!u) return "";
   if (!/^https?:\/\//i.test(u)) u = (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(u) ? "http://" : "https://") + u;
@@ -1550,25 +1587,83 @@ function normalizeUrl(raw) {
     return ["127.0.0.1", "localhost", "[::1]"].includes(x.hostname) && x.port === location.port ? "" : x.href;
   } catch (e) { return ""; }
 }
-function openBrowser(raw) {
+async function openBrowser(raw) {
   const u = normalizeUrl(raw);
   if (!u) return toast("That address can't open here.", true);
   if (SIDE.pane !== "browser") openPane("browser");
-  BR.url = u; $("urlIn").value = u; $("frameEmpty").hidden = true;
-  const f = $("frame"); f.hidden = false; f.src = u;
+  $("urlIn").value = u; liveNote("Opening…");
+  try { await api("/api/browser/open", {method: "POST", body: {url: u}}); liveNote(""); } catch (e) { liveNote(e.message, true); }
 }
+function liveNote(text, bad) { const n = $("liveNote"); n.textContent = text || "You and your agents share this browser: click and type in it to use it yourself."; n.classList.toggle("bad", !!bad); }
 function browserEmpty() {
   const e = $("frameEmpty");
-  e.replaceChildren(agent("", currentAgent().color), el("b", null, "A browser for your work"),
-    el("span", "sub", "Preview your dev server, read docs, or follow a page an agent opens."));
+  e.replaceChildren(agent("", currentAgent().color), el("b", null, "The browser you share with your agents"),
+    el("span", "sub", "Preview your dev server or read docs; when an agent checks a page, you watch it here and can take over."));
   const row = el("div", "row gap");
   for (const port of [3000, 5173, 8000]) { const b = el("button", "chip-btn", `localhost:${port}`); b.type = "button"; b.onclick = () => openBrowser(`http://localhost:${port}`); row.append(b); }
-  e.append(row); e.hidden = false; $("frame").hidden = true;
+  e.append(row); e.hidden = false; $("liveImg").hidden = true;
 }
+function liveSend(msg) { if (BR.ws && BR.ws.readyState === 1) BR.ws.send(JSON.stringify(msg)); }
+function liveSize() {
+  clearTimeout(BR.sizeTimer);
+  BR.sizeTimer = setTimeout(() => { const b = $("live"); if (b.clientWidth) liveSend({type: "size", w: b.clientWidth, h: b.clientHeight}); }, 200);
+}
+function liveConnect() {
+  if (BR.ws) return;
+  clearTimeout(BR.retry);
+  const ws = BR.ws = new WebSocket(`ws://${location.host}/api/browser/live?k=${encodeURIComponent(KEY)}`);
+  ws.binaryType = "blob";
+  liveNote("Starting the browser…");
+  ws.onopen = () => { liveNote(""); liveSize(); };
+  ws.onmessage = ev => {
+    if (ev.data instanceof Blob) {
+      const url = URL.createObjectURL(ev.data), img = $("liveImg");
+      img.onload = () => { if (BR.frameUrl) URL.revokeObjectURL(BR.frameUrl); BR.frameUrl = url; };
+      img.src = url;
+      if (BR.state.url && BR.state.url !== "about:blank") { img.hidden = false; $("frameEmpty").hidden = true; }
+      return;
+    }
+    const st = JSON.parse(ev.data);
+    if (st.error) { liveNote(st.error, true); return; }
+    BR.state = st;
+    if (document.activeElement !== $("urlIn")) $("urlIn").value = st.url && st.url !== "about:blank" ? st.url : "";
+    if (!st.url || st.url === "about:blank") browserEmpty();
+    const badge = $("liveBadge"); badge.hidden = !st.driving; badge.textContent = st.driving ? `${st.driving} is using the browser` : "";
+    const p = st.pointer, img = $("liveImg");
+    if (p && Date.now() / 1000 - p[2] < 1.5 && img.naturalWidth) {
+      const r = img.getBoundingClientRect(), box = $("live").getBoundingClientRect(), ring = $("liveRing");
+      ring.style.left = `${r.left - box.left + p[0] * r.width / img.naturalWidth}px`; ring.style.top = `${r.top - box.top + p[1] * r.height / img.naturalHeight}px`;
+      ring.hidden = false; ring.classList.remove("go"); void ring.offsetWidth; ring.classList.add("go");
+    }
+  };
+  ws.onclose = () => { BR.ws = null; if (SIDE.pane === "browser") BR.retry = setTimeout(liveConnect, 2000); };
+}
+function liveDisconnect() { clearTimeout(BR.retry); if (BR.ws) { const ws = BR.ws; BR.ws = null; ws.onclose = null; ws.close(); } }
+(() => {  // the person's own use of the shared browser: clicks, scrolling, typing and paste go through
+  const live = $("live"), img = $("liveImg");
+  const at = e => { const r = img.getBoundingClientRect(); return {x: Math.round((e.clientX - r.left) * img.naturalWidth / r.width), y: Math.round((e.clientY - r.top) * img.naturalHeight / r.height)}; };
+  const on = () => !img.hidden && img.naturalWidth;
+  live.addEventListener("click", e => { live.focus(); if (on() && e.target === img) liveSend({type: "click", ...at(e)}); });
+  live.addEventListener("dblclick", e => { if (on() && e.target === img) liveSend({type: "click", ...at(e), count: 2}); });
+  live.addEventListener("contextmenu", e => { if (on() && e.target === img) { e.preventDefault(); liveSend({type: "click", ...at(e), button: 2}); } });
+  live.addEventListener("wheel", e => { if (on()) { e.preventDefault(); liveSend({type: "wheel", dx: e.deltaX, dy: e.deltaY}); } }, {passive: false});
+  let movedAt = 0;
+  live.addEventListener("mousemove", e => { if (on() && e.target === img && Date.now() - movedAt > 90) { movedAt = Date.now(); liveSend({type: "move", ...at(e)}); } });
+  live.addEventListener("keydown", e => {
+    if (!on() || (e.ctrlKey && e.key.toLowerCase() === "v")) return;  // paste comes as a paste event
+    if (e.ctrlKey && (e.key === "`" || e.key.toLowerCase() === "b")) return;  // the app's own shortcuts
+    e.preventDefault();
+    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) liveSend({type: "text", text: e.key});
+    else if (!["Control", "Shift", "Alt", "Meta"].includes(e.key)) liveSend({type: "key", key: [e.ctrlKey && "Control", e.altKey && "Alt", e.metaKey && "Meta", e.shiftKey && e.key.length > 1 && "Shift", e.key === " " ? "Space" : e.key].filter(Boolean).join("+")});
+  });
+  live.addEventListener("paste", e => { const t = (e.clipboardData || {}).getData ? e.clipboardData.getData("text") : ""; if (on() && t) { e.preventDefault(); liveSend({type: "text", text: t}); } });
+  new ResizeObserver(liveSize).observe(live);
+})();
 $("urlForm").addEventListener("submit", e => { e.preventDefault(); openBrowser($("urlIn").value); });
-$("brReload").onclick = () => { if (BR.url) { const f = $("frame"); f.src = "about:blank"; setTimeout(() => { f.src = BR.url; }, 40); } };
-const popOut = () => { const u = normalizeUrl($("urlIn").value) || BR.url; if (u) api("/api/browser/window", {method: "POST", body: {url: u}}).catch(e => toast(e.message, true)); };
-$("brPop").onclick = popOut; $("brPop2").onclick = popOut;
+$("brBack").onclick = () => liveSend({type: "nav", to: "back"});
+$("brReload").onclick = () => liveSend({type: "nav", to: "reload"});
+const popOut = () => { const u = normalizeUrl($("urlIn").value); if (u) api("/api/browser/window", {method: "POST", body: {url: u}}).catch(e => toast(e.message, true)); };
+$("brPop").onclick = popOut;
 
 // ---- team: people and usage ------------------------------------------------------------------------------
 let teamTab = "people";
@@ -2043,6 +2138,12 @@ function renderSettings() {
       await api("/api/memory/settings", {method: "PUT", body: {sessions: !m.settings.sessions}}).catch(e => toast(e.message, true));
       renderSettings();
     }))).catch(() => {});
+  api("/api/browser/state").then(b => {
+    if (!b.sites.length) return;
+    const list = el("div", "row gap"); list.style.flexWrap = "wrap";
+    for (const s of b.sites) list.append(btn(`${s} ✕`, "ghost", async () => { await api("/api/browser/sites", {method: "POST", body: {site: s, allowed: false}}).catch(e => toast(e.message, true)); renderSettings(); }));
+    share.append(groupBox("Sites agents use in the browser without asking (localhost always)", list));
+  }).catch(() => {});
 
   const keys = el("section", "panel"), dl = el("dl", "keys");
   for (const [what, combo] of SHORTCUTS) {
