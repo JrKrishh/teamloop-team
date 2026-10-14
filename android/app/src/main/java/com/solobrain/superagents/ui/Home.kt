@@ -65,10 +65,20 @@ import com.solobrain.superagents.remote.LiveTurn
 import com.solobrain.superagents.remote.Accounts
 import com.solobrain.superagents.remote.Auth
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.animation.Crossfade
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+
+private val THEMES = listOf("system" to "System", "light" to "Light", "dark" to "Dark")
 
 enum class Tab(val title: String, val icon: ImageVector) { Needs("Needs you", Glyph.Inbox), Chats("Chats", Glyph.Chat), Board("Board", Glyph.Board) }
 
@@ -96,6 +106,11 @@ fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOp
                 Column(Modifier.weight(1f)) {
                     Text(if (tab == Tab.Board) board?.room ?: "Board" else tab.title, style = MaterialTheme.typography.headlineSmall)
                     Status(link, laptop)
+                }
+                val dark = p.bg.luminance() < 0.5f
+                IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ToggleOn); activity.useTheme(if (dark) "light" else "dark") },
+                    modifier = Modifier.testTag("theme")) {
+                    Crossfade(dark, label = "theme") { d -> Icon(if (d) Glyph.Sun else Glyph.Moon, if (d) "Light theme" else "Dark theme", tint = p.muted) }
                 }
                 IconButton(onClick = { settings = true }, modifier = Modifier.testTag("settings")) { Icon(Glyph.Gear, "Settings", tint = p.muted) }
             }
@@ -132,7 +147,8 @@ fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOp
         }
     }
 
-    if (settings) ModalBottomSheet(onDismissRequest = { settings = false }, containerColor = p.bg2) {
+    if (settings) ModalBottomSheet(onDismissRequest = { settings = false }, containerColor = p.bg2,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {  // all of it, the theme included
         Settings(activity, laptop, link, onForget = { settings = false; LinkService.stop(ctx); r.forget(); onForgotten() },
             onSignIn = { settings = false; onSignIn() })
     }
@@ -154,7 +170,7 @@ fun Status(link: Link, laptop: Laptop?) {
     }
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun Settings(activity: MainActivity, laptop: Laptop?, link: Link, onForget: () -> Unit, onSignIn: () -> Unit) {
     val p = LocalPalette.current
@@ -164,7 +180,8 @@ private fun Settings(activity: MainActivity, laptop: Laptop?, link: Link, onForg
     var stay by remember { mutableStateOf(Prefs.stay(ctx)) }
     var sure by remember { mutableStateOf(false) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> notify = granted; Prefs.setNotify(ctx, granted) }
-    Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.padding(horizontal = 20.dp).padding(bottom = 28.dp)) {  // a sheet: its own window
+    Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.verticalScroll(rememberScrollState())
+        .padding(horizontal = 20.dp).padding(bottom = 28.dp)) {  // a sheet: its own window
         Text("Settings", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(14.dp))
         AccountRow(onSignIn)
@@ -176,6 +193,14 @@ private fun Settings(activity: MainActivity, laptop: Laptop?, link: Link, onForg
             Column(Modifier.weight(1f)) {
                 Text(laptop?.name ?: "Your laptop", style = MaterialTheme.typography.titleMedium)
                 Status(link, laptop)
+            }
+        }
+        Text("Theme", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
+        val theme by activity.theme.collectAsState()
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
+            THEMES.forEachIndexed { i, (k, name) ->
+                SegmentedButton(selected = theme == k, onClick = { activity.useTheme(k) }, shape = SegmentedButtonDefaults.itemShape(i, THEMES.size),
+                    modifier = Modifier.testTag("theme-$k"), label = { Text(name) })
             }
         }
         Spacer(Modifier.height(8.dp))

@@ -26,6 +26,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,6 +71,7 @@ class MainActivity : FragmentActivity() {
     private val incoming = MutableStateFlow<Intent?>(null)
     val lockNow = MutableStateFlow(false)
     val splashGone = MutableStateFlow(false)
+    val theme = MutableStateFlow("system")  // "system", "light" or "dark": the top bar's button and Settings change it
     private var awayAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,7 +82,22 @@ class MainActivity : FragmentActivity() {
         }
         enableEdgeToEdge()
         incoming.value = intent
-        setContent { SuperAgentsTheme { Root(this, incoming) } }
+        theme.value = Prefs.theme(this)
+        setContent {
+            val t by theme.collectAsState()
+            val dark = when (t) { "light" -> false; "dark" -> true; else -> isSystemInDarkTheme() }
+            LaunchedEffect(dark) {  // the status bar's icons follow the app's theme, not only the phone's
+                val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(bars, bars)
+            }
+            SuperAgentsTheme(dark) { Root(this, incoming) }
+        }
+    }
+
+    fun useTheme(t: String) {
+        Prefs.setTheme(this, t)
+        theme.value = t
     }
 
     override fun onNewIntent(intent: Intent) {

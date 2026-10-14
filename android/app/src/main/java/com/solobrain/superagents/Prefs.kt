@@ -14,6 +14,9 @@ object Prefs {
     fun setStay(ctx: Context, on: Boolean) = p(ctx).edit().putBoolean("stay", on).apply()
     fun introSeen(ctx: Context) = p(ctx).getBoolean("intro", false)
     fun setIntroSeen(ctx: Context) = p(ctx).edit().putBoolean("intro", true).apply()
+    /** "system" (follow the phone), "light" or "dark". */
+    fun theme(ctx: Context) = p(ctx).getString("theme", "system") ?: "system"
+    fun setTheme(ctx: Context, theme: String) = p(ctx).edit().putString("theme", theme).apply()
     fun signInSkipped(ctx: Context) = p(ctx).getBoolean("skip_sign_in", false)
     fun setSignInSkipped(ctx: Context) = p(ctx).edit().putBoolean("skip_sign_in", true).apply()
 }

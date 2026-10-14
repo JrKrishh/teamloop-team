@@ -54,8 +54,7 @@ val Bricolage = FontFamily(listOf(500, 600, 700, 800).map { variable(R.font.bric
 val Mono = FontFamily(listOf(400, 500, 600, 700).map { variable(R.font.jetbrains_mono, it) })
 
 @Composable
-fun SuperAgentsTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+fun SuperAgentsTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val p = if (dark) Dark else Light
     val scheme = if (dark) darkColorScheme(
         primary = p.brick, onPrimary = p.onBrick, background = p.bg, onBackground = p.text, surface = p.bg, onSurface = p.text,

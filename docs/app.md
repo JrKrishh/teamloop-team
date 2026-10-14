@@ -109,6 +109,7 @@ Your agents keep running on the laptop; the phone drives them, like Claude Code'
 - **Board:** the team's tasks, active first, with Agent S's estimate next to what the coding agent claims and what blocks each one. Tap a task to ask Agent S about it.
 - **The Android app adds:**
   - **sign-in** with the desktop's account: GitHub (in a browser tab that comes back to the app; Supabase must allow `superagents://auth/callback`) or email; a new email account's confirmation link comes back to the app the same way (PKCE), so open it on the phone. A new phone is offered it first and can skip it: the pairing code is what connects a phone. The session token is sealed with a key in Android Keystore. The laptop shows who each phone is signed in as.
+  - **a theme switch:** the sun or moon beside Settings flips light and dark; Settings → Theme also has System (the default), which follows the phone. The status bar's icons follow the app's theme;
   - **model and effort** in a chat's "Who, and how" sheet, starting from what the desktop is set to; picking an agent applies its default model;
   - **questions in the background:** each one arrives as a notification with **Deny** and **Run it** (or **Approve**) on it, so you answer without opening the app. Run it asks for the phone to be unlocked, and the lock screen shows only "Agent S needs you". An answer posts "Agent S answered".
   - a quiet "Connected to …'s laptop" notification while it holds the line; Settings → Stay connected in the background turns that off;
