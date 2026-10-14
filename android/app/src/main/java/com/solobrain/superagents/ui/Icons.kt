@@ -19,6 +19,7 @@ object Glyph {
     val Chat = line("chat", "M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 3v-3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z")
     val Board = line("board", "M5 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z", "M15 4h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z")
     val Gear = line("gear", "M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z", "M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1")
+    val Folder = line("folder", "M3.5 7.5A1.5 1.5 0 0 1 5 6h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z")
     val Back = line("back", "M15 6l-6 6 6 6")
     val Up = line("up", "M12 19V5M6 11l6-6 6 6")
     val Stop = line("stop", "M7 7h10v10H7z")

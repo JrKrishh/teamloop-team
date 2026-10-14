@@ -6,7 +6,7 @@ import org.json.JSONObject
 /** What the laptop tells the phone, as Kotlin. Parsed from the same messages the web app reads. */
 data class Agent(val id: String, val name: String, val color: String?, val mode: String?)
 
-data class ChatItem(val id: String, val title: String, val agent: String?, val updated: Double)
+data class ChatItem(val id: String, val title: String, val agent: String?, val updated: Double, val project: String? = null)
 
 data class Step(val id: String, val name: String, val args: JSONObject)
 
@@ -43,7 +43,7 @@ fun parseLive(a: JSONArray?): List<LiveTurn> = a.objects().map {
 fun parseLaptop(o: JSONObject) = Laptop(
     host = o.optString("laptop"), user = o.text("user"),
     agents = o.optJSONArray("agents").objects().map { Agent(it.optString("id"), it.optString("name"), it.text("color"), it.text("mode")) },
-    chats = o.optJSONArray("chats").objects().map { ChatItem(it.optString("id"), it.optString("title"), it.text("agent"), it.optDouble("updated", 0.0)) },
+    chats = o.optJSONArray("chats").objects().map { ChatItem(it.optString("id"), it.optString("title"), it.text("agent"), it.optDouble("updated", 0.0), it.text("project")) },
     live = parseLive(o.optJSONArray("live")),
 )
 

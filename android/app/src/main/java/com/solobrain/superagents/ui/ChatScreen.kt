@@ -322,9 +322,9 @@ private fun AgentBlock(b: Block, name: String, color: String?, model: ChatModel)
         for (c in waiting) ToolCard(c, b, open = true, onDecide = { ok ->
             scope.launch { runCatching { r.decide(b.turn ?: return@launch, c.id, ok) }.onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } }
         })
-        b.line?.let { Row(verticalAlignment = Alignment.CenterVertically) { Mascot(size = 26.dp, mood = Mood.Think); Spacer(Modifier.width(8.dp)); Text(it, color = p.muted) } }
+        b.line?.let { WorkingLine(b, it) }
         b.answer?.let { Markdown(it) }
-        b.failed?.let { Text(it, color = p.bad) }
+        b.failed?.let { Row { Mascot(size = 30.dp, mood = Mood.Oops); Spacer(Modifier.width(10.dp)); Text(it, color = p.bad) } }
         if (b.planned > 0 && !b.planDone && model.running != b.turn) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, p.plan, RoundedCornerShape(14.dp))
             .background(p.panel).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${b.planned} change${if (b.planned > 1) "s" else ""} planned. Nothing has changed yet.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -333,6 +333,27 @@ private fun AgentBlock(b: Block, name: String, color: String?, model: ChatModel)
             Button(onClick = { b.planDone = true; model.running = b.turn; scope.launch { runCatching { r.runPlan(b.turn ?: return@launch) } } },
                 colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text("Run plan") }
         }
+    }
+}
+
+/** What the agent is doing now: the mascot acts out the step and the line names it. A quick step (reading a file takes
+ *  milliseconds) stays up a moment, long enough to be seen. */
+@Composable
+private fun WorkingLine(b: Block, line: String) {
+    val p = LocalPalette.current
+    val latest = b.order.lastOrNull()?.let { b.cards[it] }
+    var shown by remember(b) { mutableStateOf<Card?>(null) }
+    LaunchedEffect(latest?.id, latest?.status) {
+        if (latest != null && (latest.status == "running" || latest.status == "asking")) shown = latest
+        else if (shown != null) { delay(1600); shown = null }
+    }
+    val step = shown
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Mascot(size = 40.dp, mood = when { step == null -> Mood.Think; step.status == "asking" -> Mood.Ask; else -> moodFor(step.name) })
+        Spacer(Modifier.width(10.dp))
+        if (step != null && step.status != "asking") Text(Labels.of(step.name, step.args).let { (v, w) -> "$v $w".trim() }, color = p.muted,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono))
+        else Text(line, color = p.muted)
     }
 }
 

@@ -12,10 +12,12 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from teamloop import spool
 
+from .. import store
 from . import agents as agent_store
 from . import memory
 from . import skills as skill_store
@@ -53,8 +55,8 @@ PLAN_CHECK = ("Queued so far: {queued}. Queue every step of your plan that isn't
 REMEMBER_ASK = re.compile(r"(?:^|[.!\n]\s*)(?:please\s+)?(?:remember|don['’]t forget|do not forget)\b(?![^.!?\n]*\?)", re.I)
 REMEMBER_NUDGE = ("You haven't saved that yet. Call remember now with each fact the person asked you to keep (never a "
                   "secret), then reply with just: Saved.")
-# Citation marks some models leave in answers: 【{"cursor": 0, "loc": 0}】, 【3†source】.
-CITE_MARK = re.compile(r"\s?【(?:\{[^】]*\}|\d+†[^】]*)】")
+# Citation marks some models leave in answers: 【{"cursor": 0, "loc": 0}】, 【3†source】, 【38aaba8cab3c470287a8571e7d5b25f7】.
+CITE_MARK = re.compile(r"\s?【(?:\{[^】]*\}|\d+†[^】]*|[0-9a-f]{8,64})】")
 # Like Claude Code's auto-verify: a turn that changed UI files and never looked at them in the browser is asked once to.
 UI_FILE = re.compile(r"\.(html?|css|scss|less|[cm]?jsx?|tsx?|vue|svelte|astro)$", re.I)
 VERIFY_NUDGE = ("You changed {files}. Before you finish, check it in the browser: start the dev server if it isn't running "
@@ -81,14 +83,32 @@ def save_chat(chat: dict) -> None:
 def list_chats(limit: int = 40) -> list[dict]:
     if not chats_dir().is_dir():
         return []
+    repos = {Path(r).name: Path(r).as_posix().rstrip("/").lower() for r in store.repos()}
     out = []
     for f in sorted(chats_dir().glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
         try:
             c = json.loads(f.read_text(encoding="utf-8"))
-            out.append({"id": c["id"], "title": c.get("title", ""), "agent": c.get("agent"), "updated": c.get("updated", 0)})
+            out.append({"id": c["id"], "title": c.get("title", ""), "agent": c.get("agent"), "updated": c.get("updated", 0),
+                        "project": chat_project(c, repos)})
         except (OSError, ValueError, KeyError):
             continue
     return out
+
+
+def chat_project(chat: dict, repos: dict[str, str]) -> str | None:
+    """The connected repo a chat worked in most, from its tools' paths ('acme-web/src/app.ts', a cwd of 'acme-web', or
+    an absolute path inside the repo); None when it touched no repo."""
+    seen: dict[str, int] = {}
+    for v in chat.get("view", []):
+        for e in v.get("events", []):
+            for key in ("path", "cwd"):
+                p = str((e.get("args") or {}).get(key) or "").replace("\\", "/").strip()
+                name = p.strip("/").split("/")[0] if p else ""
+                if p and name not in repos:
+                    name = next((n for n, root in repos.items() if p.lower() == root or p.lower().startswith(root + "/")), "")
+                if name:
+                    seen[name] = seen.get(name, 0) + 1
+    return max(seen, key=seen.get) if seen else None
 
 
 @dataclass

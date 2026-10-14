@@ -76,7 +76,7 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
         items(working, key = { it.turn }) { t ->
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.panel).border(1.dp, p.line, RoundedCornerShape(16.dp))
                 .clickable { onChat(ChatOpen(t.chat, t)) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Mascot(size = 34.dp, mood = Mood.Think)
+                Mascot(size = 36.dp, mood = moodFor(t.now?.name))  // acts out the step it's on
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(laptop.agent(t.agent).name, style = MaterialTheme.typography.titleMedium)
@@ -87,7 +87,7 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
         }
         if (live.isEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Mascot(size = 96.dp, mood = if (link == Link.Online) Mood.Idle else Mood.Sleep)
+                Mascot(size = 96.dp, mood = if (link == Link.Online) Mood.Idle else Mood.Sleep, interactive = true)
                 Spacer(Modifier.height(18.dp))
                 Text("Nothing needs you", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(6.dp))
@@ -171,7 +171,7 @@ private fun AskCard(t: LiveTurn, agent: String, color: String?, onOpen: () -> Un
                 Spacer(Modifier.weight(1f))
                 Text("is waiting for you", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.width(6.dp))
-                Mascot(size = 28.dp, mood = Mood.Hop)  // hops as the question arrives
+                Mascot(size = 28.dp, mood = Mood.Ask)  // hops in as the question arrives, eyes on you
             }
             Spacer(Modifier.height(8.dp))
             Text("$verb $what".trim(), style = MaterialTheme.typography.titleLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)

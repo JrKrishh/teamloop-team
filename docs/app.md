@@ -102,15 +102,15 @@ Your agents keep running on the laptop; the phone drives them, like Claude Code'
   - below them, what each agent is working on now;
   - a question from a turn started at the desk arrives within seconds, so you can walk away and answer from your pocket.
 - **Chats:**
-  - search, a few one-tap questions ("What's blocked right now?"), and your chats by day;
-  - in a chat: start or continue one with any agent and mode (one tap picks both); watch a turn live with its steps folded as on the laptop; approve or deny; run or discard a plan; stop a turn.
+  - search, a few one-tap questions ("What's blocked right now?"), and your chats: in the Android app the latest three, then a folder per project (the repo the agent worked in, General for the rest), each opening in place; in the web app, by day;
+  - in a chat: start or continue one with any agent and mode (one tap picks both); watch a turn live with its steps folded as on the laptop; approve or deny; run or discard a plan; stop a turn. Answers show as on Claude: tables (sideways scrolling when wide), headings, lists, quotes, and code blocks with a Copy button.
 - **Board:** the team's tasks, active first, with Agent S's estimate next to what the coding agent claims and what blocks each one. Tap a task to ask Agent S about it.
 - **The Android app adds:**
   - **questions in the background:** each one arrives as a notification with **Deny** and **Run it** (or **Approve**) on it, so you answer without opening the app. Run it asks for the phone to be unlocked, and the lock screen shows only "Agent S needs you". An answer posts "Agent S answered".
   - a quiet "Connected to …'s laptop" notification while it holds the line; Settings → Stay connected in the background turns that off;
   - a QR scanner for pairing (Google's code scanner, so no camera permission);
   - a fingerprint or face lock (on opening, and after a minute away);
-  - the mascot: it drops in at startup, waves on Connect, celebrates a pairing, hops when a question arrives, thinks while a turn runs and sleeps when the laptop is away;
+  - the mascot: it drops in at startup, waves on Connect, celebrates a pairing and sleeps when the laptop is away. While a turn runs it acts out the step (reading, running a command, writing, searching), hops in when a question arrives and droops when a turn fails; idle, it looks around now and then, and giggles when tapped;
   - haptics on yes and no, and Android's back button.
 - **Pairing:** Settings → Phone. Turn it on (it's off by default), press **Pair a phone** and scan the code: with the Android app's scanner, or with the phone's camera for the web app. No app store. A code nobody scans expires in 10 minutes.
 - **End-to-end encrypted:**

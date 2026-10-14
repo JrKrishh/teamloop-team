@@ -114,7 +114,7 @@ fun Connect(activity: MainActivity, start: Stage, onDone: () -> Unit) {
                 when (s) {
                     Stage.Welcome -> {
                         Spacer(Modifier.height(24.dp))
-                        Mascot(size = 104.dp, mood = Mood.Wave)
+                        Mascot(size = 104.dp, mood = Mood.Wave, interactive = true)
                         Spacer(Modifier.height(22.dp))
                         Text("Connect to your laptop", style = MaterialTheme.typography.displaySmall, textAlign = TextAlign.Center)
                         Spacer(Modifier.height(10.dp))
