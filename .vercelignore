@@ -21,3 +21,6 @@ Dockerfile
 app
 brand
 packaging
+android
+build
+dist
