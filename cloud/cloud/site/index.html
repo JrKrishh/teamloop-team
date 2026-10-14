@@ -70,6 +70,30 @@ h2{font:800 clamp(34px,4.6vw,56px)/1.02 var(--ft);letter-spacing:-.04em;margin:0
 .ticks li{display:grid;grid-template-columns:26px 1fr;gap:10px;font-size:17px}
 .ticks li::before{content:"";width:18px;height:18px;margin-top:4px;border-radius:6px;background:var(--brick) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FFF8F2' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/13px no-repeat}
 .ticks b{font-weight:700}
+.split.flip{grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)}
+/* Super Team: a prompt into a teammate's session, their yes, the answer */
+.st-stage{position:relative;height:430px}
+.st-card{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px 20px;
+  box-shadow:0 30px 60px -36px rgba(60,35,20,.45),0 10px 24px -16px rgba(60,35,20,.22)}
+.st-ask{left:0;top:0;width:88%}
+.st-yes{right:0;top:196px;width:78%;display:flex;align-items:center;gap:14px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.st-done{left:7%;top:318px;width:70%}
+.st-head{display:flex;align-items:center;gap:12px}
+.st-head small,.st-yes small{display:block;font-size:13.5px;color:var(--muted)}
+.st-yes small{color:#BDB4A8}
+.st-head b,.st-yes b{font-size:15.5px}
+.st-av{width:34px;height:34px;flex:none;border-radius:50%;display:grid;place-items:center;font:700 14px var(--fb);color:#fff;background:var(--c)}
+.st-chip{margin-left:auto;padding:4px 10px;border-radius:999px;background:var(--paper2);font:500 12px var(--fm);color:var(--ink2);white-space:nowrap}
+.st-prompt{margin:14px 0 12px;font-size:15.5px;line-height:1.5}
+.st-status{display:flex;align-items:center;gap:8px;font:500 13px var(--fm);color:var(--muted)}
+.st-dot{width:8px;height:8px;border-radius:50%;background:#D99A2B;box-shadow:0 0 0 4px rgba(217,154,43,.18)}
+.st-dot.ok{background:var(--ok);box-shadow:0 0 0 4px rgba(46,139,87,.16)}
+.st-yes svg{width:42px;height:42px;flex:none}
+.st-btns{margin-left:auto;display:flex;gap:8px}
+.st-btns span{padding:8px 14px;border-radius:11px;border:1px solid #3A3740;font-weight:700;font-size:14px}
+.st-btns .go{background:var(--brick2);border-color:var(--brick2);color:#1A0E0C}
+.st-done p{margin:8px 0 0;color:var(--muted);font-size:14.5px}
+.st-done small{margin-left:auto;font:500 12.5px var(--fm);color:var(--faint)}
 .privacy{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:40px}
 .col{border-radius:22px;padding:28px;border:1px solid var(--line);background:var(--card)}
 .col.never{background:var(--ink);color:var(--paper);border-color:var(--ink)}
@@ -85,7 +109,9 @@ footer{padding:56px 0 64px;color:var(--faint);font-size:14.5px}
 footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-content:space-between}
 .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
 .reveal.in{opacity:1;transform:none}
-@media (max-width:900px){.nav{display:none}.steps,.split,.privacy,.open{grid-template-columns:1fr}.open{padding:32px}.cast{top:-54px}.cast svg{transform:scale(.75)}}
+@media (max-width:900px){.nav{display:none}.steps,.split,.split.flip,.privacy,.open{grid-template-columns:1fr}.open{padding:32px}.cast{top:-54px}.cast svg{transform:scale(.75)}
+  .st-stage{height:auto;display:grid;gap:12px;order:2}.st-card{position:static;width:auto}.st-chip{display:none}
+  .st-yes{flex-wrap:wrap}.st-btns{margin-left:56px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
 </style>
 </head>
@@ -93,7 +119,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
 <header class="top" id="top">
   <div class="wrap">
     <a class="brand" href="/" aria-label="Super Agents home"><svg viewBox="0 0 100 100" aria-hidden="true"><path fill="#A8443D" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/><ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/><ellipse fill="#18171B" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse fill="#18171B" cx="61.5" cy="62" rx="6.2" ry="7.8"/></svg>Super Agents</a>
-    <nav class="nav"><a href="#how">How it works</a><a href="#agent">Agent S</a><a href="#privacy">Privacy</a><a href="https://github.com/JrKrishh/teamloop-team">GitHub</a></nav>
+    <nav class="nav"><a href="#how">How it works</a><a href="#agent">Agent S</a><a href="#team">Super Team</a><a href="#privacy">Privacy</a><a href="https://github.com/JrKrishh/teamloop-team">GitHub</a></nav>
     <a class="btn small dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-Setup.exe">Download</a>
   </div>
 </header>
@@ -106,7 +132,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
       <p class="lede">Every teammate's Claude Code and Codex sessions, turned into live progress per task. Ask Agent S what's done, what's next and what's stuck, and see the sessions behind every answer.</p>
       <div class="cta">
         <a class="btn dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-Setup.exe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>Download for Windows</a>
-        <div class="meta">Free · Open source (MIT) · Windows 10 and 11</div>
+        <div class="meta">Free · Open source (MIT) · Windows 10 and 11 · <a href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-android.apk">Android app</a></div>
       </div>
       <div class="stage">
         <div class="cast" id="cast" aria-hidden="true"></div>
@@ -141,6 +167,37 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
         </ul>
       </div>
       <div class="window reveal"><div class="chrome"><i></i><i></i><i></i><b>Agent S</b></div><img src="/site/app-answer.webp" width="1280" height="820" loading="lazy" alt="Agent S answering what is blocked, with the two cited session events expanded"></div>
+    </div>
+  </section>
+
+  <section class="block" id="team">
+    <div class="wrap split flip">
+      <div class="st-stage reveal" aria-hidden="true">
+        <div class="st-card st-ask">
+          <div class="st-head"><span class="st-av" style="--c:#C98A3B">Y</span><div><b>Yang</b><small>into Asha's session · Claude Code</small></div><span class="st-chip">Ask each time · Edit</span></div>
+          <p class="st-prompt">Add retry with backoff to the board's live updates, and a test for the reconnect.</p>
+          <div class="st-status"><span class="st-dot"></span>Waiting for Asha's yes</div>
+        </div>
+        <div class="st-card st-yes">
+          <svg viewBox="0 0 100 100"><path fill="#3E9B6B" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/><ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/><ellipse fill="#18171B" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse fill="#18171B" cx="61.5" cy="62" rx="6.2" ry="7.8"/></svg>
+          <div><b>Yang asks your agent for T‑22</b><small>Edit access · within today's limit</small></div>
+          <div class="st-btns"><span>Deny</span><span class="go">Allow</span></div>
+        </div>
+        <div class="st-card st-done">
+          <div class="st-head"><span class="st-dot ok"></span><b>Done in Asha's session</b><small>14:32</small></div>
+          <p>2 files changed · tests pass · the answer is on record for both of them</p>
+        </div>
+      </div>
+      <div>
+        <div class="kicker">Super Team</div>
+        <h2 class="reveal">Ask a teammate's agent for a hand.</h2>
+        <p class="sub reveal">Send a part of the work into a teammate's own Claude Code or Codex session. They decide how: off, ask each time or automatic, read only or edit, with a daily limit.</p>
+        <ul class="ticks reveal">
+          <li><span><b>Their rules, every time.</b> Nothing runs in someone's session without the access they chose.</span></li>
+          <li><span><b>It waits while they're away.</b> A prompt keeps for 7 days while their laptop is off, and every prompt and answer stays on record.</span></li>
+          <li><span><b>Files and branches hand over.</b> Specs and logs for one teammate or everyone, kept 14 days; code goes as a branch.</span></li>
+        </ul>
+      </div>
     </div>
   </section>
 
