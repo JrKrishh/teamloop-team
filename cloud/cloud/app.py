@@ -268,9 +268,10 @@ class Attachment(BaseModel):
 
 class LlmIn(BaseModel):
     tier: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
+    effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")  # None: the provider's own (low)
     messages: list[dict] = Field(min_length=1, max_length=200)
     tools: list[dict] = Field(default_factory=list, max_length=80)
-    max_tokens: int = Field(default=2000, ge=16, le=4000)
+    max_tokens: int = Field(default=2000, ge=16, le=8192)  # thinking counts against it: high effort needs room
 
 
 class AgentIn(BaseModel):
@@ -1004,7 +1005,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if len(json.dumps(body.messages)) + len(json.dumps(body.tools)) > 400_000:
             raise HTTPException(413, "That conversation is too long; start a new chat")
         try:
-            with llm.pinned(body.tier):
+            with llm.pinned(body.tier), llm.effort(body.effort):
                 out = chat_step(body.messages, body.tools, body.max_tokens)
         except urllib.error.HTTPError as e:
             raise HTTPException(502, f"The model refused the request ({e.code})") from None

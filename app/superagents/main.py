@@ -6,19 +6,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 
 import uvicorn
 
 from teamloop import spool
 
-from . import laptop, remote, server, store
+from . import frame, laptop, remote, server, store
 from .runtime import browser, memory, superteam
 
 CLOUD = os.environ.get("TEAMLOOP_HUB", "https://teamloop.vercel.app")
@@ -65,6 +68,56 @@ def _title_bar(window, dark: bool) -> None:
         pass
 
 
+_MUTEX = None  # held while this copy runs
+
+
+def _open_already() -> bool:
+    """One copy per person, as with Claude's and Codex's apps: a second launch brings the open window forward and quits.
+    Two copies would both answer the phone and both run teammates' prompts. The mutex is per home folder, so
+    development copies with their own TEAMLOOP_HOME stay apart."""
+    global _MUTEX
+    if sys.platform != "win32":
+        return False
+    import ctypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _MUTEX = k32.CreateMutexW(None, False, "Local\\SuperAgents-" + hashlib.sha1(str(spool.home()).encode()).hexdigest()[:12])
+    if ctypes.get_last_error() != 183:  # ERROR_ALREADY_EXISTS
+        return False
+    try:
+        info = json.loads((spool.home() / "window.json").read_text(encoding="utf-8"))
+        ctypes.windll.user32.AllowSetForegroundWindow(int(info["pid"]))  # this launch may take the foreground: pass it on
+        req = urllib.request.Request(f"http://127.0.0.1:{info['port']}/api/window/show", method="POST", data=b"{}",
+                                     headers={"X-App-Key": info["key"], "Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5).close()
+    except Exception:  # noqa: BLE001 - the other copy is still starting; it shows itself
+        pass
+    return True
+
+
+def _show(window) -> None:
+    if window is not None:
+        window.restore()
+        window.show()
+
+
+def _window_action(state: server.State):
+    """The buttons of the app's own title bar."""
+    def act(name: str) -> None:
+        w = state.window
+        if w is None:
+            return
+        if name == "minimize":
+            w.minimize()
+        elif name == "maximize":
+            import ctypes
+
+            w.restore() if ctypes.windll.user32.IsZoomed(w.native.Handle.ToInt64()) else w.maximize()
+        elif name == "close":
+            w.destroy()
+    return act
+
+
 def _pick_folder(state: server.State):
     def pick():
         import webview
@@ -96,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--serve", action="store_true", help="only serve the UI and print its URL (development)")
     ap.add_argument("--hub", default=CLOUD, help="the Super Agents server (default: %(default)s)")
     args = ap.parse_args(argv)
+    windowed = not (args.browser or args.serve)
+    if windowed and _open_already():
+        return 0
     _log_to_file()
     _quiet_children()
 
@@ -103,7 +159,8 @@ def main(argv: list[str] | None = None) -> int:
     sock.bind(("127.0.0.1", 0))
     state = server.State(args.hub, port=sock.getsockname()[1])
     app = server.create(state, pick_folder=_pick_folder(state),
-                        set_title_theme=lambda dark: _title_bar(state.window, dark))
+                        set_title_theme=lambda dark: _title_bar(state.window, dark), show_window=lambda: _show(state.window),
+                        window_action=_window_action(state))
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=state.port, log_level="warning", log_config=None))
     threading.Thread(target=srv.run, kwargs={"sockets": [sock]}, daemon=True).start()
     for _ in range(200):
@@ -139,7 +196,13 @@ def main(argv: list[str] | None = None) -> int:
     # the browser panel's "open in a window", for sites that won't show inside a frame
     state.open_window = lambda page: webview.create_window(f"Super Agents · {page.split('/')[2]}", page, width=1100, height=760)
     state.window.events.shown += lambda: _title_bar(state.window, True)
+    # the app's own title bar instead of Windows' (which Windows 10 may paint in the accent colour)
+    state.window.events.before_show += lambda window: frame.install(window, lambda ok: setattr(state, "frame", "custom" if ok else "native"))
+    opened = spool.home() / "window.json"  # where a second launch finds this copy
+    opened.parent.mkdir(parents=True, exist_ok=True)
+    opened.write_text(json.dumps({"port": state.port, "key": state.key, "pid": os.getpid()}), encoding="utf-8")
     webview.start(private_mode=False, storage_path=str(spool.home() / "webview"))
+    opened.unlink(missing_ok=True)
     srv.should_exit = True
     browser.host().close()  # the agent browser goes with the app
     return 0

@@ -2,13 +2,17 @@
 stand-ins; the connector code (init, config, spool) is real, in a throwaway home and repo."""
 
 import json
+import os
 import subprocess
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
 
-from superagents import server, store, supa
+from superagents import main, server, store, supa
 from superagents.runtime import tools as runtime_tools
 from teamloop import claude, codex, send, spool
 
@@ -260,6 +264,54 @@ def test_import_github_issues(env, monkeypatch):
     assert seen["url"].startswith("https://api.github.com/repos/acme/web/issues?state=open")
     assert r["name"] == "acme/web issues (1)" and r["text"].startswith("#12 OAuth callback  [auth]") and "pull request" not in r["text"]
     assert client.get("/api/import/github", params={"repo": "not a repo"}).status_code == 400
+
+
+def test_a_second_launch_shows_the_open_window(env):
+    client, hub, state, opened = env
+    shown = []
+    app = server.create(state, show_window=lambda: shown.append(True))
+    one = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
+    assert one.post("/api/window/show").status_code == 403  # only with this copy's key
+    assert one.post("/api/window/show", headers={"X-App-Key": "the-key"}).json() == {"ok": True} and shown == [True]
+
+
+def test_the_apps_own_title_bar(env):
+    client, hub, state, opened = env
+    assert client.get("/api/boot").json()["frame"] == "native"  # until frame.py has drawn its own
+    state.frame = "custom"
+    assert client.get("/api/boot").json()["frame"] == "custom"
+    done = []
+    app = server.create(state, window_action=done.append)
+    buttons = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
+    assert buttons.post("/api/window/close").status_code == 403  # only with this copy's key
+    for name in ("minimize", "maximize", "close"):
+        assert buttons.post(f"/api/window/{name}", headers={"X-App-Key": "the-key"}).json() == {"ok": True}
+    assert done == ["minimize", "maximize", "close"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the one-copy lock is a Windows mutex")
+def test_only_one_copy_runs(tmp_path, monkeypatch):
+    monkeypatch.setenv("TEAMLOOP_HOME", str(tmp_path / "home"))
+    asked = []
+
+    class Open(BaseHTTPRequestHandler):  # the copy that's already open
+        def do_POST(self):
+            asked.append((self.path, self.headers.get("X-App-Key")))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"ok": true}')
+
+        def log_message(self, *a):
+            pass
+
+    first = HTTPServer(("127.0.0.1", 0), Open)
+    threading.Thread(target=first.handle_request, daemon=True).start()
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / "window.json").write_text(json.dumps({"port": first.server_port, "key": "k1", "pid": os.getpid()}))
+    assert main._open_already() is False  # the first copy takes the lock
+    assert main._open_already() is True  # a second launch finds it, and asks it to show its window
+    assert asked == [("/api/window/show", "k1")]
+    first.server_close()
 
 
 def test_prefs_merge(env):

@@ -33,6 +33,8 @@ The loop runs on this laptop (`runtime/loop.py`), like Claude Code's: the model 
 
 **Model:** Auto uses Nemotron Super for chats (Ultra for the digest); or pin Lightning, Super or Ultra.
 
+**Effort:** how hard the model thinks before each step (Token Factory's `reasoning_effort`): Low, Medium (the default), High or Max. Higher thinks longer and gets more room (1800, 4000, 6000 or 8000 tokens a step); in a test, Low got a scheduling question wrong that Medium and up got right. Remembered like the model; a hub from before effort caps a step at 4000 tokens, and the app falls back to that.
+
 **Import (+):** files (specs, task lists, notes; up to 5, 200 KB each) or a public repo's open GitHub issues, added to the message.
 
 ## Git, like Claude Code
@@ -95,26 +97,41 @@ Click your name at the bottom of the sidebar → **Settings** (or **Ctrl+,**). O
 
 ## Phone remote
 
-Your agents keep running on the laptop; the phone drives them, like Claude Code's Remote Control (`app/superagents/remote.py`; the phone app is `cloud/cloud/site/remote/`).
-- **What the phone does:**
-  - sees your chats;
-  - starts one, or continues one, with any agent and mode;
-  - watches a turn live, with the steps folded as on the laptop;
-  - approves or denies a step; runs or discards a plan; stops a turn.
-  - A turn started at the desk shows on the phone too ("Agent S needs you"), so you can walk away and answer from the phone.
-- **Pairing:** Settings → Phone. Turn it on (it's off by default), press **Pair a phone** and scan the code with the phone's camera. The phone opens Super Agents Remote, a web app you can add to the home screen; no app store. A code nobody scans expires in 10 minutes.
+Your agents keep running on the laptop; the phone drives them, like Claude Code's Remote Control (`app/superagents/remote.py`). Two ways in, one design: the **Android app** (`android/`, native, an APK of under 3 MB) and the **web app** (`cloud/cloud/site/remote/`, added to the home screen; for iPhones and browsers).
+- **Needs you:**
+  - every question a running turn waits on, from the phone or the desk, as a card with the command or change itself;
+  - **swipe right for yes, left for no**, or tap; the tab shows how many wait;
+  - below them, what each agent is working on now;
+  - a question from a turn started at the desk arrives within seconds, so you can walk away and answer from your pocket.
+- **Chats:**
+  - search, a few one-tap questions ("What's blocked right now?"), and your chats: in the Android app the latest three, then a folder per project (the repo the agent worked in, General for the rest), each opening in place; in the web app, by day;
+  - in a chat: start or continue one with any agent and mode (one tap picks both); watch a turn live with its steps folded as on the laptop; approve or deny; run or discard a plan; stop a turn. Answers show as on Claude: tables (sideways scrolling when wide), headings, lists, quotes, and code blocks with a Copy button.
+- **Board:** the team's tasks, active first, with Agent S's estimate next to what the coding agent claims and what blocks each one. Tap a task to ask Agent S about it.
+- **The Android app adds:**
+  - **sign-in** with the desktop's account: GitHub (in a browser tab that comes back to the app; Supabase must allow `superagents://auth/callback`) or email; a new email account's confirmation link comes back to the app the same way (PKCE), so open it on the phone. A new phone is offered it first and can skip it: the pairing code is what connects a phone. The session token is sealed with a key in Android Keystore. The laptop shows who each phone is signed in as.
+  - **a theme switch:** the sun or moon beside Settings flips light and dark; Settings → Theme also has System (the default), which follows the phone. The status bar's icons follow the app's theme;
+  - **model and effort** in a chat's "Who, and how" sheet, starting from what the desktop is set to; picking an agent applies its default model;
+  - **questions in the background:** each one arrives as a notification with **Deny** and **Run it** (or **Approve**) on it, so you answer without opening the app. Run it asks for the phone to be unlocked, and the lock screen shows only "Agent S needs you". An answer posts "Agent S answered".
+  - a quiet "Connected to …'s laptop" notification while it holds the line; Settings → Stay connected in the background turns that off;
+  - a QR scanner for pairing (Google's code scanner, so no camera permission);
+  - a fingerprint or face lock (on opening, and after a minute away);
+  - the mascot: it drops in at startup, waves on Connect, celebrates a pairing and sleeps when the laptop is away. While a turn runs it acts out the step (reading, running a command, writing, searching), hops in when a question arrives and droops when a turn fails; idle, it looks around now and then, and giggles when tapped;
+  - haptics on yes and no, and Android's back button.
+- **Pairing:** Settings → Phone. Turn it on (it's off by default), press **Pair a phone** and scan the code: with the Android app's scanner, or with the phone's camera for the web app. No app store. A code nobody scans expires in 10 minutes.
 - **End-to-end encrypted:**
   - **The key:** the code carries a channel id and a 256-bit key in the link's fragment, which browsers never send to a server.
   - **The seal:** every message is sealed with AES-256-GCM under that key, with the channel bound in. The relay sees only noise: Supabase Realtime in production, the hub's own socket in development.
   - **Replays and reflections:** messages older than two minutes, or seen before, are dropped, and neither side accepts its own messages back.
-  - **On the phone:** the key is kept in IndexedDB as a WebCrypto key that can't be exported, so the page can use it but no script can read it back.
+  - **On the phone:** the web app keeps the key in IndexedDB as a WebCrypto key that can't be exported, so the page can use it but no script can read it back. The Android app keeps it in Android Keystore, which won't hand it out either.
 - **What the phone can't do:** anything the chat window can't. It goes through the same local API and the same modes and approvals. It can't browse files or open a terminal.
 - **Unpair** deletes the key on the laptop, and the phone is cut off at once. On the phone, "Forget this laptop" deletes its copy.
 - **Reliability:**
   - The laptop never skips an event it couldn't send.
   - The phone shows events in order, asks again for any gap, and catches up on a running turn after it lost the connection.
   - Turning the switch off, or closing the app, ends remote control.
-- **Not yet:** push notifications when an agent needs you (Web Push; on iPhone only for a home-screen app). Until then, the phone shows it when you open it.
+- **Not yet:**
+  - **Push from the hub**, for when the Android app isn't holding the line (Stay connected in the background off, or Android stopped it) or the web app is closed. It needs a Firebase project (free); Web Push on iPhone works only for a home-screen app.
+  - **An iPhone app** (Apple's developer account is $99 a year); iPhones use the web app.
 
 ## The board
 
@@ -167,7 +184,7 @@ It listens on 127.0.0.1 only, on a new random port each launch. Every `/api` cal
 - The browser frame is sandboxed without top navigation and can't load the app's own address.
 
 ## One-time setup for GitHub sign-in in the app (Yang)
-Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:*/**`. The `*` matches the port, which changes every launch.
+Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:*/**` (the desktop app; the `*` matches the port, which changes every launch) and `superagents://auth/callback` (the Android app, for GitHub and for email confirmation links). Supabase sends any return address that isn't on this list to the Site URL instead, so a sign-in from the app would end on the website.
 
 ## Build and run
 ```bash
@@ -177,6 +194,6 @@ python -m superagents --serve         # just the local server; prints the URL (d
 cd app && python -m pytest -q
 pyinstaller packaging/teamloop.spec --distpath dist --workpath build/pyi --noconfirm
 ```
-The bundle holds two programs sharing one folder: `SuperAgents.exe` (no console; the app) and `teamloop.exe` (console; hooks, MCP, CLI). `Install Super Agents.cmd` copies it to `%LOCALAPPDATA%\TeamLoop`, makes the shortcuts and opens the app. Brand assets and the logo animation: `brand/` (`build_icons.py` renders the `.ico`). Third-party scripts in the UI are vendored with their licences in `app/superagents/ui/vendor/`.
+The bundle holds two programs sharing one folder: `SuperAgents.exe` (no console; the app) and `teamloop.exe` (console; hooks, MCP, CLI). `packaging/SuperAgents.iss` (Inno Setup: `iscc /DVersion=0.3.0 packaging\SuperAgents.iss`) turns it into `dist/SuperAgents-Setup.exe`, one click like Claude's and Codex's installers: per user with no admin, into `%LOCALAPPDATA%\TeamLoop` (connected repos' hooks point there), `teamloop` on the user's PATH, Start-menu and desktop shortcuts, a running copy closed first, the app opened at the end, and an uninstaller in Settings → Apps that leaves `~/.teamloop`. It warns if the PC lacks Microsoft Edge WebView2, which draws the window. CI builds it on every pull request and installs, opens and uninstalls it on a clean machine (`packaging/check_installer.py`). One copy of the app runs per person: opening it again brings the open window forward (a mutex, then `POST /api/window/show` to the open copy, found through `~/.teamloop/window.json`), since two copies would both answer the phone and both run teammates' prompts. Brand assets and the logo animation: `brand/` (`build_icons.py` renders the `.ico`). Third-party scripts in the UI are vendored with their licences in `app/superagents/ui/vendor/`.
 
-Known limit: on Windows 10 with "Show accent colour on title bars" switched on, Windows paints the title bar in that colour; otherwise it matches the app.
+The app draws its own title bar, as Claude's and Codex's do (`app/superagents/frame.py`): Windows' own bar can't be restyled, and Windows 10 paints it in the accent colour when "Show accent colour on title bars" is on. The native frame stays (resize edges, snap, the shadow, the animations); a window subclass takes away only its caption (WM_NCCALCSIZE), and WebView2's non-client region support makes the page's `app-region: drag` areas the caption: drag, snap, double-click to maximise, the window menu on right-click. The page's minimise, maximise and close buttons call `/api/window/*`. If WebView2 can't do drag regions, Windows' bar comes back, so the window can always be moved.

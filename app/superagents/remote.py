@@ -148,7 +148,8 @@ def status(online: dict[str, float], ready: bool = False) -> dict:
     """For Settings: on or off, whether a relay is there, and the paired phones (online: heard from in 90 s)."""
     cfg, now = store.remote(), time.time()
     return {"on": cfg["on"], "ready": ready, "phones": [
-        {"id": p["id"], "name": p.get("name") or "A phone", "paired": p.get("paired"), "online": now - online.get(p["id"], 0) < 90}
+        {"id": p["id"], "name": p.get("name") or "A phone", "paired": p.get("paired"), "online": now - online.get(p["id"], 0) < 90,
+         "account": p.get("account")}
         for p in cfg["phones"] if p.get("paired")]}
 
 
@@ -160,6 +161,28 @@ def slim(e: dict) -> dict:
     if isinstance(e.get("args"), dict):
         e["args"] = {k: v[:4000] + "…" if isinstance(v, str) and len(v) > 4000 else v for k, v in e["args"].items()}
     return e
+
+
+def slim_live(turns: list) -> list:
+    """Running turns for a phone, with the question each waits on (or its step), arguments cut like events."""
+    cut = lambda s: s and {**s, "args": slim({"args": s.get("args") or {}})["args"]}  # noqa: E731
+    return [{**t, "ask": cut(t.get("ask")), "now": cut(t.get("now"))} for t in turns]
+
+
+def board_view(b: dict) -> dict:
+    """The team board for a phone: each task's status, Agent S's estimate next to the coding agent's claim, who,
+    when, and what blocks it, is happening or comes next."""
+    def texts(items, n):
+        return [x.get("text") for x in (items or [])[:n] if isinstance(x, dict)]
+    tasks = []
+    for t in (b.get("tasks") or [])[:60]:
+        p, pr = t.get("progress") or {}, t.get("pr") or None
+        tasks.append({"task": t.get("task"), "title": t.get("title") or "", "status": t.get("status"), "owner": t.get("owner"),
+                      "members": t.get("members") or [], "tools": t.get("tools") or [], "due": t.get("due"),
+                      "percent": p.get("percent"), "says": p.get("agent_says_percent"), "confidence": p.get("confidence"),
+                      "blockers": texts(p.get("blockers"), 3), "doing": texts(p.get("doing"), 1), "next": texts(p.get("next"), 2),
+                      "pr": pr and {k: pr.get(k) for k in ("number", "state", "draft", "checks")}, "last": t.get("last_activity")})
+    return {"room": b.get("room"), "tasks": tasks}
 
 
 class Remote:
@@ -183,6 +206,31 @@ class Remote:
                     pass
                 time.sleep(every)
         threading.Thread(target=loop, daemon=True, name="remote").start()
+        threading.Thread(target=self.push_live, daemon=True, name="remote live").start()
+
+    def push_live(self, every: float = 2.0, rounds: Optional[int] = None) -> None:
+        """While a phone is open, tell it when running turns change, so a question from a turn started at the desk
+        reaches its Needs you list in seconds."""
+        last = None
+        while rounds is None or rounds > 0:
+            rounds = None if rounds is None else rounds - 1
+            time.sleep(every)
+            try:
+                now = time.time()
+                open_ = [pid for pid, t in list(self.online.items()) if now - t < 90 and pid in self.relays]
+                if not open_:
+                    last = None
+                    continue
+                turns = slim_live(self.api("GET", "/api/turns")["turns"])
+                if turns == last:
+                    continue
+                last = turns
+                keys = {p["id"]: unb64(p["key"]) for p in store.remote()["phones"]}
+                for pid in open_:
+                    if pid in keys:
+                        self.send(pid, keys[pid], {"t": "live", "live": turns})
+            except Exception:  # noqa: BLE001 - the app is busy or closing; next round
+                pass
 
     def sync(self) -> None:
         cfg = store.remote()
@@ -220,14 +268,17 @@ class Remote:
             self.seen[msg["id"]] = now
             self.online[pid] = now
         if msg.get("t") == "hello":
-            self._paired(pid, str(msg.get("device") or "")[:60])
+            self._paired(pid, str(msg.get("device") or "")[:60], msg.get("account"))
         threading.Thread(target=self.handle, args=(pid, key, msg), daemon=True).start()
 
-    def _paired(self, pid: str, device: str) -> None:
+    def _paired(self, pid: str, device: str, account=None) -> None:
+        """A phone said hello: it's paired, under its device name, and who it's signed in as (if anyone; shown, not
+        trusted: the pairing key is what lets a phone in)."""
+        who = {k: str(account.get(k) or "")[:120] for k in ("name", "email")} if isinstance(account, dict) else None
         cfg = store.remote()
         for p in cfg["phones"]:
-            if p["id"] == pid and (not p.get("paired") or (device and p.get("name") != device)):
-                p["paired"], p["name"] = p.get("paired") or time.time(), device or p.get("name") or ""
+            if p["id"] == pid and (not p.get("paired") or (device and p.get("name") != device) or p.get("account") != who):
+                p["paired"], p["name"], p["account"] = p.get("paired") or time.time(), device or p.get("name") or "", who
                 store.save_remote(cfg)
 
     def send(self, pid: str, key: bytes, msg: dict) -> bool:
@@ -247,13 +298,19 @@ class Remote:
                 out = {"t": "pong"}
             elif t == "chat":
                 out = {"t": "chat", "chat": self.chat(str(msg.get("chat") or ""))}
+            elif t == "board":
+                team = self.team()
+                if not team:
+                    raise ValueError("Sign in to Super Agents on the laptop first.")
+                out = {"t": "board", **board_view(self.api("GET", f"/api/cloud/board?team={urllib.parse.quote(team)}"))}
             elif t == "send":
                 team = self.team()
                 if not team:
                     raise ValueError("Sign in to Super Agents on the laptop first.")
                 r = self.api("POST", "/api/turns", {"chat": msg.get("chat") or None, "agent": msg.get("agent") or "agent-s",
                                                     "message": str(msg.get("message") or ""), "mode": msg.get("mode") or "manual",
-                                                    "model": msg.get("model") or "auto", "team": team})
+                                                    "model": msg.get("model") or "auto", "effort": msg.get("effort") or "medium",
+                                                    "team": team})
                 self.follow(pid, key, r["turn"], 0)
                 out = {"t": "turn", **r}
             elif t == "watch":
@@ -278,8 +335,9 @@ class Remote:
     def state(self) -> dict:
         boot = self.api("GET", "/api/boot")
         return {"laptop": socket.gethostname(), "user": (boot.get("user") or {}).get("name"), "signed_in": boot.get("signed_in"),
-                "agents": [{k: a.get(k) for k in ("id", "name", "color", "mode")} for a in self.api("GET", "/api/agents")["agents"]],
-                "chats": self.api("GET", "/api/chats")["chats"][:40], "live": self.api("GET", "/api/turns")["turns"]}
+                "agents": [{k: a.get(k) for k in ("id", "name", "color", "mode", "model")} for a in self.api("GET", "/api/agents")["agents"]],
+                "prefs": {k: (boot.get("prefs") or {}).get(k) for k in ("model", "effort")},  # what the desktop is set to
+                "chats": self.api("GET", "/api/chats")["chats"][:40], "live": slim_live(self.api("GET", "/api/turns")["turns"])}
 
     def chat(self, cid: str) -> dict:
         c = self.api("GET", f"/api/chats/{urllib.parse.quote(cid)}")

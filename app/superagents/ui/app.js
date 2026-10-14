@@ -154,6 +154,7 @@ async function start() {
   const splash = new Promise(r => setTimeout(r, REDUCED ? 150 : 2150));
   let boot = null;
   try { boot = await api("/api/boot"); } catch (e) { /* shown below */ }
+  if (boot) setupFrame(boot.frame === "custom");  // the window's own buttons, over the splash already
   await splash;
   $("splash").classList.add("out");
   setTimeout(() => $("splash").remove(), 520);
@@ -161,12 +162,35 @@ async function start() {
   applyBoot(boot);
 }
 
+// Windows: the app draws its own title bar (frame.py); these are its buttons
+function setupFrame(on) {
+  const root = document.documentElement;
+  if (!on || root.classList.contains("custom-frame")) return;
+  root.classList.add("custom-frame");
+  const max = $("winMax");
+  const sync = () => {  // maximised: the window fills the screen's work area
+    const big = outerWidth >= screen.availWidth && outerHeight >= screen.availHeight;
+    max.dataset.max = String(big); max.title = max.ariaLabel = big ? "Restore" : "Maximise";
+    const top = document.querySelector(".shell:not([hidden]) .top");  // the buttons as tall as the app's header
+    root.style.setProperty("--winbar", top ? `${top.offsetHeight - 1}px` : "40px");
+  };
+  addEventListener("resize", sync);
+  new MutationObserver(sync).observe($("shell"), {attributes: true, attributeFilter: ["hidden"]});
+  sync();
+  for (const [id, action] of [["winMin", "minimize"], ["winMax", "maximize"], ["winClose", "close"]])
+    $(id).onclick = () => api(`/api/window/${action}`, {method: "POST"}).catch(() => {});
+  addEventListener("blur", () => root.classList.add("win-blur"));
+  addEventListener("focus", () => root.classList.remove("win-blur"));
+}
+
 function applyBoot(boot) {
   S.boot = boot;
+  setupFrame(boot.frame === "custom");
   const prefs = boot.prefs || {};
   setTheme(prefs.theme || "dark", false);
   setMode(prefs.mode || "manual", false);
   setModel(prefs.model || "auto", false);
+  setEffort(prefs.effort || "medium", false);
   S.agent = prefs.agent || "agent-s";
   if (!boot.signed_in) return showLogin();
   S.user = boot.user; S.teams = boot.teams; S.team = boot.team; S.laptop = boot.laptop;
@@ -181,13 +205,7 @@ async function reboot() { applyBoot(await api("/api/boot")); }
 let signUp = false, waitTimer = null, lastAuthUrl = "";
 function showLogin() {
   show("login");
-  const cast = $("loginCast");
-  if (!cast.childElementCount) {
-    for (const [hood, size] of [["#3E9B6B", 92], ["#C2554C", 128], ["#8E6BD8", 92]]) {
-      const a = agent("", hood); a.setAttribute("width", size); a.setAttribute("height", size);
-      const w = el("span", "bob"); w.append(a); cast.append(w);
-    }
-  }
+  for (const id of ["loginMark", "loginFace", "loginPing"]) if (!$(id).childElementCount) $(id).append(agent("", "#C2554C"));
   $("loginForm").hidden = false; $("loginWait").hidden = true;
 }
 $("modeBtn").onclick = () => {
@@ -337,7 +355,7 @@ $("railToggle").onclick = () => setRail(!$("shell").classList.contains("rail-min
 try { setRail(localStorage.getItem("sa-rail") === "min", false); } catch (e) { setRail(false, false); }
 
 function closeMenus() {
-  for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu", "agentMenu"]) $(id).hidden = true;
+  for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu", "effortMenu", "agentMenu"]) $(id).hidden = true;
   document.querySelectorAll('.cwrap > [aria-expanded="true"]').forEach(b => b.setAttribute("aria-expanded", "false"));
 }
 document.addEventListener("click", e => { if (!e.target.closest(".menu, #meBtn, #teamBtn, .cwrap")) closeMenus(); });
@@ -588,7 +606,7 @@ async function ask(q) {
   const slot = agentMsg(a);
   setRunning(true);
   try {
-    const r = await api("/api/turns", {method: "POST", body: {chat: S.chat, agent: a.id, message: q, mode: S.mode, model: S.model,
+    const r = await api("/api/turns", {method: "POST", body: {chat: S.chat, agent: a.id, message: q, mode: S.mode, model: S.model, effort: S.effort,
       team: S.team, attachments: files.map(f => ({name: f.name, text: f.text}))}});
     S.chat = r.chat; S.turn = r.turn;
     await follow(turnState(slot, r.turn, S.mode), 0);
@@ -903,6 +921,46 @@ function setMode(mode, save = true) {
   $("modeIc").innerHTML = icon(m.icon); $("modeHint").textContent = m.desc;
   if (save) api("/api/prefs", {method: "POST", body: {mode: S.mode}}).catch(() => {});
 }
+const EFFORTS = {
+  low: {label: "Low", desc: "Quickest; fine for lookups and small edits"},
+  medium: {label: "Medium", desc: "Thinks before it acts"},
+  high: {label: "High", desc: "Thinks longer: plans, reviews, tricky bugs"},
+  max: {label: "Max", desc: "Thinks the longest; slowest"},
+};
+function setEffort(effort, save = true) {
+  const was = S.effort, keys = Object.keys(EFFORTS);
+  S.effort = EFFORTS[effort] ? effort : "medium";
+  const l = $("effortLabel");
+  l.textContent = EFFORTS[S.effort].label;
+  if (save && was && was !== S.effort) {  // the new level slides in from the side it lies on
+    l.classList.remove("slide-l", "slide-r"); void l.offsetWidth;
+    l.classList.add(keys.indexOf(S.effort) > keys.indexOf(was) ? "slide-r" : "slide-l");
+  }
+  if (save) api("/api/prefs", {method: "POST", body: {effort: S.effort}}).catch(() => {});
+}
+// Effort is a scale, so it's picked like one: the thumb slides along the track to the level you click
+function fillEffort() {
+  const m = $("effortMenu"), keys = Object.keys(EFFORTS);
+  const track = el("div", "levels"), hint = el("p", "hint", EFFORTS[S.effort].desc);
+  track.setAttribute("role", "radiogroup"); track.setAttribute("aria-label", "Effort");
+  track.append(el("i", "thumb"));
+  const place = () => {
+    track.style.setProperty("--at", keys.indexOf(S.effort));
+    for (const b of track.querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.k === S.effort));
+  };
+  for (const k of keys) {
+    const b = el("button", null, EFFORTS[k].label); b.type = "button"; b.dataset.k = k; b.setAttribute("role", "radio");
+    b.onmouseenter = () => { hint.textContent = EFFORTS[k].desc; };
+    b.onclick = () => {
+      setEffort(k); place();
+      clearTimeout(m.closing); m.closing = setTimeout(() => { closeMenus(); $("askIn").focus(); }, 450);  // after the slide
+    };
+    track.append(b);
+  }
+  track.onmouseleave = () => { hint.textContent = EFFORTS[S.effort].desc; };
+  m.replaceChildren(el("b", "title", "Effort"), track, hint);
+  place();
+}
 function setModel(model, save = true) {
   S.model = MODELS[model] ? model : "auto";
   $("modelLabel").textContent = MODELS[S.model].label;
@@ -928,6 +986,7 @@ $("modePick").onclick = () => toggleMenu("modePick", "modeMenu", () => fillMenu(
   MODE_ORDER.map((k, i) => [k, MODES[k].label, MODES[k].desc, MODES[k].icon, i === 0 ? "Shift+Tab" : ""]), S.mode, setMode));
 $("modelBtn").onclick = () => toggleMenu("modelBtn", "modelMenu", () => fillMenu("modelMenu",
   Object.keys(MODELS).map(k => [k, MODELS[k].label, MODELS[k].desc, "chip"]), S.model, setModel));
+$("effortBtn").onclick = () => toggleMenu("effortBtn", "effortMenu", fillEffort);
 $("importBtn").onclick = () => toggleMenu("importBtn", "importMenu", () => {});
 
 function renderChips() {
@@ -2489,7 +2548,8 @@ function phonePanel(panel, r) {
   if (!r.ready) panel.append(el("p", "sub", "The server this app uses can't relay to phones yet, so a phone can't reach this laptop."));
   for (const p of r.phones) {
     const row = el("div", "phone-row"), words = el("div");
-    words.append(el("b", null, p.name), el("small", null, p.online ? "Online now" : `Paired ${ago(p.paired)}`));
+    const who = p.account && (p.account.email || p.account.name);
+    words.append(el("b", null, p.name), el("small", null, (p.online ? "Online now" : `Paired ${ago(p.paired)}`) + (who ? ` · signed in as ${who}` : "")));
     row.append(ic("phone"), words, btn("Unpair", "ghost", async () => {
       try { phonePanel(panel, await api(`/api/remote/phones/${encodeURIComponent(p.id)}`, {method: "DELETE"})); toast(`${p.name} can't reach this laptop now.`); }
       catch (e) { toast(e.message, true); }
