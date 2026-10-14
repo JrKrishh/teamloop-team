@@ -142,7 +142,9 @@ class Remote(private val app: Context) {
         when {
             waiting != null -> waiting.complete(m)
             m.optString("t") == "events" -> onEvents(m.optString("turn"), m.optJSONArray("events").objects())
-            m.optString("t") == "live" -> laptop.value?.let { laptop.value = it.copy(live = parseLive(m.optJSONArray("live"))); liveChanged() }
+            m.optString("t") == "live" -> laptop.value?.let {
+                laptop.value = it.copy(live = parseLive(m.optJSONArray("live")), asks = parseAsks(m.optJSONArray("asks"))); liveChanged()
+            }
         }
     }
 
@@ -206,7 +208,8 @@ class Remote(private val app: Context) {
             Log.d(TAG, "a question: new=$fresh, in the background=${!inForeground}")
             if (fresh && !inForeground) Notifications.ask(app, t, ask, lp.agent(t.agent).name)
         }
-        Notifications.keepAsks(app, lp.live.mapNotNull { it.ask?.id }.toSet())
+        for (a in lp.asks) if (told.add(a.id) && !inForeground) Notifications.teamAsk(app, a)  // a member's agent wants this lead's yes
+        Notifications.keepAsks(app, lp.live.mapNotNull { it.ask?.id }.toSet() + lp.asks.map { it.id })
     }
 
     suspend fun send(chat: String?, agent: String, mode: String, model: String, effort: String, message: String): Pair<String, String> {
@@ -238,6 +241,16 @@ class Remote(private val app: Context) {
         connect()  // and if the phone is offline, again the moment a network is back (start's callback)
         withTimeoutOrNull(20_000) { while (relay?.joined != true) delay(250) }
         request(msg(), 10_000)
+    }
+
+    /** A lead's yes or no to a member's agent's step, through the laptop to the team's hub. Said twice, it's still once. */
+    suspend fun decideTeam(id: String, approve: Boolean) {
+        try {
+            again { JSONObject().put("t", "team_decide").put("approval", id).put("approve", approve) }  // "id" is the message's own
+        } catch (e: RemoteError) {
+            if (e.message?.startsWith("Already decided") != true) throw e  // the first try got there; its answer didn't
+        }
+        Notifications.cancelAsk(app, id)
     }
 
     suspend fun stopTurn(turn: String) { request(JSONObject().put("t", "stop").put("turn", turn)) }

@@ -131,6 +131,7 @@ class Card(val id: String) {
     var args by mutableStateOf(JSONObject())
     var status by mutableStateOf("")
     var result by mutableStateOf<String?>(null)
+    var lead by mutableStateOf<String?>(null)  // waiting for this lead's yes, by the team's rules, not yours
 }
 
 /** One agent turn in the chat: its steps, what it said along the way, what waits for you, and its answer. */
@@ -195,8 +196,9 @@ class ChatModel {
                 if (e.has("name")) c.name = e.optString("name")
                 e.optJSONObject("args")?.let { c.args = it }
                 c.status = e.optString("status")
+                c.lead = e.optString("lead").ifEmpty { null }
                 if (e.has("result") && !e.isNull("result")) c.result = e.optString("result")
-                if (!b.past) b.line = when (c.status) { "asking" -> "Waiting for you…"; "running" -> "Working…"; else -> b.line }
+                if (!b.past) b.line = when (c.status) { "asking" -> "Waiting for ${c.lead ?: "you"}…"; "running" -> "Working…"; else -> b.line }
             }
             "answer" -> { b.answer = e.optString("text"); b.line = null }
             "error" -> { b.failed = e.optString("text"); b.line = null }
@@ -507,7 +509,10 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
             Text(name, style = MaterialTheme.typography.labelLarge, color = p.muted)
         }
         if (folded.isNotEmpty() || b.notes.isNotEmpty()) Steps(b, folded)
-        for (c in asking) key(c.id) { Approval(c) { ok -> r.decide(b.turn ?: throw RemoteError("This answer isn't running any more."), c.id, ok) } }
+        for (c in asking) key(c.id) {
+            val decide: suspend (Boolean) -> Unit = { ok -> r.decide(b.turn ?: throw RemoteError("This answer isn't running any more."), c.id, ok) }
+            if (c.lead != null) LeadWait(c, decide) else Approval(c, decide)
+        }
         for ((note, phone) in b.steers) SteerNote(note, phone)
         b.line?.let { WorkingLine(b, it) }
         b.answer?.let { a ->
@@ -586,6 +591,23 @@ private fun Approval(c: Card, onDecide: suspend (Boolean) -> Unit) {
                 else Text(if (c.name == "run_command") "Run it" else "Allow")
             }
         }
+    }
+}
+
+/** A step the team's rules give to a lead: it waits for their yes (at their desk or on their phone); you can cancel it. */
+@Composable
+private fun LeadWait(c: Card, onDecide: suspend (Boolean) -> Unit) {
+    val p = LocalPalette.current
+    val scope = rememberCoroutineScope()
+    var sending by remember { mutableStateOf(false) }
+    val (verb, what) = Labels.of(c.name, c.args)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.panel).border(1.dp, p.line2, RoundedCornerShape(20.dp))
+        .padding(16.dp).testTag("lead-wait"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Waiting for ${c.lead}'s yes", style = MaterialTheme.typography.titleMedium)
+        Text("$verb $what".trim(), style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 4, overflow = TextOverflow.Ellipsis)
+        Text("Your team's rules give this step to a lead. It goes ahead when they say yes.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { sending = true; scope.launch { runCatching { onDecide(false) }; sending = false } }, enabled = !sending,
+            shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Cancel the step") }
     }
 }
 

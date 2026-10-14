@@ -602,6 +602,43 @@ def test_tasks_have_deadlines(app):
     assert yang.post("/v1/tasks", params=q, json={"title": "x", "due": "30/10/2026"}).status_code == 422
 
 
+def test_team_rules_decisions_and_a_leads_yes(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha = join(app, yang, team, "asha")
+    q = {"team": team}
+    # decisions: anyone in the team pins one; every agent gets them with the board, with who decided
+    r = asha.post("/v1/decisions", params=q, json={"text": "Deploys go out on Fridays only"})
+    assert r.status_code == 200, r.text
+    assert r.json()["decisions"][0]["by"]["name"] == "asha" and r.json()["decisions"][0]["by"]["role"] == "member"
+    yang.post("/v1/decisions", params=q, json={"text": "Postgres, not Mongo"})
+    rules = yang.get("/v1/board", params=q).json()["rules"]
+    assert [d["text"] for d in rules["decisions"]] == ["Deploys go out on Fridays only", "Postgres, not Mongo"] and rules["leads"] == ["yang"]
+    mine, leads = rules["decisions"][0]["id"], rules["decisions"][1]["id"]
+    assert asha.delete(f"/v1/decisions/{leads}", params=q).status_code == 404  # a member removes only their own
+    assert [d["text"] for d in yang.delete(f"/v1/decisions/{mine}", params=q).json()["decisions"]] == ["Postgres, not Mongo"]  # a lead, any
+    # the steps that need a lead's yes: a lead sets them
+    assert asha.put("/v1/rules", params=q, json={"lead_approves": ["push"]}).status_code == 403
+    assert yang.put("/v1/rules", params=q, json={"lead_approves": ["board", "push", "nonsense"]}).json()["lead_approves"] == ["push", "board"]
+    # a member's agent asks; a lead sees it and decides, once; the member's agent reads the answer
+    ask = {"rule": "push", "tool": "git_push", "what": "Push acme-web to GitHub"}
+    assert asha.post("/v1/approvals", params=q, json={**ask, "rule": "shell"}).status_code == 400  # not one of the team's rules
+    a = asha.post("/v1/approvals", params=q, json=ask).json()
+    assert a["status"] == "pending" and a["leads"] == ["yang"]
+    assert asha.get("/v1/approvals", params=q).json() == {"approvals": []}  # a member's list of what waits on them: empty
+    inbox = yang.get("/v1/approvals", params=q).json()["approvals"]
+    assert [(x["what"], x["from"]["name"]) for x in inbox] == [("Push acme-web to GitHub", "asha")]
+    assert asha.post(f"/v1/approvals/{a['id']}/decide", params=q, json={"approve": True}).status_code == 403
+    assert yang.post(f"/v1/approvals/{a['id']}/decide", params=q, json={"approve": False, "note": "Not today"}).json()["status"] == "denied"
+    got = asha.get(f"/v1/approvals/{a['id']}", params=q).json()
+    assert (got["status"], got["note"], got["decided_by"]) == ("denied", "Not today", "yang")
+    assert yang.post(f"/v1/approvals/{a['id']}/decide", params=q, json={"approve": True}).status_code == 409
+    b = asha.post("/v1/approvals", params=q, json={**ask, "rule": "board", "tool": "close_task", "what": "Close T-3"}).json()
+    assert asha.post(f"/v1/approvals/{b['id']}/cancel", params=q).json()["status"] == "cancelled"  # the member moved on
+    assert yang.get("/v1/approvals", params=q).json()["approvals"] == []
+    assert yang.post("/v1/approvals", params=q, json=ask).status_code == 400  # a lead's own yes is enough
+
+
 def test_the_lead_links_the_teams_github_repos_for_get_the_project(app):
     yang = signin(app, "yang")
     team = new_team(yang)

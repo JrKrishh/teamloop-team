@@ -281,6 +281,80 @@ def test_a_note_that_arrives_as_it_answers_gets_answered_too(home):
     assert any(e["kind"] == "steer" for e in loop.load_chat(t.chat["id"])["view"][0]["events"])  # kept with the chat
 
 
+def rules_hub(statuses_seen, role="member"):
+    """A hub whose team gives board changes to its lead (Yang) and has one pinned decision; a lead's answers to the
+    request come from statuses_seen, one per look (the last one stays)."""
+    calls = []
+
+    def hub(method, path, body=None):
+        calls.append((method, path, body))
+        if path == "board":
+            return {"room": "Loopers", "role": role, "members": [{"name": "Yang"}, {"name": "Asha"}], "tasks": [],
+                    "rules": {"lead_approves": ["board"], "leads": ["Yang"],
+                              "decisions": [{"text": "Deploys go out on Fridays only", "by": {"name": "Yang", "role": "lead"}}]}}
+        if path == "approvals":
+            return {"id": "a1", "status": "pending", "leads": ["Yang"]}
+        if path == "approvals/a1":
+            return statuses_seen.pop(0) if len(statuses_seen) > 1 else statuses_seen[0]
+        if path.startswith("tasks/"):
+            return {"task": "T-3"}
+        return {}
+    return hub, calls
+
+
+def lead_turn(hub, llm):
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="close T-3", attachments=[], mode="manual",
+                  model="auto", hub=hub, llm=llm, mcp=NoMcp(), person="Asha")
+    th = threading.Thread(target=t.run, daemon=True)
+    th.start()
+    deadline = time.time() + 10
+    while not any(e.get("lead") for e in t.events) and time.time() < deadline:
+        time.sleep(0.02)
+    return t, th
+
+
+def test_a_step_the_teams_rules_give_to_a_lead_waits_for_their_yes(home, monkeypatch):
+    monkeypatch.setattr(loop, "LEAD_POLL", 0.05)
+    hub, calls = rules_hub([{"status": "pending"}, {"status": "approved", "decided_by": "Yang"}])
+    llm, sent = script(call("close_task", {"task": "T-3"}, "x1"), answer("Closed T-3."))
+    t, th = lead_turn(hub, llm)
+    t.decide("x1", True)  # the member's own yes doesn't count for this one
+    th.join(10)
+    assert ("POST", "approvals", {"rule": "board", "tool": "close_task", "what": "Close T-3", "detail": ""}) in calls
+    assert statuses(t, "close_task") == ["asking", "running", "done"]  # ran once Yang said yes
+    assert next(e for e in t.events if e.get("status") == "asking")["lead"] == "Yang"
+    assert "- Deploys go out on Fridays only (decided by Yang, lead)" in sent[0]["messages"][0]["content"]  # in every agent's prompt
+
+
+def test_a_leads_no_stops_the_step_and_a_member_can_cancel_one(home, monkeypatch):
+    monkeypatch.setattr(loop, "LEAD_POLL", 0.05)
+    hub, calls = rules_hub([{"status": "denied", "decided_by": "Yang", "note": "Not before the demo"}])
+    llm, sent = script(call("close_task", {"task": "T-3"}, "x1"), answer("Left it open."))
+    t, th = lead_turn(hub, llm)
+    th.join(10)
+    assert statuses(t, "close_task") == ["asking", "declined"] and not any(c[0] == "PATCH" for c in calls)
+    assert "Yang said no: Not before the demo" in [m for m in sent[1]["messages"] if m["role"] == "tool"][0]["content"]
+    hub, calls = rules_hub([{"status": "pending"}])  # nobody answers; Asha moves on
+    llm, sent = script(call("close_task", {"task": "T-3"}, "x2"), answer("OK."))
+    t, th = lead_turn(hub, llm)
+    t.decide("x2", False)
+    th.join(10)
+    assert statuses(t, "close_task") == ["asking", "declined"] and ("POST", "approvals/a1/cancel", None) in calls
+    hub, calls = rules_hub([{"status": "pending"}], role="lead")  # a lead's own agents ask the lead: as always
+    llm, _ = script(call("close_task", {"task": "T-3"}, "x3"), answer("Closed."))
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="close T-3", attachments=[], mode="auto",
+                  model="auto", hub=hub, llm=llm, mcp=NoMcp(), person="Yang")
+    t.run()
+    assert statuses(t, "close_task") == ["running", "done"] and not any(c[1] == "approvals" for c in calls)
+
+
+def test_agents_pin_team_decisions(home):
+    calls = []
+    llm, _ = script(call("pin_decision", {"text": "Postgres, not Mongo"}), answer("Pinned."))
+    t = run_turn("auto", llm, calls)
+    assert statuses(t, "pin_decision") == ["running", "done"] and ("POST", "decisions", {"text": "Postgres, not Mongo"}) in calls
+
+
 def test_auto_runs_changes_but_shell_commands_still_ask(home):
     hub_calls = []
     llm, _ = script(call("create_task", {"title": "x"}, "a1"), call("run_command", {"command": "echo hi"}, "a2"), answer("ok"))

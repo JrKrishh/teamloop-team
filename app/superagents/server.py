@@ -46,7 +46,8 @@ CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settin
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)|shares|shares/[0-9a-f-]{36}"
                          r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40}"
                          r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread"
-                         r"|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?)$")
+                         r"|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?"
+                         r"|rules|decisions|decisions/[0-9a-f-]{36}|approvals|approvals/[0-9a-f-]{36}(/(decide|cancel))?)$")
 
 
 class State:
@@ -746,7 +747,7 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         for t in list(state.turns.values()):
             if t.done:
                 continue
-            waiting = [cid for cid, e in list(t.decisions.items()) if not e.is_set()]
+            waiting = [cid for cid, e in list(t.decisions.items()) if not e.is_set() and t.waiting.get(cid) != "lead"]  # a lead's, not yours
             out.append({"turn": t.id, "chat": t.chat.get("id"), "agent": t.agent.get("id"), "message": t.message[:200],
                         "asking": bool(waiting), "ask": step_of(t, call=waiting[-1]) if waiting else None,
                         "now": None if waiting else step_of(t, status="running")})

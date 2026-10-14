@@ -279,6 +279,11 @@ def create_task(ctx, title: str, owner: str = "", task: str = "", due: str = "")
             + (f", {due_text(r['due'])}" if r.get("due") else ""))
 
 
+def pin_decision(ctx, text: str) -> str:
+    r = ctx.hub("POST", "decisions", {"text": text})
+    return f"Pinned for the whole team ({len(r.get('decisions') or [])} decisions now): {text.strip()}. Every teammate's agents follow it."
+
+
 def set_deadline(ctx, task: str, due: str) -> str:
     if due and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
         raise ValueError("Give the deadline as YYYY-MM-DD, or empty to clear it")
@@ -641,6 +646,9 @@ BUILTINS = [
             "number it. due: a deadline as YYYY-MM-DD, or empty.", {"title": S, "owner": S, "task": S, "due": S}, ("title",), create_task),
     Builtin("set_deadline", "team", "change", "Set a task's deadline (YYYY-MM-DD), or clear it with an empty due.",
             {"task": S, "due": S}, ("task", "due"), set_deadline),
+    Builtin("pin_decision", "team", "change", "Pin a decision every agent in the team follows from now on, with the person as who "
+            "decided: a lasting team choice they state (\"we deploy on Fridays\", \"Postgres, not Mongo\"). Not for personal "
+            "preferences: remember those.", {"text": S}, ("text",), pin_decision),
     Builtin("team_sessions", "team", "read", "Teammates' Claude Code and Codex sessions from the last day: repo, task, how active, "
             "and each owner's rules for prompts from teammates (off, asks first, automatic; read only or can edit; daily tokens).",
             {}, (), team_sessions),
