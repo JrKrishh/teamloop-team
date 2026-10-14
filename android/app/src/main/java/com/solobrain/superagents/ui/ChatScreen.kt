@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.sp
 import com.solobrain.superagents.remote.Agent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -318,7 +317,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
                 loading -> Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Mascot(size = 72.dp, mood = Mood.Think); Text("Opening…", color = p.muted)
                 }
-                model.items.isEmpty() -> Welcome(onAsk = { send(it) })
+                model.items.isEmpty() -> Welcome(hoodOf(agent, who?.color), onAsk = { send(it) })
                 else -> LazyColumn(state = list, contentPadding = PaddingValues(18.dp, 16.dp, 18.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
                     itemsIndexed(model.items) { _, item ->
                         when (item) {
@@ -411,11 +410,11 @@ private fun EffortTrack(at: Int, onPick: (Int) -> Unit) {
 
 /** A new chat: the mascot says hello, with a few things to ask. */
 @Composable
-private fun Welcome(onAsk: (String) -> Unit) {
+private fun Welcome(hood: Color?, onAsk: (String) -> Unit) {
     val p = LocalPalette.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        Mascot(size = 88.dp, mood = Mood.Wave, interactive = true)
+        Mascot(size = 88.dp, mood = Mood.Wave, interactive = true, hood = hood)
         Spacer(Modifier.height(18.dp))
         Text("What should your agents do?", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
@@ -439,14 +438,10 @@ private fun UserBubble(text: String) {
     }
 }
 
-/** Who answers: the mascot is Agent S's face; other agents get their colour and initial. */
+/** Who answers: every agent is a mascot in its own hood colour; Agent S's is the page's ink. */
 @Composable
-private fun Avatar(agentId: String?, name: String, color: String?, size: Dp) {
-    if (agentId == null || agentId == "agent-s") Mascot(size = size, mood = Mood.Idle, fidget = false)
-    else Box(Modifier.size(size).background(parseColor(color) ?: LocalPalette.current.brick, CircleShape), contentAlignment = Alignment.Center) {
-        Text(name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium.copy(fontSize = (size.value * 0.48f).sp), color = Color.White)
-    }
-}
+private fun Avatar(agentId: String?, name: String, color: String?, size: Dp) =
+    Mascot(size = size, mood = Mood.Idle, fidget = false, hood = hoodOf(agentId, color), label = name)
 
 /** One box for writing: the message, then who answers and how, and send, all inside it, as in Claude's app. */
 @Composable
@@ -503,6 +498,7 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
     val asking = cards.filter { b.waiting(it) && it.status == "asking" }
     val planned = cards.filter { b.waiting(it) && it.status == "planned" }
     val name = who?.name ?: "Agent S"
+    val hood = hoodOf(b.agent, who?.color)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(b.agent, name, who?.color, 24.dp); Spacer(Modifier.width(8.dp))
@@ -511,17 +507,17 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
         if (folded.isNotEmpty() || b.notes.isNotEmpty()) Steps(b, folded)
         for (c in asking) key(c.id) {
             val decide: suspend (Boolean) -> Unit = { ok -> r.decide(b.turn ?: throw RemoteError("This answer isn't running any more."), c.id, ok) }
-            if (c.lead != null) LeadWait(c, decide) else Approval(c, decide)
+            if (c.lead != null) LeadWait(c, decide) else Approval(c, hood, decide)
         }
         for ((note, phone) in b.steers) SteerNote(note, phone)
-        b.line?.let { WorkingLine(b, it) }
+        b.line?.let { WorkingLine(b, it, hood) }
         b.answer?.let { a ->
             Markdown(a)
             if (model.running == null || model.running != b.turn) AnswerActions(a)  // not while it's still being written
         }
         b.failed?.let {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.bad.copy(alpha = 0.10f)).padding(12.dp)) {
-                Mascot(size = 28.dp, mood = Mood.Oops); Spacer(Modifier.width(10.dp))
+                Mascot(size = 28.dp, mood = Mood.Oops, hood = hood); Spacer(Modifier.width(10.dp))
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = p.bad)
             }
         }
@@ -548,7 +544,7 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
  *  buzz, a spinner on the button) and the card goes when the laptop starts the step; if the answer can't get there,
  *  the card says so and both buttons work again. */
 @Composable
-private fun Approval(c: Card, onDecide: suspend (Boolean) -> Unit) {
+private fun Approval(c: Card, hood: Color?, onDecide: suspend (Boolean) -> Unit) {
     val p = LocalPalette.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -569,7 +565,7 @@ private fun Approval(c: Card, onDecide: suspend (Boolean) -> Unit) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.panel).border(1.dp, p.warn.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
         .padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Mascot(size = 32.dp, mood = Mood.Ask)
+            Mascot(size = 32.dp, mood = Mood.Ask, hood = hood)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (c.name == "run_command") "Wants to run a command" else "Wants to ${verb.lowercase()} this", style = MaterialTheme.typography.titleMedium)
@@ -645,7 +641,7 @@ private fun shimmer(base: Color, glow: Color): Brush {
 /** What the agent is doing now: the mascot acts out the step, and the line names it with a shimmer, like Claude's
  *  "thinking". A quick step (reading a file takes milliseconds) stays up a moment, long enough to be seen. */
 @Composable
-private fun WorkingLine(b: Block, line: String) {
+private fun WorkingLine(b: Block, line: String, hood: Color?) {
     val p = LocalPalette.current
     val latest = b.order.lastOrNull()?.let { b.cards[it] }
     var shown by remember(b) { mutableStateOf<Card?>(null) }
@@ -656,7 +652,7 @@ private fun WorkingLine(b: Block, line: String) {
     val step = shown
     val acting = step != null && step.status != "asking"
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Mascot(size = 32.dp, mood = when { step == null -> Mood.Think; step.status == "asking" -> Mood.Ask; else -> moodFor(step.name) })
+        Mascot(size = 32.dp, mood = when { step == null -> Mood.Think; step.status == "asking" -> Mood.Ask; else -> moodFor(step.name) }, hood = hood)
         Spacer(Modifier.width(10.dp))
         val style = if (acting) MaterialTheme.typography.bodySmall.copy(fontFamily = Mono) else MaterialTheme.typography.bodyMedium
         Text(if (acting) Labels.of(step!!.name, step.args).let { (v, w) -> "$v $w".trim() } else line, maxLines = 1, overflow = TextOverflow.Ellipsis,

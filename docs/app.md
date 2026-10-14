@@ -19,6 +19,7 @@ Agent S is built in; add more on **Agents** (a reviewer, a release manager, a re
 - **Default model and mode**, applied when you pick it in the composer.
 - **Tools**, in groups: **Team board** (read the board and the team's history; create, assign, close, start tasks), **Files and git** (read, search and write in the repos connected on This laptop; branch, commit, push and open pull requests, below), **Terminal** (run shell commands; always asks first), **Browser** (the agent browser and dev servers; below), **Memory** (`remember`, `forget`, `recall`; below), **Desktop** (Windows apps through their own controls; off until you turn it on; below).
 - **Skills** and **Connectors** (below).
+- **Hood**: its colour. Every agent is the mascot in its own hood, on the desktop and the phone (the editor shows it as you pick); it breathes, blinks, glances about and ponders while it thinks, and on the hello screen and in the editor its eyes follow your pointer.
 
 Agents live in `~/.teamloop/agents.json`. Agent S's instructions are editable; it can't be deleted.
 
@@ -71,7 +72,7 @@ The buttons at the top right open a panel next to the chat (drag its edge to res
 - **Terminal** (Ctrl+`): a real shell (PowerShell 7 if installed, else Windows PowerShell) in a pseudo-console, in your first connected repo. Tabs for more than one.
 - **Browser:** the browser you share with your agents (below), live and sized to the panel. Click, scroll and type in it to use it yourself or to take over from an agent; "Open in its own window" shows a page in a plain Super Agents window.
 
-**Expand** (the arrows next to the panel's close button) gives the panel the whole work area, for a terminal or a page at full width; picking a view in the sidebar puts it back. The sidebar on the left folds to icons with the button at its top or **Ctrl+B** (names show as tooltips) and stays folded next time.
+**Expand** (the arrows next to the panel's close button) gives the panel the whole work area, for a terminal or a page at full width; picking a view in the sidebar puts it back. The sidebar on the left folds to icons with the button at its top or **Ctrl+B** (names show as tooltips) and stays folded next time. Its chats are as in the Android app: the latest three under **Recent**, then **Projects**, a folder per project (the repo the agent worked in, General for the rest) that opens in place and stays as you left it.
 
 ## The agent browser
 Agents use a real browser (`runtime/browser.py`): the installed Microsoft Edge (or Chrome), driven with Playwright, with its own profile in `~/.teamloop/browser`, apart from your own browser and its sign-ins. You watch it in the Browser panel as it works ("Agent S is using the browser", a ring where it clicks), and it's yours too: what you click and type there goes to the same page.
@@ -109,7 +110,7 @@ Your agents keep running on the laptop; the phone drives them, like Claude Code'
   - below them, what each agent is working on now;
   - a question from a turn started at the desk arrives within seconds, so you can walk away and answer from your pocket.
 - **Chats:**
-  - search, a few one-tap questions ("What's blocked right now?"), and your chats: in the Android app the latest three, then a folder per project (the repo the agent worked in, General for the rest), each opening in place; in the web app, by day;
+  - search, a few one-tap questions ("What's blocked right now?"), and your chats: in the Android app (and the desktop sidebar) the latest three, then a folder per project (the repo the agent worked in, General for the rest), each opening in place; in the web app, by day;
   - in a chat: start or continue one with any agent and mode (one tap picks both); watch a turn live with its steps folded as on the laptop; approve or deny; run or discard a plan; stop a turn. Answers show as on Claude: tables (sideways scrolling when wide), headings, lists, quotes, and code blocks with a Copy button.
 - **Board:** the team's tasks, active first, with Agent S's estimate next to what the coding agent claims and what blocks each one. Tap a task to ask Agent S about it.
 - **The Android app adds:**
@@ -121,7 +122,7 @@ Your agents keep running on the laptop; the phone drives them, like Claude Code'
   - a quiet "Connected to …'s laptop" notification while it holds the line; Settings → Stay connected in the background turns that off;
   - a QR scanner for pairing (Google's code scanner, so no camera permission);
   - a fingerprint or face lock (on opening, and after a minute away);
-  - the mascot: it drops in at startup, waves on Connect, celebrates a pairing and sleeps when the laptop is away. While a turn runs it acts out the step (reading, running a command, writing, searching), hops in when a question arrives and droops when a turn fails; idle, it looks around now and then, and giggles when tapped;
+  - the mascot: it drops in at startup, waves on Connect, celebrates a pairing and sleeps when the laptop is away. While a turn runs it acts out the step (reading, running a command, writing, searching), hops in when a question arrives and droops when a turn fails; idle, it looks around now and then, and giggles when tapped. Each agent wears its own hood colour. Its eyes dart and its head turns after them, a breath moves it from its base, and going from one step to the next eases over instead of jumping;
   - haptics on yes and no, and Android's back button.
 - **Pairing:** Settings → Phone. Turn it on (it's off by default), press **Pair a phone** and scan the code: with the Android app's scanner, or with the phone's camera for the web app. No app store. A code nobody scans expires in 10 minutes.
 - **End-to-end encrypted:**
