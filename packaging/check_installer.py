@@ -87,6 +87,6 @@ subprocess.run([str(APP / "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "
 check("uninstalling removes the app and its Settings entry",  # the uninstaller carries on from a copy in %TEMP%
       until(lambda: not (APP / "SuperAgents.exe").exists() and listed() is None, 180))
 check("and its shortcuts", not any(s.exists() for s in shortcuts))
-check("and its PATH entry", not on_path())
+check("and its PATH entry", until(lambda: not on_path(), 60))  # the uninstaller's very last step, after the files
 print(f"{'all checks pass' if not failed else str(len(failed)) + ' failed: ' + ', '.join(failed)}")
 sys.exit(1 if failed else 0)
