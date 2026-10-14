@@ -23,14 +23,30 @@
 
 <!-- Sign in -->
 <section class="screen login" id="login" hidden>
+  <div class="drag-strip" aria-hidden="true"></div>
   <div class="login-brand">
-    <div class="login-cast" id="loginCast" aria-hidden="true"></div>
-    <h1 class="login-head">Your team's AI agents,<br>on one page.</h1>
-    <ul class="login-points">
-      <li><b>Live progress</b> from every teammate's Claude Code and Codex sessions.</li>
-      <li><b>Agent S answers</b> with the evidence. No evidence, no answer.</li>
-      <li><b>Summaries only.</b> Code, prompts and diffs stay on each laptop.</li>
-    </ul>
+    <div class="brand-row"><span class="brand-mark" id="loginMark"></span>Super Agents</div>
+    <div>
+      <h1 class="login-head">Your team's AI agents,<br>on one page.</h1>
+      <p class="login-sub">Live progress from every teammate's Claude Code and Codex session, answers that show their evidence, and a yes from your phone. Code, prompts and diffs stay on each laptop.</p>
+    </div>
+    <!-- The product at work: an illustration, not live data -->
+    <div class="stage" aria-hidden="true">
+      <div class="stage-inner">
+        <div class="sc-card sc-live">
+          <div class="sc-head"><span class="sc-pulse"></span>Live now<span class="sc-meta">3 sessions</span></div>
+          <div class="sc-row"><span class="sc-who" style="--c:#3E9B6B">A</span><div class="sc-what"><b>Asha · Claude Code</b><small>T-22 · Stream board updates</small></div><div class="sc-prog"><i style="--w:64%"></i><span>64%</span></div></div>
+          <div class="sc-row"><span class="sc-who" style="--c:#8E6BD8">R</span><div class="sc-what"><b>Ravi · Codex</b><small>T-19 · Fix the sign-in redirect</small></div><div class="sc-prog"><i style="--w:88%"></i><span>88%</span></div></div>
+          <div class="sc-row"><span class="sc-who" style="--c:#C98A3B">M</span><div class="sc-what"><b>Mei · Claude Code</b><small>T-25 · Rate-limit the API</small></div><div class="sc-prog"><i style="--w:31%"></i><span>31%</span></div></div>
+        </div>
+        <div class="sc-card sc-ask">
+          <div class="sc-q">What's blocking the release?</div>
+          <div class="sc-a"><span class="sc-face" id="loginFace"></span><p><b>T-19 waits on review.</b> Ravi's PR #42 passes CI. T-22's reconnect test still fails in Asha's session.</p></div>
+          <div class="sc-cites"><span>session 7f2c · 14:02</span><span>PR #42</span><span>T-22</span></div>
+        </div>
+        <div class="sc-card sc-ping"><span class="sc-face" id="loginPing"></span><div><b>Agent S needs you</b><small>Run <code>npm test</code> on Asha's laptop?</small></div><span class="sc-btn">Run it</span></div>
+      </div>
+    </div>
     <div class="login-foot">Open source · Built on NVIDIA Nemotron</div>
   </div>
   <div class="login-panel">
@@ -63,6 +79,7 @@
 
 <!-- First run: a team, then this laptop -->
 <section class="screen onboard" id="onboard" hidden>
+  <div class="drag-strip" aria-hidden="true"></div>
   <div class="onboard-inner">
     <div class="onboard-head" id="onboardHead"></div>
     <div class="choice-grid" id="onboardChoices">
@@ -284,6 +301,14 @@
 <script src="/ui/vendor/purify.min.js"></script>
 <script src="/ui/vendor/highlight.min.js"></script>
 <script src="/ui/vendor/hljs-powershell.min.js"></script>
+<!-- Windows: the buttons of the app's own title bar (html.custom-frame, see frame.py). Last on the page, so their
+     no-drag area is laid over every drag area before it. -->
+<div class="winctl" id="winctl" role="group" aria-label="Window">
+  <button type="button" id="winMin" title="Minimise" aria-label="Minimise"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10"/></svg></button>
+  <button type="button" id="winMax" title="Maximise" aria-label="Maximise"><svg class="max" viewBox="0 0 10 10" aria-hidden="true"><path d="M.5.5h9v9h-9z"/></svg><svg class="restore" viewBox="0 0 10 10" aria-hidden="true"><path d="M.5 2.5h7v7h-7z M2.5 2.5v-2h7v7h-2"/></svg></button>
+  <button type="button" id="winClose" class="close" title="Close" aria-label="Close"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></button>
+</div>
+
 <script src="/ui/vendor/xterm.js"></script>
 <script src="/ui/vendor/addon-fit.js"></script>
 <script src="/ui/app.js"></script>

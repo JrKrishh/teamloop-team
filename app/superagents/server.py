@@ -57,6 +57,7 @@ class State:
         self.flows: dict[str, str] = {}  # pending GitHub sign-in: flow id -> PKCE verifier
         self.auth: dict = {"state": "idle"}
         self.window = None  # the pywebview window, for the folder picker and bringing the app to the front
+        self.frame = "native"  # "custom" once the app draws its own title bar (frame.py)
         self.supabase: Optional[dict] = None
         self.turns: dict[str, runtime_loop.Turn] = {}
         self._mcp: Optional[mcpman.Manager] = None
@@ -293,7 +294,8 @@ def github_issues(repo: str) -> dict:
 def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
            pick_folder: Optional[Callable[[], Optional[str]]] = None,
            set_title_theme: Optional[Callable[[bool], None]] = None,
-           show_window: Optional[Callable[[], None]] = None) -> FastAPI:
+           show_window: Optional[Callable[[], None]] = None,
+           window_action: Optional[Callable[[str], None]] = None) -> FastAPI:
     app = FastAPI(title="Super Agents", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     browser.APP_PORT = state.port
 
@@ -317,7 +319,8 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     def boot() -> dict:
         s = store.load()
         out = {"version": __version__, "cloud": state.cloud, "signed_in": False, "user": None, "teams": [],
-               "team": None, "laptop": laptop.status(), "offline": None, "prefs": s.get("prefs") or {"theme": "dark"}}
+               "team": None, "laptop": laptop.status(), "offline": None, "prefs": s.get("prefs") or {"theme": "dark"},
+               "frame": state.frame}
         if not s.get("session"):
             return out
         code, me = cloud(state, "GET", "/v1/me")
@@ -471,6 +474,25 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     def window_show() -> dict:  # the app was launched again: this window comes forward instead
         if show_window:
             show_window()
+        return {"ok": True}
+
+    # the buttons of the app's own title bar (frame.py)
+    @app.post("/api/window/minimize")
+    def window_minimize() -> dict:
+        if window_action:
+            window_action("minimize")
+        return {"ok": True}
+
+    @app.post("/api/window/maximize")
+    def window_maximize() -> dict:  # or restore, when it's maximised
+        if window_action:
+            window_action("maximize")
+        return {"ok": True}
+
+    @app.post("/api/window/close")
+    def window_close() -> dict:
+        if window_action:
+            window_action("close")
         return {"ok": True}
 
     @app.post("/api/prefs")

@@ -275,6 +275,20 @@ def test_a_second_launch_shows_the_open_window(env):
     assert one.post("/api/window/show", headers={"X-App-Key": "the-key"}).json() == {"ok": True} and shown == [True]
 
 
+def test_the_apps_own_title_bar(env):
+    client, hub, state, opened = env
+    assert client.get("/api/boot").json()["frame"] == "native"  # until frame.py has drawn its own
+    state.frame = "custom"
+    assert client.get("/api/boot").json()["frame"] == "custom"
+    done = []
+    app = server.create(state, window_action=done.append)
+    buttons = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
+    assert buttons.post("/api/window/close").status_code == 403  # only with this copy's key
+    for name in ("minimize", "maximize", "close"):
+        assert buttons.post(f"/api/window/{name}", headers={"X-App-Key": "the-key"}).json() == {"ok": True}
+    assert done == ["minimize", "maximize", "close"]
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="the one-copy lock is a Windows mutex")
 def test_only_one_copy_runs(tmp_path, monkeypatch):
     monkeypatch.setenv("TEAMLOOP_HOME", str(tmp_path / "home"))

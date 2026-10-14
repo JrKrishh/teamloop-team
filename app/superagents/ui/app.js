@@ -154,6 +154,7 @@ async function start() {
   const splash = new Promise(r => setTimeout(r, REDUCED ? 150 : 2150));
   let boot = null;
   try { boot = await api("/api/boot"); } catch (e) { /* shown below */ }
+  if (boot) setupFrame(boot.frame === "custom");  // the window's own buttons, over the splash already
   await splash;
   $("splash").classList.add("out");
   setTimeout(() => $("splash").remove(), 520);
@@ -161,8 +162,30 @@ async function start() {
   applyBoot(boot);
 }
 
+// Windows: the app draws its own title bar (frame.py); these are its buttons
+function setupFrame(on) {
+  const root = document.documentElement;
+  if (!on || root.classList.contains("custom-frame")) return;
+  root.classList.add("custom-frame");
+  const max = $("winMax");
+  const sync = () => {  // maximised: the window fills the screen's work area
+    const big = outerWidth >= screen.availWidth && outerHeight >= screen.availHeight;
+    max.dataset.max = String(big); max.title = max.ariaLabel = big ? "Restore" : "Maximise";
+    const top = document.querySelector(".shell:not([hidden]) .top");  // the buttons as tall as the app's header
+    root.style.setProperty("--winbar", top ? `${top.offsetHeight - 1}px` : "40px");
+  };
+  addEventListener("resize", sync);
+  new MutationObserver(sync).observe($("shell"), {attributes: true, attributeFilter: ["hidden"]});
+  sync();
+  for (const [id, action] of [["winMin", "minimize"], ["winMax", "maximize"], ["winClose", "close"]])
+    $(id).onclick = () => api(`/api/window/${action}`, {method: "POST"}).catch(() => {});
+  addEventListener("blur", () => root.classList.add("win-blur"));
+  addEventListener("focus", () => root.classList.remove("win-blur"));
+}
+
 function applyBoot(boot) {
   S.boot = boot;
+  setupFrame(boot.frame === "custom");
   const prefs = boot.prefs || {};
   setTheme(prefs.theme || "dark", false);
   setMode(prefs.mode || "manual", false);
@@ -182,13 +205,7 @@ async function reboot() { applyBoot(await api("/api/boot")); }
 let signUp = false, waitTimer = null, lastAuthUrl = "";
 function showLogin() {
   show("login");
-  const cast = $("loginCast");
-  if (!cast.childElementCount) {
-    for (const [hood, size] of [["#3E9B6B", 92], ["#C2554C", 128], ["#8E6BD8", 92]]) {
-      const a = agent("", hood); a.setAttribute("width", size); a.setAttribute("height", size);
-      const w = el("span", "bob"); w.append(a); cast.append(w);
-    }
-  }
+  for (const id of ["loginMark", "loginFace", "loginPing"]) if (!$(id).childElementCount) $(id).append(agent("", "#C2554C"));
   $("loginForm").hidden = false; $("loginWait").hidden = true;
 }
 $("modeBtn").onclick = () => {

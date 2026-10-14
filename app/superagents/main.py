@@ -21,7 +21,7 @@ import uvicorn
 
 from teamloop import spool
 
-from . import laptop, remote, server, store
+from . import frame, laptop, remote, server, store
 from .runtime import browser, memory, superteam
 
 CLOUD = os.environ.get("TEAMLOOP_HUB", "https://teamloop.vercel.app")
@@ -101,6 +101,23 @@ def _show(window) -> None:
         window.show()
 
 
+def _window_action(state: server.State):
+    """The buttons of the app's own title bar."""
+    def act(name: str) -> None:
+        w = state.window
+        if w is None:
+            return
+        if name == "minimize":
+            w.minimize()
+        elif name == "maximize":
+            import ctypes
+
+            w.restore() if ctypes.windll.user32.IsZoomed(w.native.Handle.ToInt64()) else w.maximize()
+        elif name == "close":
+            w.destroy()
+    return act
+
+
 def _pick_folder(state: server.State):
     def pick():
         import webview
@@ -142,7 +159,8 @@ def main(argv: list[str] | None = None) -> int:
     sock.bind(("127.0.0.1", 0))
     state = server.State(args.hub, port=sock.getsockname()[1])
     app = server.create(state, pick_folder=_pick_folder(state),
-                        set_title_theme=lambda dark: _title_bar(state.window, dark), show_window=lambda: _show(state.window))
+                        set_title_theme=lambda dark: _title_bar(state.window, dark), show_window=lambda: _show(state.window),
+                        window_action=_window_action(state))
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=state.port, log_level="warning", log_config=None))
     threading.Thread(target=srv.run, kwargs={"sockets": [sock]}, daemon=True).start()
     for _ in range(200):
@@ -178,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     # the browser panel's "open in a window", for sites that won't show inside a frame
     state.open_window = lambda page: webview.create_window(f"Super Agents · {page.split('/')[2]}", page, width=1100, height=760)
     state.window.events.shown += lambda: _title_bar(state.window, True)
+    # the app's own title bar instead of Windows' (which Windows 10 may paint in the accent colour)
+    state.window.events.before_show += lambda window: frame.install(window, lambda ok: setattr(state, "frame", "custom" if ok else "native"))
     opened = spool.home() / "window.json"  # where a second launch finds this copy
     opened.parent.mkdir(parents=True, exist_ok=True)
     opened.write_text(json.dumps({"port": state.port, "key": state.key, "pid": os.getpid()}), encoding="utf-8")
