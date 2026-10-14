@@ -597,8 +597,21 @@ const shortModel = m => /ultra/i.test(m || "") ? "Nemotron Ultra" : /super/i.tes
   : /lightning/i.test(m || "") ? "Nemotron Lightning" : (m || "").replace(/^ollama:/, "local ");
 function setRunning(on) {
   S.running = on;
-  const b = $("askBtn"); b.classList.toggle("stop", on); b.setAttribute("aria-label", on ? "Stop" : "Send");
-  b.querySelector(".ic").innerHTML = icon(on ? "stop" : "up");
+  $("askIn").placeholder = on ? "Add a note while it works: it reads it before its next step" : ASK_PLACEHOLDER;
+  syncSend();
+}
+// The round button: Send; while an answer runs, Stop, or Send again once you type a note for it
+function syncSend() {
+  const note = S.running && S.steerable && $("askIn").value.trim(), stop = S.running && !note;
+  const b = $("askBtn"); b.classList.toggle("stop", stop); b.setAttribute("aria-label", stop ? "Stop" : note ? "Add the note" : "Send");
+  b.querySelector(".ic").innerHTML = icon(stop ? "stop" : "up");
+}
+// Typed while an answer runs, as into Claude Code: a note it reads before its next step; nothing stops. If the answer
+// has just finished, the note goes as the next message.
+let nextAsk = null;
+async function steer(text) {
+  try { await api(`/api/turns/${S.turn}/steer`, {method: "POST", body: {text}}); }
+  catch (e) { if (e.status === 409) nextAsk = text; else { toast(e.message, true); $("askIn").value = text; syncSend(); } }
 }
 
 // One turn of the agent loop on this laptop: start it, then follow its events (thinking, tool cards, the answer).
@@ -612,10 +625,11 @@ async function ask(q) {
   try {
     const r = await api("/api/turns", {method: "POST", body: {chat: S.chat, agent: a.id, message: q, mode: S.mode, model: S.model, effort: S.effort,
       team: S.team, attachments: files.map(f => ({name: f.name, text: f.text}))}});
-    S.chat = r.chat; S.turn = r.turn;
+    S.chat = r.chat; S.turn = r.turn; S.steerable = true; syncSend();
     await follow(turnState(slot, r.turn, S.mode), 0);
   } catch (e) { settle(slot); slot.m.classList.add("none"); slot.body.append(el("div", "answer", e.message)); }
-  setRunning(false); S.turn = null; loadChats(); loadBoard(); loadUsageChip();
+  S.steerable = false; setRunning(false); S.turn = null; loadChats(); loadBoard(); loadUsageChip();
+  if (nextAsk) { const n = nextAsk; nextAsk = null; ask(n); }
 }
 function turnState(slot, turnId, mode) { return {slot, turn: turnId, steps: slot.steps, cards: {}, cited: new Set(), mode: mode || "manual"}; }
 async function follow(st, after) {
@@ -647,6 +661,9 @@ function handleEvent(st, e, past) {
     st.mode = MODES[e.mode] ? e.mode : st.mode;
     st.steps.append(el("div", "narr", `Switched to ${MODES[st.mode].label} mode`));
     updateHead(st);
+  } else if (e.kind === "steer") {  // a note typed while it worked: in view, where the work is
+    const n = el("div", "steer-note"); n.append(el("b", null, e.via === "phone" ? "You, from your phone" : "You"), el("span", null, e.text));
+    s.body.insertBefore(n, s.line.isConnected ? s.line : null);
   } else if (e.kind === "browser") {
     if (!past && SIDE.pane !== "browser") openPane("browser");  // the person watches the agent use it
   } else if (e.kind === "answer") {
@@ -1036,15 +1053,21 @@ $("issuesForm").addEventListener("submit", async ev => {
 });
 
 const askIn = $("askIn");
-askIn.addEventListener("input", () => { askIn.style.height = "auto"; askIn.style.height = `${Math.min(askIn.scrollHeight, 180)}px`; });
+const ASK_PLACEHOLDER = askIn.placeholder;
+askIn.addEventListener("input", () => { askIn.style.height = "auto"; askIn.style.height = `${Math.min(askIn.scrollHeight, 180)}px`; syncSend(); });
 askIn.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!S.running) $("askForm").requestSubmit(); }
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!S.running || (S.steerable && askIn.value.trim())) $("askForm").requestSubmit(); }
   if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); setMode(MODE_ORDER[(MODE_ORDER.indexOf(S.mode) + 1) % MODE_ORDER.length]); }
 });
 $("askForm").addEventListener("submit", e => {
   e.preventDefault();
-  if (S.running) { if (S.turn) api(`/api/turns/${S.turn}/cancel`, {method: "POST"}).catch(() => {}); return; }  // the stop button
-  const q = askIn.value.trim(); if (!q) return;
+  const q = askIn.value.trim();
+  if (S.running) {
+    if (q && S.steerable) { askIn.value = ""; askIn.style.height = "auto"; syncSend(); steer(q); return; }  // a note while it works
+    if (S.turn) api(`/api/turns/${S.turn}/cancel`, {method: "POST"}).catch(() => {});  // the stop button
+    return;
+  }
+  if (!q) return;
   askIn.value = ""; askIn.style.height = "auto"; ask(q);
 });
 $("digestBtn").onclick = digest;

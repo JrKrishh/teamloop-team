@@ -108,7 +108,11 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.solobrain.superagents.remote
 import com.solobrain.superagents.remote.Labels
@@ -135,6 +139,7 @@ class Block(val agent: String?, val past: Boolean = false) {
     val cards = mutableStateMapOf<String, Card>()
     val order = mutableStateListOf<String>()
     val notes = mutableStateListOf<String>()
+    val steers = mutableStateListOf<Pair<String, Boolean>>()  // notes typed while it worked, and whether from the phone
     var answer by mutableStateOf<String?>(null)
     var failed by mutableStateOf<String?>(null)
     var line by mutableStateOf<String?>(if (past) null else "Thinking…")
@@ -183,6 +188,7 @@ class ChatModel {
             "thinking" -> b.line = "Thinking…"
             "text" -> b.notes.add(e.optString("text"))
             "mode" -> MODES.firstOrNull { it.first == e.optString("mode") }?.let { b.notes.add("Switched to ${it.second} mode") }  // while it ran
+            "steer" -> b.steers.add(e.optString("text") to (e.optString("via") == "phone"))  // a note typed while it worked
             "tool" -> {
                 val id = e.optString("id")
                 val c = b.cards[id] ?: Card(id).also { b.cards[id] = it; b.order.add(id) }
@@ -238,7 +244,13 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
 
     fun send(message: String) {
         val msg = message.trim()
-        if (msg.isEmpty() || model.running != null) return
+        if (msg.isEmpty()) return
+        model.running?.let { turn ->  // typed while it works: a note it reads before its next step; nothing stops
+            text = ""
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            scope.launch { runCatching { r.steer(turn, msg) }.onFailure { text = msg; Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } }
+            return
+        }
         text = ""
         follow = true
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -441,6 +453,7 @@ private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, a
     val p = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(26.dp)
+    val stop = running && text.isBlank()  // while it works: Stop, or send the note you typed for it
     val ready = running || text.isNotBlank()
     Box(Modifier.fillMaxWidth().background(p.bg).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp)) {
         Column(Modifier.fillMaxWidth().shadow(if (p.bg.luminance() > 0.5f) 10.dp else 0.dp, shape).clip(shape).background(p.panel)
@@ -449,7 +462,7 @@ private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, a
                 .onFocusChanged { focused = it.isFocused }.testTag("input"),
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = p.text), cursorBrush = SolidColor(p.brick),
                 decorationBox = { inner ->
-                    Box { if (text.isEmpty()) Text("Message your laptop's agents", style = MaterialTheme.typography.bodyLarge, color = p.faint); inner() }
+                    Box { if (text.isEmpty()) Text(if (running) "Add a note while it works" else "Message your laptop's agents", style = MaterialTheme.typography.bodyLarge, color = p.faint); inner() }
                 })
             Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.clip(RoundedCornerShape(999.dp)).background(p.panel2).clickable(onClick = onPick)
@@ -465,10 +478,10 @@ private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, a
                     Text(tuning, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
                 Spacer(Modifier.weight(1f))
-                Box(Modifier.size(40.dp).clip(CircleShape).background(if (running) p.text else if (ready) p.brick else p.panel2)
-                    .clickable { if (running) onStop() else onSend() }.testTag("send"), contentAlignment = Alignment.Center) {
-                    Icon(if (running) Glyph.Stop else Glyph.Up, if (running) "Stop" else "Send", Modifier.size(20.dp),
-                        tint = if (running) p.bg else if (ready) p.onBrick else p.faint)
+                Box(Modifier.size(40.dp).clip(CircleShape).background(if (stop) p.text else if (ready) p.brick else p.panel2)
+                    .clickable { if (stop) onStop() else onSend() }.testTag("send"), contentAlignment = Alignment.Center) {
+                    Icon(if (stop) Glyph.Stop else Glyph.Up, if (stop) "Stop" else if (running) "Add the note" else "Send", Modifier.size(20.dp),
+                        tint = if (stop) p.bg else if (ready) p.onBrick else p.faint)
                 }
             }
         }
@@ -495,6 +508,7 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
         }
         if (folded.isNotEmpty() || b.notes.isNotEmpty()) Steps(b, folded)
         for (c in asking) key(c.id) { Approval(c) { ok -> r.decide(b.turn ?: throw RemoteError("This answer isn't running any more."), c.id, ok) } }
+        for ((note, phone) in b.steers) SteerNote(note, phone)
         b.line?.let { WorkingLine(b, it) }
         b.answer?.let { a ->
             Markdown(a)
@@ -572,6 +586,20 @@ private fun Approval(c: Card, onDecide: suspend (Boolean) -> Unit) {
                 else Text(if (c.name == "run_command") "Run it" else "Allow")
             }
         }
+    }
+}
+
+/** A note typed while it worked, quoted with where it came from. */
+@Composable
+private fun SteerNote(note: String, phone: Boolean) {
+    val p = LocalPalette.current
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(Modifier.width(2.dp).fillMaxHeight().background(p.line2))
+        Spacer(Modifier.width(10.dp))
+        Text(buildAnnotatedString {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = p.text)) { append(if (phone) "You  " else "You, at the laptop  ") }
+            append(note)
+        }, style = MaterialTheme.typography.bodyMedium, color = p.muted)
     }
 }
 
