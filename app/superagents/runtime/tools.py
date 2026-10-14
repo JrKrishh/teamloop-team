@@ -213,6 +213,27 @@ def team_task(ctx, task: str) -> str:
     return f"{d['task']} [{d['status']}] {d.get('title') or ''}\n{tl or 'No sessions yet.'}"
 
 
+def _k(n: int) -> str:
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e3 else str(n)
+
+
+def team_usage(ctx, days: int = 7) -> str:
+    u = ctx.hub("GET", f"usage?days={max(1, min(int(days or 7), 30))}")
+    c, a = u["coding"], u["agents"]
+    lines = [f"Last {u['days']} days (tokens = fresh input + cache writes + output; cache reads apart):",
+             f"Coding agents: {_k(c['tokens'])} tokens over {c['turns']} turns in {c['sessions']} sessions "
+             f"(Claude Code {_k(u['tools']['claude_code']['tokens'])}, Codex {_k(u['tools']['codex']['tokens'])}; "
+             f"cache reads {_k(c['cr'])})",
+             f"Super Agents (Nemotron): {_k(a['tokens'])} tokens over {a['calls']} calls"]
+    if u["tasks"]:
+        lines.append("By task: " + "; ".join(f"{t['task']} {_k(t['tokens'])} ({', '.join(t['people'])})" for t in u["tasks"][:10]))
+    if u["people"]:
+        who = "By person" if u["scope"] == "team" else "You"
+        lines.append(f"{who}: " + "; ".join(f"{p['name']} {_k(p['total'])}" for p in u["people"]))
+    lines.append("By day: " + ", ".join(f"{d['day'][5:]} {_k(d['claude_code'] + d['codex'] + d['agents'])}" for d in u["by_day"]))
+    return "\n".join(lines)
+
+
 def create_task(ctx, title: str, owner: str = "", task: str = "") -> str:
     r = ctx.hub("POST", "tasks", {"title": title, "owner": owner or None, "task": task})
     return f"Created {r['task']}: {r['title']}" + (f" (owner {r['owner']})" if r.get("owner") else "")
@@ -248,6 +269,8 @@ BUILTINS = [
     Builtin("team_ask", "team", "read", "Ask the team's session history a question. The answer comes with citations (event ids); claims about what the team did must come from here.",
             {"question": S}, ("question",), team_ask),
     Builtin("team_task", "team", "read", "One task's full timeline from the developers' coding sessions.", {"task": S}, ("task",), team_task),
+    Builtin("team_usage", "team", "read", "AI usage: coding agents' and Super Agents' tokens by task, tool, day and person "
+            "(the lead sees everyone; a member, themself). days: 1-30, default 7.", {"days": I}, (), team_usage),
     Builtin("create_task", "team", "change", "Add a task to the board. owner: a member's name or empty. task: an id like T-23, or empty to number it.",
             {"title": S, "owner": S, "task": S}, ("title",), create_task),
     Builtin("assign_task", "team", "change", "Give a task to a member (by name).", {"task": S, "owner": S}, ("task", "owner"), assign_task),

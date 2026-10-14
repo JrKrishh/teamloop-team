@@ -16,7 +16,12 @@ browser / app window           --session cookie---->       (same function)      
 - **Teams:** whoever creates a team is its lead. Leads make invite links (7 days, up to 20 people), remove members (their laptop tokens stop working at once) and restore them.
 - **`teamloop login`:** `POST /v1/device/start` gives a code; the person approves it on `/device?code=…` and picks a team; the CLI's poll gets a `tl_` token once. Only the token's hash is stored.
 - **Agent S:** Vercel has no background workers, so the open board calls `POST /v1/refresh` after it renders. That re-estimates at most 2 stale tasks (quiet for 30 s), one refresh per team at a time. Reading the board never waits for the model.
+- **The app's agents:** `POST /v1/llm?team=` runs one step of an agent's tool loop on the hub's Nemotron key (signed-in people, 150 steps per 10 minutes each, 400 KB per request). The loop and its tools run on the laptop.
+- **Usage:** each coding turn's token counts arrive on its `turn_end` event (`facts.usage`, counted on the laptop). Super Agents' own Nemotron calls (agent steps, answers, plans, progress, digests) go to `agent_usage`. `GET /v1/usage?team=&days=&tz=` sums both by day, tool, task, model and person; leads see everyone, members see themselves.
 - **Limits:** 60 event batches per member per minute, 8 KB per event, 30-day retention (swept on writes), no live stream (the board polls every 15 s and skips hidden tabs).
+
+### Migrations
+`schema.sql` is the whole schema for a fresh database. On the live Supabase project, apply in order: `teamloop_cloud_v1` (applied), `teamloop_cloud_v2_tasks` (the `tasks` table), `teamloop_cloud_v3_usage` (the `agent_usage` table).
 
 ## One-time setup (Yang)
 These four switch it on. They need your Supabase and GitHub accounts, and step 4 holds the database password, so they're yours.

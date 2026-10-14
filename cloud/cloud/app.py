@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from agent_s import agent, llm, progress, qa
 from agent_s import digest as agent_digest
 from hub import cards
+from hub import usage as usage_sum
 from hub.relay import _Window
 from hub.team import ID_RE, KIND_RE, MAX_EVENT_BYTES, TASK_RE, clean
 
@@ -469,9 +470,19 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                          (c.team_id, RETENTION_DAYS))
             conn.execute("delete from snapshots where team_id = %s and created_at < now() - make_interval(days => %s)",
                          (c.team_id, RETENTION_DAYS))
+            conn.execute("delete from agent_usage where team_id = %s and at < now() - make_interval(days => %s)",
+                         (c.team_id, RETENTION_DAYS))
             conn.execute("delete from hub_sessions where expires_at < now()")
             conn.execute("delete from devices where expires_at < now() - interval '1 day'")
         return {"accepted": new, "duplicates": len(rows) - new}
+
+    # ---- usage: Super Agents' own model calls, per team and person ------------------------------------
+    def record_usage(conn, team_id: str, person: Optional[auth.Person], source: str, used: dict) -> None:
+        if used.get("calls"):
+            conn.execute("insert into agent_usage (team_id, user_id, member, source, model, calls, tokens_in, tokens_out)"
+                         " values (%s, %s, %s, %s, %s, %s, %s, %s)",
+                         (team_id, person.id if person else None, person.name if person else None, source,
+                          str(used.get("model") or "")[:80], int(used["calls"]), int(used.get("in") or 0), int(used.get("out") or 0)))
 
     # ---- reads -------------------------------------------------------------------------------------
     def task_events(conn, team_id: str, task: Optional[str] = None, limit: int = 400) -> list[dict]:
@@ -491,19 +502,21 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             " coalesce((select max(s.created_at) from snapshots s where s.team_id = %s and s.task = e.task),"
             " 'epoch'::timestamptz) order by last desc limit %s", (team_id, DEBOUNCE_SECONDS, team_id, limit)).fetchall()
         start = time.time()
-        for row in due:
-            key = (team_id, row["task"])
-            if time.time() - start > budget or time.time() - failed.get(key, 0) < 60:
-                continue
-            evs = task_events(conn, team_id, row["task"])
-            try:
-                snap = progress.estimate(row["task"], evs, cards.title_for(row["task"], evs), chat=chat)
-            except Exception:  # noqa: BLE001 - try again in a minute
-                failed[key] = time.time()
-                continue
-            conn.execute("insert into snapshots (team_id, task, created_at, body) values (%s, %s, greatest(now(), %s), %s)",
-                         (team_id, row["task"], row["last"], Jsonb(snap)))
-            made += 1
+        with llm.meter() as used:
+            for row in due:
+                key = (team_id, row["task"])
+                if time.time() - start > budget or time.time() - failed.get(key, 0) < 60:
+                    continue
+                evs = task_events(conn, team_id, row["task"])
+                try:
+                    snap = progress.estimate(row["task"], evs, cards.title_for(row["task"], evs), chat=chat)
+                except Exception:  # noqa: BLE001 - try again in a minute
+                    failed[key] = time.time()
+                    continue
+                conn.execute("insert into snapshots (team_id, task, created_at, body) values (%s, %s, greatest(now(), %s), %s)",
+                             (team_id, row["task"], row["last"], Jsonb(snap)))
+                made += 1
+        record_usage(conn, team_id, None, "progress", used)
         conn.commit()
         return made
 
@@ -520,9 +533,14 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         snaps = {r["task"]: r["body"] for r in conn.execute(
             "select distinct on (task) task, body from snapshots where team_id = %s order by task, created_at desc", (team_id,))}
         plan = planned(conn, team_id)
+        spent = {r["task"]: {"tokens": int(r["tokens"] or 0), "turns": int(r["turns"])} for r in conn.execute(
+            "select task, count(*) as turns, sum(coalesce((u->>'in')::bigint, 0) + coalesce((u->>'cw')::bigint, 0)"
+            " + coalesce((u->>'out')::bigint, 0)) as tokens from (select task, body->'facts'->'usage' as u from events"
+            " where team_id = %s and kind = 'turn_end' and task is not null) x where u is not null group by task", (team_id,))}
         out = []
         for t in tasks:  # tasks with session events: live progress; a plan adds its owner, and closing marks it done
             card = cards.card(t["task"], task_events(conn, team_id, t["task"], 200), snaps.get(t["task"]), float(t["last"]), t["n"])
+            card["usage"] = spent.get(t["task"])
             p = plan.pop(t["task"], None)
             card["owner"] = p["owner_name"] if p else None
             if p:
@@ -534,7 +552,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             if p["state"] == "open":
                 out.append({"task": p["task"], "title": p["title"], "events": 0, "owner": p["owner_name"],
                             "members": [p["owner_name"]] if p["owner_name"] else [], "tools": [], "pr": None,
-                            "last_activity": float(p["at"]), "status": "todo", "progress": None, "recent": []})
+                            "last_activity": float(p["at"]), "status": "todo", "progress": None, "recent": [], "usage": None})
         people = conn.execute(
             "select m.name, extract(epoch from max(e.received_at)) as last from memberships m left join events e"
             " on e.team_id = m.team_id and e.user_id = m.user_id where m.team_id = %s and m.removed_at is null"
@@ -574,7 +592,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         history = conn.execute("select extract(epoch from created_at) as at, body from snapshots where team_id = %s and task = %s"
                                " order by created_at desc limit 20", (team_id, task)).fetchall()
         card = next((t for t in build_board(conn, team_id, name)["tasks"] if t["task"] == task), {})
-        return {**{k: card.get(k) for k in ("task", "title", "status", "pr", "members", "tools", "progress")},
+        return {**{k: card.get(k) for k in ("task", "title", "status", "pr", "members", "tools", "progress", "usage")},
                 "history": [{"at": float(h["at"]), "percent": h["body"].get("percent"), "agent_says": h["body"].get("agent_says_percent")}
                             for h in reversed(history)],
                 "timeline": cards.timeline(evs)}
@@ -655,30 +673,36 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                                                    " order by created_at", (team_id,))]
         tier = body.model if body.model != "auto" else ("ultra" if body.mode == "plan" or body.attachments else None)
         try:
-            with llm.pinned(tier):
+            with llm.pinned(tier), llm.meter() as used:
                 out = agent.turn(body.message, task_events(conn, team_id), board, members,
                                  [a.model_dump() for a in body.attachments], body.mode, chat=chat)
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
+        record_usage(conn, team_id, c.person, "agent", used)
         return {**out, "mode": body.mode}
 
     @app.post("/v1/llm")
-    def llm_step(body: LlmIn, c: Caller = Depends(caller)) -> dict:
+    def llm_step(body: LlmIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         """One step of an agent's tool loop for the Super Agents app, on the hub's Nemotron key: signed-in people
-        only, rate limited, size capped. The loop and the tools run on the person's laptop."""
+        only, rate limited, size capped. The loop and the tools run on the person's laptop. With a team, the step's
+        tokens count toward that team's usage."""
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
+        team_id = team_scope(c, team, conn)[0] if team else None
         if not llm_steps.allow(c.person.id, time.time()):
             raise HTTPException(429, "Agents are busy; give it a minute")
         if len(json.dumps(body.messages)) + len(json.dumps(body.tools)) > 400_000:
             raise HTTPException(413, "That conversation is too long; start a new chat")
         try:
             with llm.pinned(body.tier):
-                return chat_step(body.messages, body.tools, body.max_tokens)
+                out = chat_step(body.messages, body.tools, body.max_tokens)
         except urllib.error.HTTPError as e:
             raise HTTPException(502, f"The model refused the request ({e.code})") from None
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "The model didn't answer; try again in a moment") from None
+        if team_id and out.get("usage"):
+            record_usage(conn, team_id, c.person, "app", {"calls": 1, "model": out.get("model"), **out["usage"]})
+        return out
 
     @app.get("/v1/events")
     def cited_events(ids: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
@@ -726,11 +750,16 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         who = c.person.id if c.person else "anon"
         if not asks.allow(who, time.time()):
             raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
-        evs = demo.events() if (team == "demo" or (c.kind == "anon" and not team)) else task_events(conn, team_scope(c, team, conn)[0])
+        team_id = None if (team == "demo" or (c.kind == "anon" and not team)) else team_scope(c, team, conn)[0]
+        evs = task_events(conn, team_id) if team_id else demo.events()
         try:
-            return qa.answer(body.question, evs, chat=chat)
+            with llm.meter() as used:
+                out = qa.answer(body.question, evs, chat=chat)
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
+        if team_id:
+            record_usage(conn, team_id, c.person, "ask", used)
+        return out
 
     @app.get("/v1/digest")
     def get_digest(team: Optional[str] = None, model: str = "auto", c: Caller = Depends(caller), conn=Depends(db)) -> dict:
@@ -747,14 +776,44 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                                 " order by ts limit 400", (team_key,)).fetchall()
             evs = [r["body"] for r in rows]
         try:
-            with llm.pinned(model):
+            with llm.pinned(model), llm.meter() as used:
                 out = {**agent_digest.digest(evs, chat=chat), "generated_at": time.time()}
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "Agent S couldn't write the digest right now; try again in a minute") from None
+        if not is_demo:
+            record_usage(conn, team_key, None, "digest", used)
         digests[key] = (time.time(), out)
         return out
 
+    @app.get("/v1/usage")
+    def usage_view(team: Optional[str] = None, days: int = 7, tz: int = 0, c: Caller = Depends(caller),
+                   conn=Depends(db)) -> dict:
+        """The usage counter: tokens by day, tool, task, model and person (people: the lead sees everyone, a member
+        sees themself). tz is the viewer's offset from UTC in minutes, so "today" is their today."""
+        team_id, name, role = team_scope(c, team, conn)
+        days, tz = max(1, min(days, RETENTION_DAYS)), max(-720, min(tz, 840))
+        rows = conn.execute(
+            "select user_id, member, task, body->>'tool' as tool, body->>'session' as session, body->>'ts' as ts,"
+            " body->'facts'->'usage' as usage, extract(epoch from received_at) as received from events where team_id = %s"
+            " and kind = 'turn_end' and received_at > now() - make_interval(days => %s)"
+            " and body->'facts'->'usage' is not null", (team_id, days + 1)).fetchall()
+        turns = [{**r, "user_id": str(r["user_id"]) if r["user_id"] else None, "at": _epoch(r["ts"]) or float(r["received"])}
+                 for r in rows]
+        spent = conn.execute(
+            "select user_id, member, source, model, calls, tokens_in, tokens_out, extract(epoch from at) as at from agent_usage"
+            " where team_id = %s and at > now() - make_interval(days => %s)", (team_id, days + 1)).fetchall()
+        spent = [{**a, "user_id": str(a["user_id"]) if a["user_id"] else None, "at": float(a["at"])} for a in spent]
+        return {**usage_sum.summarize(turns, spent, me=c.person.id, lead=role == "lead", days=days, tz_minutes=tz,
+                                      now=time.time()), "room": name, "role": role}
+
     return app
+
+
+def _epoch(ts: Optional[str]) -> Optional[float]:
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 class _Demo:

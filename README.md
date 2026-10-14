@@ -10,11 +10,12 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 1. Each developer installs the Super Agents app and signs in with GitHub. The app connects their repos: Claude Code and Codex hooks call the connector after every turn and tool call.
 2. The connector writes each event to a local spool. Secrets are hidden first, and file paths are made repo-relative.
 3. Free text, like the agent's last message, stays on the laptop. It is only used to write a one-line summary there.
-4. Summaries and structured facts (files changed, tests passed or failed, commits) go to the team hub (TeamLoop). Agent S, on NVIDIA Nemotron via Nebius Token Factory, turns them into per-task progress and answers questions with citations.
+4. Summaries and structured facts (files changed, tests passed or failed, commits, token counts) go to the team hub (TeamLoop). Agent S, on NVIDIA Nemotron via Nebius Token Factory, turns them into per-task progress and answers questions with citations.
 
 **Never shared:** prompts, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking.
 
 ## In the app
+- **Team usage.** A counter for the team's AI: tokens per task, per day, per tool (Claude Code, Codex, Super Agents) and per person, counted on each laptop from the agents' own logs. Leads see everyone; members see themselves.
 - **Agents with their own behaviour.** Agent S is built in; add a reviewer, a release manager, anyone: each with its own instructions, default Nemotron model and mode, skills, MCP connectors and tools.
 - **Manual, Plan and Auto modes**, as in Claude Code (Shift+Tab). Manual asks before every change, Plan queues changes until you run the plan, Auto runs them with Undo. Shell commands always ask.
 - **Skills** in Claude Code's format, including importing your own. **Karpathy's coding guidelines** are on by default for every agent.

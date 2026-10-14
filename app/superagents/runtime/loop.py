@@ -96,6 +96,7 @@ class Turn:
         self.cancelled = False
         self.skills = {}
         self.tools: dict[str, Builtin | Tool] = {}
+        self.spent = {"calls": 0, "in": 0, "out": 0}  # this turn's model use, shown under the answer
 
     # ---- events for the window -----------------------------------------------------------------------------
     def emit(self, kind: str, **data) -> None:
@@ -183,6 +184,9 @@ class Turn:
             self.emit("thinking")
             step = self.llm(messages, tools, self.model)
             model = step.get("model", model)
+            self.spent["calls"] += 1
+            for k in ("in", "out"):
+                self.spent[k] += int((step.get("usage") or {}).get(k) or 0)
             calls = step.get("tool_calls") or []
             if step.get("content") and calls:
                 self.emit("text", text=step["content"])
@@ -203,7 +207,7 @@ class Turn:
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result[:TO_MODEL]})
         else:
             answer = answer or "I stopped after many steps. Ask me to continue if you need more."
-        self.emit("answer", text=answer, model=model)
+        self.emit("answer", text=answer, model=model, usage=dict(self.spent))
         self._remember(content, answer, used)
 
     def _one(self, call: dict) -> str:
@@ -271,7 +275,7 @@ class Turn:
             {"role": "user", "content": content[:20_000]},
             {"role": "assistant", "content": answer + (f"\n\n(tools used: {', '.join(sorted(set(used)))})" if used else "")}])
         chat.setdefault("view", []).append({"user": self.message, "files": [a["name"] for a in self.attachments],
-                                            "answer": answer, "agent": self.agent["id"], "mode": self.mode,
+                                            "answer": answer, "agent": self.agent["id"], "mode": self.mode, "usage": dict(self.spent),
                                             "events": [e for e in self.events if e["kind"] in ("tool", "text")][-60:]})
         chat["title"] = chat.get("title") or self.message[:60]
         chat["agent"] = self.agent["id"]

@@ -2,6 +2,7 @@
 
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -415,3 +416,51 @@ def test_llm_steps_for_the_app_agent_loop(env):
     assert c.post("/v1/llm", headers=h, json={"messages": [{"role": "user", "content": "x" * 410_000}]}).status_code == 413
     assert c.post("/v1/llm", headers=h, json={"messages": [{"role": "user", "content": "boom"}]}).status_code == 503
     assert c.post("/v1/llm", headers=h, json={"tier": "gpt-9", "messages": [{"role": "user", "content": "hi"}]}).status_code == 422
+
+
+def turn(n, task, usage, tool="claude_code", session="s1", at=None):
+    ts = (at or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return {"v": 1, "id": f"{n:032x}", "ts": ts, "tool": tool, "session": session, "kind": "turn_end", "task": task,
+            "facts": {"usage": usage}}
+
+
+def test_usage_counts_tokens_by_task_tool_day_and_person(env):
+    def step(messages, tools, max_tokens):
+        return {"content": "ok", "tool_calls": [], "model": "nebius:nvidia/nemotron-3-super-120b-a12b", "usage": {"in": 1000, "out": 200}}
+
+    def chat(job, messages, schema):  # Agent S's own calls count through llm.meter()
+        llm._count("nvidia/nemotron-3-super-120b-a12b", {"usage": {"prompt_tokens": 300, "completion_tokens": 50}})
+        return fake_chat(job, messages, schema)
+
+    app = create(chat=chat, chat_step=step)
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha = join(app, yang, team, "asha")
+    now = datetime.now(timezone.utc)
+    opus = {"model": "claude-opus-5-5", "in": 10, "cw": 1000, "cr": 50_000, "out": 500, "calls": 3}
+    luna = {"model": "gpt-5.6-luna", "in": 2000, "cw": 0, "cr": 9000, "out": 300, "calls": 2}
+    mine = [turn(1, "T-3", opus, at=now), turn(2, "T-3", opus, at=now - timedelta(days=1)),
+            {"v": 1, "id": f"{3:032x}", "ts": turn(0, None, {})["ts"], "tool": "claude_code", "kind": "tool", "facts": {"tool": "Bash"}}]
+    TestClient(app).post("/v1/events", json={"events": mine}, headers=connect(app, yang, team))
+    TestClient(app).post("/v1/events", json={"events": [turn(4, "T-4", luna, tool="codex", session="s2", at=now)]},
+                         headers=connect(app, asha, team))
+    msg = {"messages": [{"role": "user", "content": "hi"}]}
+    assert yang.post("/v1/llm", params={"team": team}, json=msg).status_code == 200  # counts for the team
+    assert yang.post("/v1/llm", json=msg).status_code == 200  # no team named: not counted anywhere
+    assert asha.post("/v1/ask", params={"team": team}, json={"question": "what's done?"}).status_code == 200
+
+    lead = yang.get("/v1/usage", params={"team": team, "days": 7, "tz": 330}).json()
+    assert lead["coding"]["tokens"] == 2 * 1510 + 2300 and lead["coding"]["cr"] == 2 * 50_000 + 9000
+    assert lead["coding"]["turns"] == 3 and lead["coding"]["sessions"] == 2 and lead["tools"]["codex"]["tokens"] == 2300
+    assert lead["agents"]["tokens"] == 1200 + 350 and lead["agents"]["calls"] == 2
+    assert lead["agents"]["sources"] == {"app": 1200, "ask": 350} and lead["total"] == 2 * 1510 + 2300 + 1550
+    assert [(t["task"], t["tokens"], t["people"]) for t in lead["tasks"]] == [("T-3", 3020, ["yang"]), ("T-4", 2300, ["asha"])]
+    assert lead["by_day"][-1]["day"] == lead["today"] and lead["by_day"][-1]["claude_code"] == 1510
+    assert lead["by_day"][-2]["claude_code"] == 1510 and lead["by_day"][-1]["codex"] == 2300 and len(lead["by_day"]) == 7
+    assert lead["scope"] == "team" and [(p["name"], p["total"]) for p in lead["people"]] == [("asha", 2300 + 350), ("yang", 3020 + 1200)]
+    member = asha.get("/v1/usage", params={"team": team}).json()  # a member sees the team's totals and only their own row
+    assert member["scope"] == "you" and [p["name"] for p in member["people"]] == ["asha"] and member["total"] == lead["total"]
+    cards = {c["task"]: c for c in yang.get("/v1/board", params={"team": team}).json()["tasks"]}
+    assert cards["T-3"]["usage"] == {"tokens": 3020, "turns": 2} and cards["T-4"]["usage"]["tokens"] == 2300
+    assert yang.get("/v1/tasks/T-3", params={"team": team}).json()["usage"]["turns"] == 2
+    assert signin(app, "other").get("/v1/usage", params={"team": team}).status_code == 403

@@ -51,6 +51,13 @@ The buttons at the top right open a panel next to the chat (drag its edge to res
 - **Terminal** (Ctrl+`): a real shell (PowerShell 7 if installed, else Windows PowerShell) in a pseudo-console, in your first connected repo. Tabs for more than one.
 - **Browser:** shows a page (a dev server on localhost, docs, a page an agent opens) inside the app. Sites that refuse to be framed open in their own Super Agents window.
 
+## Team usage
+A counter for the team's AI. The chip at the top shows today's tokens; **Team → Usage** has today, 7 or 30 days: totals for the coding agents (Claude Code, Codex) and Super Agents itself, a chart per day, and tables by task, by person and by model. Board cards and task drawers show each task's tokens, and each answer shows what it used. Agents can read it too (`team_usage`), so "which task cost the most this week?" works in chat.
+- **Counted on the laptop:** at the end of each turn the hook reads the coding agent's own log (Claude Code's transcript and its subagents' files; Codex's running totals) from where it left off, and adds the numbers to the turn's event. Only numbers leave: tokens and the model's name, never text or file paths.
+- **Tokens** = fresh input + cache writes + output. Cache reads are shown apart: agents re-read their cached context on every call, so they're far larger without being new work.
+- **Who sees what:** everyone sees the team's totals and per-task numbers (the task is the unit). Per-person rows go to the lead and to that person, listed by name, never ranked.
+- Pausing sharing pauses this too. Kept 30 days, like events.
+
 ## Signing in
 - **GitHub:** the app opens your normal browser (where you're already signed in to GitHub) on Supabase's authorize page with a PKCE challenge. GitHub sends you back to `http://127.0.0.1:<port>/auth/callback` on this laptop; the app trades the code for a Supabase session, then for the hub's own session (`POST /v1/app/session`), kept in `~/.teamloop/app.json`. Same pattern as `gh auth login` (RFC 8252).
 - **Email and password:** the app calls Supabase directly; no browser.
@@ -62,7 +69,7 @@ The buttons at the top right open a panel next to the chat (drag its edge to res
 - The sharing switch is `teamloop pause` / `resume`.
 
 ## What leaves the laptop
-The hooks share summaries and facts only (see the README). Chats with your agents are different: to answer, each message, the agent's instructions and skills, and what its tools read (file contents, command output, pages) go to Nemotron through the hub's `/v1/llm`. The hub passes them on and doesn't store them; chats are kept on this laptop.
+The hooks share summaries and facts only (see the README), now including each turn's token counts. Chats with your agents are different: to answer, each message, the agent's instructions and skills, and what its tools read (file contents, command output, pages) go to Nemotron through the hub's `/v1/llm`. The hub passes them on and doesn't store them; chats are kept on this laptop.
 
 ## Security of the local server
 It listens on 127.0.0.1 only, on a new random port each launch. Every `/api` call must carry the key the window got in its URL fragment, and the Host header must be `127.0.0.1:<port>` or `localhost:<port>`. A web page can't send that header without a CORS preflight, which the server never answers, and DNS rebinding fails the Host check. The UI may only reach an allowlist of hub paths.

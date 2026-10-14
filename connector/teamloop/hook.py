@@ -13,7 +13,7 @@ import sys
 import time
 import traceback
 
-from teamloop import redact, repo, spool
+from teamloop import redact, repo, spool, usage
 from teamloop.normalize import NORMALIZERS
 
 
@@ -25,6 +25,7 @@ def handle(tool: str, raw: bytes) -> dict | None:
     event = NORMALIZERS[tool](payload, found.root if found else None)
     if event is None:
         return None
+    add_usage(tool, payload, event)
     event["repo"] = found.root.name if found else None
     event["branch"] = repo.branch(found) if found else None
     event["task"] = repo.task(found)
@@ -33,6 +34,29 @@ def handle(tool: str, raw: bytes) -> dict | None:
     if event["kind"] == "session_end":
         flush_detached()
     return event
+
+
+def add_usage(tool: str, payload: dict, event: dict) -> None:
+    """The turn's token counts from the agent's transcript (numbers only). A failure here never costs the event."""
+    try:
+        if event["kind"] == "session_start" and payload.get("transcript_path"):
+            usage.started(tool, payload["transcript_path"])
+        elif event["kind"] == "turn_end":
+            counts = usage.for_turn(tool, payload)
+            if counts:
+                event["facts"]["usage"] = counts
+    except Exception:  # noqa: BLE001 - logged like any hook error
+        log(tool)
+
+
+def log(tool: str) -> None:
+    try:
+        path = spool.home() / "hook.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {tool}\n{traceback.format_exc()}\n")
+    except OSError:
+        pass
 
 
 def flush_detached() -> None:
@@ -55,11 +79,5 @@ def main(tool: str) -> int:
     try:
         handle(tool, sys.stdin.buffer.read())
     except Exception:  # noqa: BLE001 - logged, never raised into the agent's session
-        try:
-            log = spool.home() / "hook.log"
-            log.parent.mkdir(parents=True, exist_ok=True)
-            with open(log, "a", encoding="utf-8") as f:
-                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {tool}\n{traceback.format_exc()}\n")
-        except OSError:
-            pass
+        log(tool)
     return 0
