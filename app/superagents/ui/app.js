@@ -468,8 +468,9 @@ function renderChats() {
   const ul = $("chatList"); ul.replaceChildren();
   for (const c of S.chats.slice(0, 40)) {
     const li = el("li"); const b = el("button", "c" + (c.id === S.chat ? " on" : "")); b.type = "button";
-    const a = S.agents.find(x => x.id === c.agent); const dot = el("i"); if (a) dot.style.setProperty("--hood", a.color);
-    b.append(dot, el("span", null, c.title || "Untitled")); b.title = `${c.title || "Untitled"} · ${ago(c.updated)}`;
+    const a = S.agents.find(x => x.id === c.agent);
+    if (a && a.id !== "agent-s") { const dot = el("i"); dot.style.setProperty("--hood", a.color); dot.title = a.name; b.append(dot); }  // another agent's chat: its colour
+    b.append(el("span", null, c.title || "Untitled")); b.title = `${c.title || "Untitled"} · ${a ? `${a.name} · ` : ""}${ago(c.updated)}`;
     b.onclick = () => openChat(c.id);
     const x = el("button", "del"); x.type = "button"; x.setAttribute("aria-label", `Delete the chat ${c.title || ""}`); x.append(ic("x"));
     x.onclick = async ev => {  // two clicks: the first arms it
@@ -1064,6 +1065,7 @@ function list(label, items, cls, task) {
 }
 const named = t => (t.title && t.title !== t.task ? t.title : "");  // a task id stored as a title isn't a name
 const STATUS_SAID = {blocked: "blocked", review: "in review", in_progress: "in progress", todo: "to do", done: "done"};
+const statusEl = s => { const w = STATUS_SAID[s] || s; return el("span", "status " + s, w[0].toUpperCase() + w.slice(1)); };  // a dot and a word
 // Agent S's estimate from the sessions next to what the coding agent claims: the gap is what this board is for.
 function trust(t) {
   const p = t.progress, says = p ? p.agent_says_percent : null, known = (t.tools || []).filter(x => TOOLS[x]);  // not "mcp"
@@ -1085,7 +1087,7 @@ function card(t, members, i) {
   const head = el("div", "card-head"); head.append(mascot(t.members[0] || "team", pose(t, members)));
   const open = el("button", "card-open"); open.type = "button"; open.title = "Open the timeline"; open.onclick = () => openTask(t.task);
   open.append(el("div", "tid", t.task), el("h3", named(t) ? null : "untitled", named(t) || "No title yet"));
-  head.append(open, el("span", "status " + t.status, STATUS_SAID[t.status] || t.status)); c.append(head);
+  head.append(open, statusEl(t.status)); c.append(head);
   c.append(trust(t));
   const p = t.progress;
   if (p) {  // at a glance: what blocks it, what's happening, what's next. The drawer has the rest.
@@ -1313,7 +1315,7 @@ async function openTask(task, highlight) {
     const d = await hub(withTeam(`tasks/${encodeURIComponent(task)}`));
     const nodes = d.status === "todo" ? [] : [trust(d), sparkline(d.history || [])];
     const facts = el("div", "facts"), fact = (label, value) => facts.append(el("span", "label", label), value);
-    fact("Status", el("span", "status " + d.status, STATUS_SAID[d.status] || d.status));
+    fact("Status", statusEl(d.status));
     fact("People", el("span", null, [d.owner && `${d.owner} (owner)`, ...(d.members || []).filter(m => m !== d.owner)].filter(Boolean).join(", ") || "Nobody yet"));
     fact("Deadline", dueControls(d));
     if (d.pr) fact("Pull request", el("span", "tag pr", [`#${d.pr.number}`, d.pr.draft ? "draft" : d.pr.state, d.pr.checks ? `CI ${d.pr.checks}` : ""].filter(Boolean).join(" · ")));
@@ -1386,31 +1388,29 @@ for (const b of $("agentTabs").children) b.onclick = () => showAgentTab(b.datase
 
 async function renderAgents() {
   await loadAgents();
-  const grid = $("tab-agents"); grid.className = "tab agent-grid"; grid.replaceChildren();
+  const box = $("tab-agents"); box.className = "tab";
+  const bar = el("div", "bar");
+  bar.append(btn("New agent", "primary", () => editAgent(null), "plus"));
+  const list = el("div", "list");
   S.agents.forEach((a, i) => {
-    const c = el("article", "agent-card"); c.style.animationDelay = `${Math.min(i, 8) * 40}ms`;
-    const head = el("div", "head"); const words = el("div"); words.style.minWidth = "0";
-    words.append(el("h3", null, a.name), el("div", "meta", `${a.model === "auto" ? "Auto model" : MODELS[a.model].label} · ${MODES[a.mode].label} mode${a.builtin ? " · built in" : ""}`));
-    head.append(agent("", a.color), words);
-    const chips = el("div", "row");
+    const r = el("article", "agent-row"); r.style.animationDelay = `${Math.min(i, 8) * 30}ms`;
+    const who = el("div", "who");
+    who.append(el("b", null, a.name), el("small", null, `${a.model === "auto" ? "Auto model" : MODELS[a.model].label} · ${MODES[a.mode].label}${a.builtin ? " · built in" : ""}`));
     const n = a.skills.length, k = a.connectors.length;
-    chips.append(el("span", "tag", `${n} skill${n === 1 ? "" : "s"}`), el("span", "tag", `${k} connector${k === 1 ? "" : "s"}`));
-    for (const g of Object.keys(TOOL_GROUPS)) if (a.tools[g]) chips.append(el("span", "tag", TOOL_GROUPS[g].label));
-    const foot = el("div", "foot");
-    foot.append(btn("Chat", "ghost", () => { setAgent(a.id); newChat(); }), btn("Edit", "", () => editAgent(a)));
-    c.append(head, el("p", "instr", agentLine(a)), chips, foot); grid.append(c);
+    const caps = [`${n} skill${n === 1 ? "" : "s"}`, `${k} connector${k === 1 ? "" : "s"}`, ...Object.keys(TOOL_GROUPS).filter(g => a.tools[g]).map(g => TOOL_GROUPS[g].label)];
+    const ctl = el("div", "ctl");
+    ctl.append(btn("Chat", "ghost", () => { setAgent(a.id); newChat(); }), btn("Edit", "", () => editAgent(a)));
+    r.append(agent("", a.color), who, el("p", "instr", agentLine(a)), el("span", "caps", caps.join(" · ")), ctl); list.append(r);
   });
-  const add = el("button", "agent-card add"); add.type = "button";
-  add.append(ic("plus"), el("b", null, "New agent"), el("span", "sub", "A reviewer, a release manager, a researcher: give it instructions, skills and tools."));
-  add.onclick = () => editAgent(null);
-  grid.append(add);
+  const more = el("div", "list");
   for (const [tab, icn, title, sub] of [["skills", "book", "Skills", "Teach agents a way of working: write one, or import Claude Code's."],
     ["connectors", "plug", "Connectors (MCP)", "MCP servers, as in Claude Desktop: GitHub, a database, your files, your own."]]) {
-    const c = el("button", "agent-card add"); c.type = "button";
-    c.append(ic(icn), el("b", null, title), el("span", "sub", sub));
+    const c = el("button", "more-row"); c.type = "button";
+    c.append(ic(icn), el("b", null, title), el("span", "go", "Open →"), el("small", null, sub));
     c.onclick = () => showAgentTab(tab);
-    grid.append(c);
+    more.append(c);
   }
+  box.replaceChildren(bar, list, el("h3", "section-title", "Give your agents more"), more);
 }
 let backToAgent = null;  // adding a connector from an agent's editor: the editor to go back to, with what was filled in
 async function editAgent(a, kept) {
@@ -1606,10 +1606,15 @@ async function addConnector(body, give, msg) {
     renderConnectors();
   } catch (e) { msg.textContent = e.message; }
 }
-function giveBox() { const o = optEl(true, "Give it to Agent S", null); o.l.style.padding = "6px 10px"; return o; }
+function giveBox() { const o = optEl(true, "Give it to Agent S", null); o.l.className = "check"; return o; }
+// A connector to add: what it is on the left, what it needs on the right
+function presetShell(name, about) {
+  const box = el("div", "preset"), words = el("div", "about"), ctl = el("div", "pctl"), h = el("h4");
+  h.append(ic("plug"), name); words.append(h, el("p", null, about)); box.append(words, ctl);
+  return {box, ctl};
+}
 function presetCard(p) {
-  const box = el("div", "preset"); const h = el("h4"); h.append(ic("plug"), p.name);
-  box.append(h, el("p", null, p.about));
+  const {box, ctl} = presetShell(p.name, p.about);
   const values = {};
   for (const f of p.fields) {
     const i = inputEl({type: f.secret ? "password" : "text", placeholder: f.label, autocomplete: "off", className: f.arg ? "mono" : ""});
@@ -1617,16 +1622,15 @@ function presetCard(p) {
     if (f.arg) {
       const row = el("div", "row gap"); i.style.flex = "1";
       row.append(i, btn("Pick", "ghost", async () => { const r = await api("/api/pick-folder", {method: "POST"}).catch(() => ({})); if (r.path) { i.value = r.path; values[f.key] = r.path; } }));
-      box.append(row);
-    } else box.append(i);
+      ctl.append(row);
+    } else ctl.append(i);
   }
   const give = giveBox(); const msg = el("div", "err");
-  box.append(give.l, btn("Add", "primary", () => { msg.textContent = ""; addConnector({preset: p.preset, values}, give.c.checked, msg); }, "plus"), msg);
+  ctl.append(give.l, btn("Add", "primary", () => { msg.textContent = ""; addConnector({preset: p.preset, values}, give.c.checked, msg); }, "plus"), msg);
   return box;
 }
 function customCard() {
-  const box = el("div", "preset"); const h = el("h4"); h.append(ic("plug"), "Custom MCP server");
-  box.append(h, el("p", null, "Any MCP server: a URL (streamable HTTP) or a command this laptop runs (stdio)."));
+  const {box, ctl} = presetShell("Custom MCP server", "Any MCP server: a URL (streamable HTTP) or a command this laptop runs (stdio).");
   let kind = "url";
   const name = inputEl({placeholder: "Name", maxLength: 40});
   const url = inputEl({placeholder: "https://example.com/mcp", className: "mono"});
@@ -1637,7 +1641,7 @@ function customCard() {
   const cmdBox = el("div", "stack"); cmdBox.append(cmd, args); cmdBox.hidden = true;
   const seg = segEl([["url", "URL"], ["command", "Command"]], kind, k => { kind = k; urlBox.hidden = k !== "url"; cmdBox.hidden = k !== "command"; });
   const give = giveBox(); const msg = el("div", "err");
-  box.append(name, seg, urlBox, cmdBox, give.l, btn("Add", "primary", () => {
+  ctl.append(name, seg, urlBox, cmdBox, give.l, btn("Add", "primary", () => {
     msg.textContent = "";
     const body = kind === "url" ? {name: name.value, url: url.value.trim(), headers: header.value.trim() ? {Authorization: header.value.trim()} : {}}
       : {name: name.value, command: cmd.value.trim(), args: args.value.split("\n").map(x => x.trim()).filter(Boolean)};
