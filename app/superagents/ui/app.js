@@ -107,13 +107,47 @@ function paintIcons(root = document) { root.querySelectorAll(".ic[data-ic]").for
 function ic(name) { const s = el("span", "ic"); s.innerHTML = icon(name); return s; }
 
 const HOOD = "M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z";
+// The mascot breathes, blinks (now and then twice), glances about and ponders while it thinks (app.css); each starts at
+// its own point in those cycles, so a row of them never moves in step. Big ones follow your pointer, and hop when poked.
 function agent(cls = "", hood = "") {
   const t = document.createElement("template");
-  t.innerHTML = `<svg class="agent ${cls}" viewBox="0 0 100 100" aria-hidden="true"${/^#[0-9a-fA-F]{6}$/.test(hood) ? ` style="--hood:${hood}"` : ""}><path class="hood" d="${HOOD}"/>`
-    + '<ellipse class="face" cx="50" cy="61" rx="30" ry="27"/><g class="eyes"><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/>'
-    + '<ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/><circle class="glint" cx="40.9" cy="58.6" r="2.1"/><circle class="glint" cx="63.9" cy="58.6" r="2.1"/></g></svg>';
+  const style = `--d:${(-Math.random() * 9).toFixed(2)}s;--g:${(-Math.random() * 12).toFixed(2)}s${/^#[0-9a-fA-F]{6}$/.test(hood) ? `;--hood:${hood}` : ""}`;
+  t.innerHTML = `<svg class="agent ${cls}" viewBox="0 0 100 100" aria-hidden="true" style="${style}"><g class="bod"><path class="hood" d="${HOOD}"/>`
+    + '<g class="turn"><ellipse class="face" cx="50" cy="61" rx="30" ry="27"/><g class="look"><g class="eyes"><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/>'
+    + '<ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/><circle class="glint" cx="40.9" cy="58.6" r="2.1"/><circle class="glint" cx="63.9" cy="58.6" r="2.1"/></g></g></g></g></svg>';
   return t.content.firstElementChild;
 }
+// crouch, spring up stretched, fall, land squashed, settle
+const HOP = [{transform: "none", easing: "cubic-bezier(.3,0,.5,1)"}, {offset: .16, transform: "scale(1.08,.9)", easing: "cubic-bezier(.2,.6,.35,1)"},
+  {offset: .44, transform: "translateY(-13px) scale(.95,1.06)", easing: "cubic-bezier(.55,0,.85,.4)"}, {offset: .66, transform: "scale(1.08,.9)", easing: "cubic-bezier(.3,.6,.4,1)"},
+  {offset: .84, transform: "scale(.98,1.02)", easing: "ease-in-out"}, {transform: "none"}];
+function hop(svg) { if (!REDUCED) svg.querySelector(".bod").animate(HOP, {duration: 640}); }
+function calm(svg) {  // a thinking glance finishes instead of snapping back; one just begun (a chat being reopened) stops at once
+  const a = svg.querySelector(".look").getAnimations()[0], t = a && a.effect.getComputedTiming();
+  const done = () => { svg.style.setProperty("--g", "0s"); svg.classList.remove("thinking"); };
+  if (!t || !(t.progress > .08 && t.progress < .92)) return done();
+  a.effect.updateTiming({iterations: t.currentIteration + 1}); a.finished.then(done, done);
+}
+// The big ones (the hello, the agent editor) look toward the pointer, the face turning after the eyes, and drift back when it rests
+let gazeFrame = 0, gazeAt = [0, 0], gazeRest = 0;
+if (!REDUCED) addEventListener("pointermove", e => {
+  gazeAt = [e.clientX, e.clientY];
+  if (gazeFrame) return;
+  gazeFrame = requestAnimationFrame(() => {
+    gazeFrame = 0;
+    for (const svg of document.querySelectorAll(".hello .agent, .agent.pick-face")) {
+      const r = svg.getBoundingClientRect(); if (!r.width) continue;
+      const dx = gazeAt[0] - (r.left + r.width / 2), dy = gazeAt[1] - (r.top + r.height * .62), d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 260);
+      svg.style.setProperty("--lx", `${(dx / d * 3 * k).toFixed(2)}px`); svg.style.setProperty("--ly", `${(dy / d * 2.4 * k).toFixed(2)}px`);
+      svg.style.setProperty("--tilt", `${(dx / d * 2.4 * k).toFixed(2)}deg`); svg.classList.add("tracking");
+    }
+    clearTimeout(gazeRest);
+    gazeRest = setTimeout(() => {
+      for (const svg of document.querySelectorAll(".agent.tracking")) for (const [v, z] of [["--lx", "0px"], ["--ly", "0px"], ["--tilt", "0deg"]]) svg.style.setProperty(v, z);
+      gazeRest = setTimeout(() => document.querySelectorAll(".agent.tracking").forEach(s => { s.style.setProperty("--g", "0s"); s.classList.remove("tracking"); }), 700);
+    }, 2600);
+  });
+}, {passive: true});
 const COLOURS = ["green", "pink", "purple", "orange", "olive"];
 function colour(name) { let h = 0; for (const c of name || "") h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLOURS[h % COLOURS.length]; }
 function mascot(name, pose) { const i = el("img"); i.src = `/ui/mascot/${colour(name)}/${pose}.webp`; i.alt = ""; return i; }
@@ -464,25 +498,45 @@ async function loadChats() {
   try { S.chats = (await api("/api/chats")).chats; } catch (e) { return; }
   renderChats();
 }
+// The latest three, then each project's chats in a folder of its own (the repo its agent worked in), as on the phone
+let openFolders = {};
+try { openFolders = JSON.parse(localStorage.getItem("sa-folders") || "{}") || {}; } catch (e) { /* all start closed */ }
+function chatRow(c) {
+  const li = el("li"); const b = el("button", "c" + (c.id === S.chat ? " on" : "")); b.type = "button";
+  const a = S.agents.find(x => x.id === c.agent);
+  if (a && a.id !== "agent-s") { const dot = el("i"); dot.style.setProperty("--hood", a.color); dot.title = a.name; b.append(dot); }  // another agent's chat: its colour
+  b.append(el("span", null, c.title || "Untitled")); b.title = `${c.title || "Untitled"} · ${a ? `${a.name} · ` : ""}${c.project ? `${c.project} · ` : ""}${ago(c.updated)}`;
+  b.onclick = () => openChat(c.id);
+  const x = el("button", "del"); x.type = "button"; x.setAttribute("aria-label", `Delete the chat ${c.title || ""}`); x.append(ic("x"));
+  x.onclick = async ev => {  // two clicks: the first arms it
+    ev.stopPropagation();
+    if (!x.classList.contains("armed")) { x.classList.add("armed"); x.title = "Click again to delete"; x.style.color = "var(--bad)"; x.style.opacity = "1"; setTimeout(() => { x.classList.remove("armed"); x.removeAttribute("style"); }, 2600); return; }
+    await api(`/api/chats/${c.id}`, {method: "DELETE"}).catch(() => {});
+    if (S.chat === c.id) newChat();
+    loadChats();
+  };
+  li.append(b, x);
+  return li;
+}
 function renderChats() {
   const ul = $("chatList"); ul.replaceChildren();
-  for (const c of S.chats.slice(0, 40)) {
-    const li = el("li"); const b = el("button", "c" + (c.id === S.chat ? " on" : "")); b.type = "button";
-    const a = S.agents.find(x => x.id === c.agent);
-    if (a && a.id !== "agent-s") { const dot = el("i"); dot.style.setProperty("--hood", a.color); dot.title = a.name; b.append(dot); }  // another agent's chat: its colour
-    b.append(el("span", null, c.title || "Untitled")); b.title = `${c.title || "Untitled"} · ${a ? `${a.name} · ` : ""}${ago(c.updated)}`;
-    b.onclick = () => openChat(c.id);
-    const x = el("button", "del"); x.type = "button"; x.setAttribute("aria-label", `Delete the chat ${c.title || ""}`); x.append(ic("x"));
-    x.onclick = async ev => {  // two clicks: the first arms it
-      ev.stopPropagation();
-      if (!x.classList.contains("armed")) { x.classList.add("armed"); x.title = "Click again to delete"; x.style.color = "var(--bad)"; x.style.opacity = "1"; setTimeout(() => { x.classList.remove("armed"); x.removeAttribute("style"); }, 2600); return; }
-      await api(`/api/chats/${c.id}`, {method: "DELETE"}).catch(() => {});
-      if (S.chat === c.id) newChat();
-      loadChats();
+  if (!S.chats.length) return ul.append(el("li", "none", "Your chats show up here."));
+  ul.append(...S.chats.slice(0, 3).map(chatRow), el("li", "label", "Projects"));
+  const folders = new Map();  // the chats come newest first, so folders do too
+  for (const c of S.chats) { const k = c.project || "General"; folders.set(k, [...(folders.get(k) || []), c]); }
+  for (const [name, chats] of folders) {
+    const open = openFolders[name] ?? folders.size === 1;
+    const li = el("li", "folder" + (open ? " open" : ""));
+    const head = el("button", "f"); head.type = "button"; head.setAttribute("aria-expanded", String(open));
+    head.append(ic("caret"), ic("folder"), el("span", "nm", name), el("small", null, String(chats.length)));
+    head.title = `${name} · ${chats.length} chat${chats.length === 1 ? "" : "s"} · ${ago(chats[0].updated)}`;
+    const fold = el("div", "fold"); const sub = el("ul"); sub.append(...chats.map(chatRow)); fold.append(sub); fold.inert = !open;
+    head.onclick = () => {  // opens in place, and stays as you left it
+      const now = !li.classList.contains("open"); li.classList.toggle("open", now); head.setAttribute("aria-expanded", String(now)); fold.inert = !now;
+      openFolders[name] = now; try { localStorage.setItem("sa-folders", JSON.stringify(openFolders)); } catch (e) { /* for this run */ }
     };
-    li.append(b, x); ul.append(li);
+    li.append(head, fold); ul.append(li);
   }
-  if (!S.chats.length) ul.append(el("li", "none", "Your chats show up here."));
 }
 function newChat() {
   if (S.running) return toast("Wait for the answer, or stop it first.", true);
@@ -509,7 +563,7 @@ function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late" 
 function renderHello() {
   const t = $("thread"); t.replaceChildren();
   const ag = currentAgent();
-  const box = el("div", "hello"); const a = agent("", ag.color);
+  const box = el("div", "hello"); const a = agent("", ag.color); a.onclick = () => hop(a);
   const first = (S.user && S.user.name || "").split(" ")[0];
   box.append(a, el("h1", null, `${greeting()}, ${first}.`),
     el("p", null, ag.id === "agent-s" ? "Ask Agent S about your team's work, or have it plan, read your repos, run commands and browse. Answers about the team point to the session events they come from."
@@ -592,7 +646,7 @@ function scrollDown(force) {
   scrolling = true;
   requestAnimationFrame(() => { scrolling = false; t.scrollTop = t.scrollHeight; });
 }
-function settle(slot, meta) { slot.m.querySelector(".agent").classList.remove("thinking"); slot.line.remove(); if (meta) slot.who.append(el("small", null, meta)); }
+function settle(slot, meta) { calm(slot.m.querySelector("svg.agent")); slot.line.remove(); if (meta) slot.who.append(el("small", null, meta)); }
 const spentLine = u => (u && u.calls ? ` · ${fmtTok((u.in || 0) + (u.out || 0))} tokens` : "");
 const shortModel = m => /ultra/i.test(m || "") ? "Nemotron Ultra" : /super/i.test(m || "") ? "Nemotron Super"
   : /lightning/i.test(m || "") ? "Nemotron Lightning" : (m || "").replace(/^ollama:/, "local ");
@@ -1454,12 +1508,13 @@ async function editAgent(a, kept) {
     model: "auto", mode: "manual", skills: ["karpathy-guidelines"], connectors: [], tools: {team: true, files: true, terminal: true, browser: true}});
   const [skills, conns] = await Promise.all([api("/api/skills").then(r => r.skills).catch(() => []), api("/api/connectors").then(r => r.items).catch(() => [])]);
   const name = inputEl({value: draft.name, maxLength: 40, placeholder: "e.g. Reviewer", required: true});
-  const sw = el("div", "swatches");
+  const sw = el("div", "swatches"); const face = agent("pick-face", draft.color);  // the new agent's own mascot, in the hood you pick
   for (const c of S.colors) {
     const b = el("button"); b.type = "button"; b.style.setProperty("--c", c); b.setAttribute("aria-label", `Hood colour ${c}`); b.setAttribute("aria-pressed", String(c === draft.color));
-    b.onclick = () => { draft.color = c; for (const x of sw.children) x.setAttribute("aria-pressed", String(x === b)); };
+    b.onclick = () => { draft.color = c; face.style.setProperty("--hood", c); hop(face); for (const x of sw.children) x.setAttribute("aria-pressed", String(x === b)); };
     sw.append(b);
   }
+  const hoodRow = el("div", "hood-pick"); hoodRow.append(face, sw);
   const instr = textareaEl({value: draft.instructions, maxLength: 8000, rows: 8,
     placeholder: "How should this agent work? For example: You review pull requests like a staff engineer. Correctness first, then tests, then naming. Be blunt and specific; quote the line you mean."});
   const tools = el("div", "opts");
@@ -1487,7 +1542,7 @@ async function editAgent(a, kept) {
   const cnAdd = el("div", "row gap"); cnAdd.append(btn("Add connector", "ghost", addConn, "plus"));
   sk.append(skAdd); cn.append(cnAdd);
   const form = el("form", "form");
-  form.append(fieldBox("Name", name), groupBox("Hood", sw),
+  form.append(fieldBox("Name", name), groupBox("Hood", hoodRow),
     fieldBox("Instructions", instr, "Its behaviour: role, tone, what to check, what never to do. Added to every message."),
     groupBox("Skills", sk, "Karpathy's guidelines are on by default: think first, keep it simple, change only what's asked."),
     groupBox("Connectors (MCP)", cn),

@@ -108,14 +108,30 @@ kbd{font:500 11px var(--fm);color:var(--faint);background:var(--tint);border-rad
 .screen,.shell{position:fixed;inset:0;animation:enter .5s var(--ease) both}
 @keyframes enter{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
 
-/* the agent mark, drawn by app.js wherever it appears */
+/* the agent mark, drawn by app.js wherever it appears. It breathes from its base; blinks close fast and open slower, now
+   and then twice; the eyes jump between glances (as eyes do) and roll while it thinks, its head tilting with them.
+   Lengths inside the mark are in its 100-unit canvas. */
 .agent .hood{fill:var(--hood,#C2554C)}.agent .face{fill:var(--face)}.agent .eye{fill:var(--ink)}.agent .glint{fill:#fff}
+svg.agent{overflow:visible;transform-origin:50% 95%;animation:breathe 4.6s cubic-bezier(.37,0,.63,1) var(--d,0s) infinite}
 .agent *{transform-box:fill-box}
-.agent .eyes{transform-origin:50% 50%;animation:idleBlink 6s ease-in-out infinite}
-@keyframes idleBlink{0%,46%,50%,100%{transform:none}48%{transform:scaleY(.1)}}
-.agent.thinking .eyes{animation:look 1.6s ease-in-out infinite}
-#thread > .msg:not(:last-child) .agent:not(.thinking) .eyes{animation:none}  /* a long chat: only the newest blinks */
-@keyframes look{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.agent .bod{transform-origin:50% 100%}
+.agent .eyes{transform-origin:50% 62%;animation:eyeBlink 7.4s var(--d,0s) infinite}
+.agent .look{animation:glance 12s cubic-bezier(.3,.7,.3,1) var(--g,0s) infinite}
+.agent.thinking .look{animation:ponder 2.8s cubic-bezier(.45,0,.55,1) infinite}
+.agent.thinking .bod{animation:ponderTilt 2.8s cubic-bezier(.45,0,.55,1) infinite}
+.agent.tracking .look{animation:none;transform:translate(var(--lx),var(--ly));transition:transform .13s cubic-bezier(.3,.7,.3,1)}
+.agent.tracking .turn{transform:translate(calc(var(--lx) * .45),calc(var(--ly) * .35));transition:transform .45s cubic-bezier(.25,.8,.3,1)}
+.agent.tracking .bod{transform:rotate(var(--tilt));transition:transform .8s cubic-bezier(.25,.8,.3,1)}
+#thread > .msg:not(:last-child) svg.agent:not(.thinking),#thread > .msg:not(:last-child) svg.agent:not(.thinking) *{animation:none}  /* a long chat: only the newest moves */
+@keyframes breathe{0%,100%{transform:none}50%{transform:scale(1.008,1.026)}}
+@keyframes eyeBlink{
+  0%,24.3%,70.3%,74.3%{transform:none;animation-timing-function:cubic-bezier(.55,0,1,.45)}
+  25.3%,71.2%,75.3%{transform:scaleY(.1)}
+  25.7%,71.6%,75.7%{transform:scaleY(.1);animation-timing-function:cubic-bezier(0,.55,.45,1)}
+  27.7%,73.2%,77.7%,100%{transform:none}}
+@keyframes glance{0%,30%{transform:none}30.9%,40%{transform:translate(-2.6px,.6px)}40.9%,58%{transform:none}58.9%,63%{transform:translate(2.4px,-1px)}63.9%,100%{transform:none}}
+@keyframes ponder{0%,100%{transform:none}14%,40%{transform:translate(-3.2px,-2.4px)}52%{transform:translate(0,-1.4px)}64%,88%{transform:translate(3.2px,-2.4px)}}
+@keyframes ponderTilt{0%,100%{transform:none}14%,40%{transform:rotate(-2.5deg)}64%,88%{transform:rotate(2.5deg)}}
 
 /* ---- sign in ---- */
 .login{display:grid;grid-template-columns:minmax(380px,46%) 1fr}
@@ -237,7 +253,7 @@ kbd{font:500 11px var(--fm);color:var(--faint);background:var(--tint);border-rad
 ::-webkit-scrollbar-thumb{border:3px solid transparent;border-radius:10px;background:color-mix(in srgb, var(--text) 16%, transparent);background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background-color:color-mix(in srgb, var(--text) 30%, transparent)}
 ::-webkit-scrollbar-button{display:none;width:0;height:0}
-.chats-section{flex:1 1 auto}
+.chats-section{flex:1 1 0}  /* takes what the rail has left, and scrolls: Live now keeps its height */
 .chats{list-style:none;margin:0 -6px;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:1px}
 .chats li{position:relative}
 .chats .c{width:100%;display:flex;align-items:center;gap:9px;padding:6px 30px 6px 10px;border-radius:7px;border:0;background:none;color:var(--muted);font-size:13.5px;text-align:left}
@@ -247,9 +263,21 @@ kbd{font:500 11px var(--fm);color:var(--faint);background:var(--tint);border-rad
 .chats .c.on{background:var(--tint);color:var(--text)}
 .chats .del{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:7px;border:0;background:none;color:var(--faint);display:grid;place-items:center;opacity:0;transition:opacity .15s}
 .chats .del .ic,.chats .del svg{width:14px;height:14px}
-.chats li:hover .del,.chats .del:focus-visible{opacity:1}
+.chats li:hover > .del,.chats .del:focus-visible{opacity:1}
 .chats .del:hover{background:var(--tint);color:var(--text)}
 .chats .none{color:var(--faint);font-size:13px;padding:2px 10px}
+/* project folders: open in place, a hairline down the side of what's inside */
+.chats .label{padding:12px 12px 3px;font:600 12px var(--fb);color:var(--faint)}
+.chats .f{width:100%;display:flex;align-items:center;gap:7px;padding:6px 10px 6px 5px;border-radius:7px;border:0;background:none;color:var(--muted);font-size:13.5px;text-align:left}
+.chats .f:hover{background:var(--hover);color:var(--text)}
+.chats .f .ic,.chats .f svg{width:15px;height:15px;flex:none}
+.chats .f .ic:first-child{color:var(--faint);transition:transform .22s var(--ease)}
+.chats .open > .f .ic:first-child{transform:rotate(90deg)}
+.chats .f .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chats .f small{color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums}
+.chats .fold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .24s var(--ease),opacity .2s}
+.chats .open > .fold{grid-template-rows:1fr;opacity:1}
+.chats .fold > ul{list-style:none;min-height:0;overflow:hidden;margin:0 0 0 12px;padding:1px 0 3px 6px;border-left:1px solid var(--line);display:grid;grid-template-columns:minmax(0,1fr);gap:1px}
 .rail-label{padding:0 6px;font:600 12px var(--fb);color:var(--faint)}
 .live{list-style:none;margin:0;padding:0 6px;display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
 .live li{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--muted);min-width:0}
@@ -929,6 +957,8 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .form .field textarea{min-height:150px;resize:vertical;line-height:1.55}
 .form .field textarea.mono,.form .field input.mono{font:500 13px/1.55 var(--fm)}
 .field .hint{font-weight:500;color:var(--faint);font-size:12.5px}
+.hood-pick{display:flex;align-items:center;gap:18px}
+.pick-face{width:48px;height:48px;flex:none}
 .swatches{display:flex;gap:8px;flex-wrap:wrap}
 .swatches button{width:26px;height:26px;border-radius:50%;border:2px solid transparent;background:var(--c);box-shadow:inset 0 0 0 2px var(--bg)}
 .swatches button[aria-pressed="true"]{border-color:var(--text)}
