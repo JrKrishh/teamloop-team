@@ -743,3 +743,17 @@ def test_supabase_storage_gets_signed_links_and_never_the_bytes(monkeypatch):
         ("POST", "object/list/shares", {"prefix": "t/s", "search": "1-b.txt", "limit": 10}),
         ("DELETE", "object/shares", {"prefixes": ["t/s/0-a.txt"]})]
     assert {a for *_, a in calls} == {"Bearer sb_secret_k"}
+
+
+def test_the_waitlist_keeps_an_email_once_and_quietly_drops_bots(app, env):
+    c = TestClient(app)
+    ok = c.post("/v1/waitlist", json={"email": " Asha@Example.com ", "name": "Asha", "team_size": "2-5", "note": "3 repos", "source": "hero"})
+    assert ok.status_code == 200 and ok.json() == {"ok": True}
+    assert c.post("/v1/waitlist", json={"email": "asha@example.com", "name": "Someone else"}).json() == {"ok": True}  # kept once
+    assert c.post("/v1/waitlist", json={"email": "bot@example.com", "website": "http://spam.example"}).json() == {"ok": True}
+    assert c.post("/v1/waitlist", json={"email": "not an email"}).status_code == 400
+    assert c.post("/v1/waitlist", json={"email": "ravi@example.com", "team_size": "lots"}).status_code == 422
+    with psycopg.connect(env) as conn:
+        assert conn.execute("select email, name, team_size, note, source from waitlist").fetchall() == [("asha@example.com", "Asha", "2-5", "3 repos", "hero")]
+    # five tries per visitor in ten minutes (the 422 never reached the count)
+    assert [c.post("/v1/waitlist", json={"email": f"p{i}@example.com"}).status_code for i in range(3)] == [200, 429, 429]

@@ -217,6 +217,18 @@ class DeviceStartIn(BaseModel):
     label: str = Field(default="", max_length=60)
 
 
+class WaitlistIn(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    name: str = Field(default="", max_length=120)
+    team_size: str = Field(default="", pattern=r"^(|1|2-5|6-20|21\+)$")
+    note: str = Field(default="", max_length=1000)
+    source: str = Field(default="", max_length=40)
+    website: str = Field(default="", max_length=300)  # hidden on the page: only bots fill it in
+
+
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
 class DeviceApproveIn(BaseModel):
     user_code: str = Field(min_length=9, max_length=9)
     team: str
@@ -290,6 +302,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     posts = _Window(60, 60.0)
     asks = _Window(30, 600.0)
     llm_steps = _Window(150, 600.0)  # an agent turn is a few steps; this allows a busy person, not a script
+    signups = _Window(5, 600.0)  # the waitlist, per visitor
     digests: dict[str, tuple[float, dict]] = {}
     failed: dict[tuple[str, str], float] = {}
     demo = _Demo()
@@ -318,6 +331,22 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     app.add_api_route("/", landing, include_in_schema=False)
     app.add_api_route("/join/{token}", invite_page, include_in_schema=False)
+
+    @app.post("/v1/waitlist")
+    def join_waitlist(body: WaitlistIn, request: Request, conn=Depends(db)) -> dict:
+        """The website's waitlist: an email, once (a name, team size and note are optional). The answer is the same
+        whether the address was already there or a bot filled in the hidden field, in which case nothing is kept."""
+        ip = request.headers.get("x-vercel-forwarded-for") or request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
+        if not signups.allow(ip.split(",")[0].strip(), time.time()):
+            raise HTTPException(429, "Lots of sign-ups from here just now; try again in a few minutes")
+        email = body.email.strip().lower()
+        if not EMAIL.match(email):
+            raise HTTPException(400, "That doesn't look like an email address")
+        if not body.website:
+            conn.execute("insert into waitlist (email, name, team_size, note, source) values (%s, %s, %s, %s, %s)"
+                         " on conflict (email) do nothing",
+                         (email, body.name.strip() or None, body.team_size or None, body.note.strip() or None, body.source.strip() or None))
+        return {"ok": True}
     for path in ("/auth", "/device"):
         app.add_api_route(path, page, include_in_schema=False)
 

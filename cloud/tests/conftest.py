@@ -13,7 +13,7 @@ import cloud
 from cloud import auth
 
 SCHEMA = Path(cloud.__file__).parent / "schema.sql"
-TABLES = "teams, memberships, invites, hub_sessions, devices, connector_tokens, events, snapshots"
+TABLES = "teams, memberships, invites, hub_sessions, devices, connector_tokens, events, snapshots, waitlist"
 
 
 @pytest.fixture(scope="session")
