@@ -24,6 +24,7 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 - **Manual, Plan and Auto modes**, as in Claude Code (Shift+Tab). Manual asks before every change, Plan queues changes until you run the plan, Auto runs them with Undo. Shell commands always ask.
 - **Skills** in Claude Code's format, including importing your own. **Karpathy's coding guidelines** are on by default for every agent.
 - **Connectors**: any MCP server, by URL or command, with presets for GitHub, Context7, Filesystem and Memory.
+- **Desktop control on Windows**, when you turn it on: agents use your apps through their own controls (no mouse, no keyboard, no taking over your screen) to fill in a form, save a file or read a value. Each app asks first; settings, security and password apps are never touched; Ctrl+Alt+Esc stops it.
 - **A browser you share with your agents.** They start your dev server, open it, click through it, read the console and check their own fixes while you watch in the side panel, and you can take over. Next to it: a file viewer for your connected repos and real terminals.
 
 Chats with your agents are the one thing that leaves the laptop by design: to answer, a message and what its tools read (including what `recall` finds in your own past sessions) go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).

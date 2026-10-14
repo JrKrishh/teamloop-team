@@ -27,10 +27,11 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from teamloop import spool
 
 from . import __version__, laptop, shares, store, supa
 from .runtime import agents as agent_store
-from .runtime import browser
+from .runtime import browser, desktop
 from .runtime import loop as runtime_loop
 from .runtime import mcpman
 from .runtime import memory
@@ -777,6 +778,25 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
             return runtime_tools.take(team_hub(body.team), sid, body.repo)
         except (ValueError, PermissionError, OSError, RuntimeError, urllib.error.URLError) as e:
             raise HTTPException(400, str(e)[:500]) from None
+
+    # ---- desktop: which app an agent is using or asking for, the apps agents may use, and screenshots -------------
+    @app.get("/api/desktop/state")
+    def desktop_state() -> dict:
+        return desktop.host().state()
+
+    @app.post("/api/desktop/apps")
+    def desktop_app(body: SiteIn) -> dict:
+        try:
+            return {"apps": desktop.set_app(body.site, body.allowed)}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.get("/api/desktop/shot/{sid}")
+    def desktop_shot(sid: str) -> FileResponse:
+        f = spool.home() / "desktop" / "shots" / f"{sid}.png"
+        if not re.fullmatch(r"dk_[0-9a-f]{10}", sid) or not f.exists():
+            raise HTTPException(404, "No such screenshot")
+        return FileResponse(f, media_type="image/png")
 
     # ---- the agent browser: the person's live view of the browser they share with their agents ---------------------
     @app.get("/api/browser/state")

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import laptop, shares
-from . import browser, devserver, mcpman, memory
+from . import browser, desktop, devserver, mcpman, memory
 
 MAX_TEXT = 20_000
 TASK_ID = re.compile(r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
@@ -722,6 +722,32 @@ BUILTINS = [
             "browser_press, browser_scroll or browser_wait. Stops at the first failure; returns the page after the last step.",
             {"steps": {"type": "array", "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}}}}},
             ("steps",), browser.browser_batch, browser.kind_batch),
+    Builtin("desktop_windows", "desktop", "read", "The windows open on this laptop (id, title, app).", {}, (), desktop.desktop_windows),
+    Builtin("desktop_snapshot", "desktop", "read", "Read a window (by id, title or app; empty for the current one) as numbered "
+            "elements (ref_N, role, name, value, state) and its text. Each app asks the person the first time. With find, only "
+            "matching elements.", {"window": S, "find": S}, (), desktop.desktop_snapshot, desktop.kind_window),
+    Builtin("desktop_click", "desktop", "read", "Press an element by ref through its own automation (no mouse, no focus taken); "
+            "menus and dialogs it opens are followed. mouse=true clicks with the pointer instead (brings the window forward).",
+            {"ref": S, "mouse": {"type": "boolean"}}, ("ref",), desktop.desktop_click, desktop.kind_click),
+    Builtin("desktop_type", "desktop", "read", "Set a text field's value by ref, without the keyboard; submit presses Enter "
+            "after. keys=true types with the keyboard instead (brings the window forward). In a Save or Open dialog, type the full "
+            "path into File name, then press Save or Open. Never passwords, card numbers or secrets.",
+            {"ref": S, "text": S, "submit": {"type": "boolean"}, "keys": {"type": "boolean"}}, ("ref", "text"),
+            desktop.desktop_type, desktop.kind_type),
+    Builtin("desktop_select", "desktop", "read", "Pick an option in a dropdown, list or tabs by ref (the option's name).",
+            {"ref": S, "option": S}, ("ref", "option"), desktop.desktop_select, desktop.kind_plain),
+    Builtin("desktop_scroll", "desktop", "read", "Scroll a list or document by ref: down, up, or into_view for the element "
+            "itself.", {"ref": S, "direction": S}, ("ref",), desktop.desktop_scroll, desktop.kind_plain),
+    Builtin("desktop_press", "desktop", "change", "Press keys in a window (Control+S, Enter, Escape…): brings it forward for a "
+            "moment.", {"keys": S, "window": S}, ("keys",), desktop.desktop_press, desktop.kind_press),
+    Builtin("desktop_open", "desktop", "ask", "Open an app (notepad, calc, mspaint) or a file or folder, like the Start menu, "
+            "and read its window. Always asks.", {"app": S}, ("app",), desktop.desktop_open),
+    Builtin("desktop_screenshot", "desktop", "read", "Show the person a screenshot of a window in the chat, as proof (you can't "
+            "see it yourself).", {"window": S}, (), desktop.desktop_screenshot, desktop.kind_window),
+    Builtin("desktop_batch", "desktop", "read", "Several steps in the same window in one go: a list of {tool, args} with "
+            "desktop_click, desktop_type, desktop_select or desktop_scroll. Stops at the first failure.",
+            {"steps": {"type": "array", "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}}}}},
+            ("steps",), desktop.desktop_batch, desktop.kind_batch),
     Builtin("dev_server", "browser", "change", "Start a connected repo's dev server (its .superagents/launch.json, or the dev or "
             "start script in package.json) and get its URL to open; action stop stops it, logs shows its output.",
             {"repo": S, "action": S, "name": S}, (), dev_server,
