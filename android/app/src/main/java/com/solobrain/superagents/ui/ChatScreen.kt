@@ -73,6 +73,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -88,6 +89,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -110,8 +112,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.solobrain.superagents.remote
 import com.solobrain.superagents.remote.Labels
+import com.solobrain.superagents.remote.RemoteError
 import com.solobrain.superagents.remote.objects
 import com.solobrain.superagents.remote.text
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -279,7 +283,10 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     LaunchedEffect(model.running) {  // anything lost at a turn's very end comes back within 30 s
         while (model.running != null) { delay(30_000); model.running?.let { t -> catchUp(t, model.nextOf(t)) } }
     }
-    LaunchedEffect(model.tick) { if (follow && model.items.isNotEmpty()) list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000) }
+    LaunchedEffect(model.tick) {  // a busy turn sends many events a second: one scroll after the burst, not one per event
+        delay(80)
+        if (follow && model.items.isNotEmpty()) list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000)
+    }
     LaunchedEffect(list.isScrollInProgress, list.canScrollForward) {
         if (!list.canScrollForward) follow = true else if (list.isScrollInProgress) follow = false
     }
@@ -487,9 +494,7 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
             Text(name, style = MaterialTheme.typography.labelLarge, color = p.muted)
         }
         if (folded.isNotEmpty() || b.notes.isNotEmpty()) Steps(b, folded)
-        for (c in asking) Approval(c) { ok ->
-            scope.launch { runCatching { r.decide(b.turn ?: return@launch, c.id, ok) }.onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } }
-        }
+        for (c in asking) key(c.id) { Approval(c) { ok -> r.decide(b.turn ?: throw RemoteError("This answer isn't running any more."), c.id, ok) } }
         b.line?.let { WorkingLine(b, it) }
         b.answer?.let { a ->
             Markdown(a)
@@ -520,11 +525,26 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
     }
 }
 
-/** A step waiting for a yes: what it is, the command or change itself, and the two answers. */
+/** A step waiting for a yes: what it is, the command or change itself, and the two answers. A tap answers at once (a
+ *  buzz, a spinner on the button) and the card goes when the laptop starts the step; if the answer can't get there,
+ *  the card says so and both buttons work again. */
 @Composable
-private fun Approval(c: Card, onDecide: (Boolean) -> Unit) {
+private fun Approval(c: Card, onDecide: suspend (Boolean) -> Unit) {
     val p = LocalPalette.current
-    var busy by remember(c.status) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    var sending by remember { mutableStateOf<Boolean?>(null) }  // the answer on its way
+    var error by remember { mutableStateOf<String?>(null) }
+    fun decide(ok: Boolean) {
+        if (sending != null) return
+        sending = ok; error = null
+        haptic.performHapticFeedback(if (ok) HapticFeedbackType.Confirm else HapticFeedbackType.Reject)
+        scope.launch {
+            try { onDecide(ok) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "Couldn't reach your laptop."; sending = null }
+        }
+    }
     val (verb, what) = Labels.of(c.name, c.args)
     val detail = Labels.detail(c.name, c.args).ifEmpty { "$verb $what".trim() }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.panel).border(1.dp, p.warn.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
@@ -539,12 +559,17 @@ private fun Approval(c: Card, onDecide: (Boolean) -> Unit) {
         }
         Text(detail, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 10, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(p.bg2).padding(12.dp))
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = p.bad, modifier = Modifier.testTag("decide-error")) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = { busy = true; onDecide(false) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Deny") }
-            Button(onClick = { busy = true; onDecide(true) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("allow"),
-                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) {
-                Text(if (c.name == "run_command") "Run it" else "Allow")
+            OutlinedButton(onClick = { decide(false) }, enabled = sending == null, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) {
+                if (sending == false) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = p.text) else Text("Deny")
+            }
+            Button(onClick = { decide(true) }, enabled = sending == null, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("allow"),
+                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick,
+                    disabledContainerColor = p.brick.copy(alpha = if (sending == true) 0.85f else 0.35f), disabledContentColor = p.onBrick)) {
+                if (sending == true) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = p.onBrick)
+                else Text(if (c.name == "run_command") "Run it" else "Allow")
             }
         }
     }

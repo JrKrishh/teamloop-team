@@ -656,6 +656,11 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         """One model step through the hub, thinking as hard as asked; its tokens count toward the team's usage."""
         payload = {"tier": tier, "effort": effort, "messages": messages, "tools": tools, "max_tokens": THINK_ROOM[effort]}
         code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
+        for wait in (10, 20, 30):  # the hub's per-person rate limit: a long turn waits for room instead of failing
+            if code != 429:
+                break
+            time.sleep(wait)
+            code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
         if code == 422 and payload["max_tokens"] > 4000:  # a hub from before effort caps a step at 4000 tokens
             payload = {**payload, "max_tokens": 4000}
             code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})

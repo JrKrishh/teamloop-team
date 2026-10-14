@@ -30,7 +30,9 @@ data class Board(val room: String, val tasks: List<Task>)
 
 enum class Link { NotPaired, Connecting, Online, Offline }
 
-class RemoteError(message: String) : Exception(message)
+open class RemoteError(message: String) : Exception(message)
+/** The message didn't get there, or no answer came back: the line, not the laptop, said no. */
+class LineDown(message: String) : RemoteError(message)
 
 fun JSONObject.text(key: String): String? = if (!has(key) || isNull(key)) null else optString(key)
 fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it) }

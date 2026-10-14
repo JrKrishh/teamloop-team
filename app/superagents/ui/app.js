@@ -582,10 +582,13 @@ function updateHead(st) {
   if (failed) head.append(el("span", "sh-bad", `${failed} failed`));
   if (now) head.append(el("span", "sh-now", `${toolUi(now.e)[1]} ${now.target ? now.target.textContent : ""}`.trim()));
 }
+let scrolling = false;
 function scrollDown(force) {
   const t = $("thread");
   if (!force && t.scrollHeight - t.scrollTop - t.clientHeight > 220) return;  // they scrolled up to read: leave them there
-  requestAnimationFrame(() => t.scrollTo({top: t.scrollHeight, behavior: REDUCED ? "auto" : "smooth"}));
+  if (scrolling) return;  // a busy turn sends many events a second: one jump per frame, not a smooth scroll per event
+  scrolling = true;
+  requestAnimationFrame(() => { scrolling = false; t.scrollTop = t.scrollHeight; });
 }
 function settle(slot, meta) { slot.m.querySelector(".agent").classList.remove("thinking"); slot.line.remove(); if (meta) slot.who.append(el("small", null, meta)); }
 const spentLine = u => (u && u.calls ? ` · ${fmtTok((u.in || 0) + (u.out || 0))} tokens` : "");
@@ -726,8 +729,8 @@ const TOOL_UI = {
   load_skill: ["book", "Use skill", a => a.name],
   read_skill_file: ["book", "Read skill file", a => `${a.name}/${a.file}`],
 };
-const STATUS = {running: "running", asking: "needs you", planned: "planned", done: "✓ done", failed: "✕ failed", declined: "declined",
-  discarded: "discarded", undone: "undone"};
+const STATUS = {running: "running", asking: "needs you", planned: "planned", done: "", failed: "failed", declined: "not run",
+  discarded: "not run", undone: "undone"};  // done says nothing: its green dot does
 const connName = cid => (S.connectors.find(c => c.id === cid) || {}).name || cid;
 const argText = a => Object.entries(a || {}).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ").slice(0, 200);
 function toolUi(e) {
@@ -775,7 +778,7 @@ function setCard(c, status, st, past) {
   c.box.className = `tool ${status}`;
   c.tst.replaceChildren();
   if (status === "running") c.tst.append(el("span", "spin"));
-  c.tst.append(STATUS[status] || status);
+  c.tst.append(STATUS[status] ?? status);
   c.box.querySelector(".ask-box")?.remove();
   if (status === "asking" && !past) c.box.append(askBox(c, st));
   // waiting for the person: in view; anything else: folded into the steps

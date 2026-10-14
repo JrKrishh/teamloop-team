@@ -192,6 +192,56 @@ def test_a_plan_in_prose_is_asked_once_for_its_calls(home):
     assert len(sent) == 1  # only plan mode asks again
 
 
+def test_a_long_turn_keeps_working_with_a_small_context(home):
+    """Like Claude Code: no stop after a couple of dozen steps; old tool output is cut and the oldest steps fold, so every
+    step stays inside the hub's limits (200 messages, 400k characters)."""
+    boards = []
+
+    def hub(method, path, body=None):
+        boards.append(1)
+        return {"room": f"Loopers {len(boards)}", "members": [],
+                "tasks": [{"task": f"T-{i}", "status": "todo", "title": "x" * 120} for i in range(80)]}  # ~10k characters
+
+    sent = []
+
+    def llm(messages, tools, tier):
+        sent.append(json.loads(json.dumps(messages)))  # as sent: compact() changes older messages in place afterwards
+        n = len(sent)
+        return call("team_board", {}, f"c{n}") if n <= 150 else answer("Finished.")
+
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="check the board a lot", attachments=[],
+                  mode="auto", model="auto", hub=hub, llm=llm, mcp=NoMcp(), person="Yang")
+    t.run()
+    assert t.events[-2]["text"] == "Finished." and len(sent) == 151
+    assert max(len(m) for m in sent) <= 200 and max(len(json.dumps(m)) for m in sent) < 250_000
+    last = sent[-1]
+    results = [m["content"] for m in last if m["role"] == "tool"]
+    assert all(len(r) > 9000 for r in results[-loop.KEEP_WHOLE:]) and all(r.endswith(loop.CUT) for r in results[:-loop.KEEP_WHOLE])
+    head = 2  # the system prompt and the person's message (a new chat has no history)
+    assert last[head]["role"] == "user" and last[head]["content"].startswith(loop.FOLDED.strip())
+    assert "- team_board {} → Team Loopers 2." in last[head]["content"]  # the first step (1 was the prompt's), folded to a line
+    ids = {c["id"] for m in last if m.get("tool_calls") for c in m["tool_calls"]}
+    assert all(m["tool_call_id"] in ids for m in last if m["role"] == "tool")  # every result still follows its call
+
+
+def test_at_the_step_limit_it_says_where_it_got_to(home, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_STEPS", 4)
+    llm, sent = script(*[call("team_board", {}, f"c{i}") for i in range(4)], answer("Read the board 4 times; T-3 still needs review."))
+    t = run_turn("auto", llm, [])
+    assert len(sent) == 5 and sent[-1]["messages"][-1] == {"role": "user", "content": loop.WRAP_UP.format(n=4)}
+    assert t.events[-2]["text"] == "Read the board 4 times; T-3 still needs review."
+    llm, sent = script(*[call("team_board", {}, f"d{i}") for i in range(5)])  # it still only calls tools: said for it
+    t = run_turn("auto", llm, [])
+    assert t.events[-2]["text"] == "I took 4 steps on this and stopped there. Ask me to continue."
+
+
+def test_the_same_call_with_the_same_result_is_named_a_loop(home):
+    llm, sent = script(*[call("team_board", {}, f"r{i}") for i in range(3)], answer("ok"))
+    run_turn("auto", llm, [])
+    results = [m["content"] for m in sent[-1]["messages"] if m["role"] == "tool"]
+    assert not results[1].endswith(loop.REPEAT_NUDGE.format(n=2)) and results[2].endswith(loop.REPEAT_NUDGE.format(n=3))
+
+
 def test_auto_runs_changes_but_shell_commands_still_ask(home):
     hub_calls = []
     llm, _ = script(call("create_task", {"title": "x"}, "a1"), call("run_command", {"command": "echo hi"}, "a2"), answer("ok"))
