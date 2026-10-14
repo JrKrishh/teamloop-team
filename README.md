@@ -31,8 +31,8 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 Chats with your agents are the one thing that leaves the laptop by design: to answer, a message and what its tools read (including what `recall` finds in your own past sessions) go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).
 
 ## Install on Windows
-1. Download `SuperAgents-windows-x64.zip` from https://teamloop.vercel.app (or [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest)) and unzip it.
-2. Double-click **Install Super Agents**. It installs for your Windows user (no admin), adds the `teamloop` command to your PATH, makes Start-menu and desktop shortcuts, and opens the app.
+1. Download `SuperAgents-Setup.exe` from https://teamloop.vercel.app (or [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest)) and open it. Until the app is code-signed, Windows may say it "protected your PC": choose **More info → Run anyway**.
+2. It installs for your Windows user (no admin), adds the `teamloop` command to your PATH, makes Start-menu and desktop shortcuts, and opens the app. Opening it again brings the same window forward. Uninstall it from Settings → Apps; your data in `~/.teamloop` stays.
 3. Continue with GitHub, then create your team or join with your lead's invite link. Pick the repos to connect on **This laptop**.
 
 **On your phone:** download `SuperAgents-android.apk` from [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest) and open it (Android asks once to allow installs from your browser); iPhones use the web app at https://teamloop.vercel.app/remote/. Then pair in the app's Settings → Phone. Building the APK: [android/README.md](android/README.md).

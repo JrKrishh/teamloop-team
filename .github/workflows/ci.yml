@@ -67,8 +67,10 @@ jobs:
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: cd app && python -m pytest -q
   exe:
-    # Super Agents for Windows (SuperAgents.exe + teamloop.exe): on demand (Actions tab) or on a version tag
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    # Super Agents for Windows: SuperAgents-Setup.exe (SuperAgents.exe + teamloop.exe), then installed, opened twice and
+    # uninstalled on this clean machine. On pull requests, on demand (Actions tab) and on a version tag; a branch push
+    # skips it, its pull request runs it.
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,14 +81,18 @@ jobs:
       - run: pyinstaller packaging/teamloop.spec --distpath dist --workpath build/pyi --noconfirm
       - run: dist/teamloop/teamloop.exe status
       - run: if (-not (Test-Path dist/teamloop/SuperAgents.exe)) { throw "SuperAgents.exe missing" }
-      - run: |
-          Copy-Item packaging/install.ps1, "packaging/Install Super Agents.cmd" dist/teamloop/
-          Rename-Item dist/teamloop SuperAgents
-          Compress-Archive -Path dist/SuperAgents -DestinationPath SuperAgents-windows-x64.zip
+      - name: SuperAgents-Setup.exe (Inno Setup)
+        run: |
+          choco install innosetup -y --no-progress
+          $v = python -c "import superagents; print(superagents.__version__)"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp "/DVersion=$v" packaging/SuperAgents.iss
+          if ($LASTEXITCODE) { throw "the installer didn't build" }
+      - name: Install, open twice, uninstall
+        run: python packaging/check_installer.py dist/SuperAgents-Setup.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: SuperAgents-windows-x64
-          path: SuperAgents-windows-x64.zip
+          name: SuperAgents-Setup
+          path: dist/SuperAgents-Setup.exe
   apk:
     # Super Agents for Android (native, android/): the crypto test against the laptop's seal, then the shrunk
     # release APK, signed with the debug key until there's a release key; installed by hand

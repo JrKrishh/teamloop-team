@@ -292,7 +292,8 @@ def github_issues(repo: str) -> dict:
 
 def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
            pick_folder: Optional[Callable[[], Optional[str]]] = None,
-           set_title_theme: Optional[Callable[[bool], None]] = None) -> FastAPI:
+           set_title_theme: Optional[Callable[[bool], None]] = None,
+           show_window: Optional[Callable[[], None]] = None) -> FastAPI:
     app = FastAPI(title="Super Agents", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     browser.APP_PORT = state.port
 
@@ -464,6 +465,12 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     def window_theme(body: ThemeIn) -> dict:
         if set_title_theme:
             set_title_theme(body.dark)
+        return {"ok": True}
+
+    @app.post("/api/window/show")
+    def window_show() -> dict:  # the app was launched again: this window comes forward instead
+        if show_window:
+            show_window()
         return {"ok": True}
 
     @app.post("/api/prefs")
