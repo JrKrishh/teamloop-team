@@ -73,6 +73,7 @@ const ICONS = {
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
   gauge: '<path d="M4.2 16.5a8 8 0 1 1 15.6 0"/><path d="m12 16.5 3.6-4.6"/><circle cx="12" cy="16.5" r="1.2"/>',
   sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>',
+  branch: '<circle cx="7" cy="5.5" r="2.2"/><circle cx="7" cy="18.5" r="2.2"/><circle cx="17" cy="8" r="2.2"/><path d="M7 7.7v8.6M17 10.2c0 4.3-6.5 3.2-9.3 6.4"/>',
   prefs: '<path d="M4 7.5h9M18 7.5h2M4 16.5h3M12 16.5h8"/><circle cx="15.5" cy="7.5" r="2.3"/><circle cx="9.5" cy="16.5" r="2.3"/>',
   expand: '<path d="M14.5 4.5h5v5M9.5 19.5h-5v-5M19.5 4.5 13.5 10.5M4.5 19.5l6-6"/>',
   shrink: '<path d="M18.5 10.5h-5v-5M5.5 13.5h5v5M13.5 10.5l6-6M10.5 13.5l-6 6"/>',
@@ -92,7 +93,7 @@ const MODELS = {
 };
 const TOOL_GROUPS = {
   team: {label: "Team board", desc: "Read the board and the team's history; create, assign, close and start tasks."},
-  files: {label: "Files", desc: "Read, search and write files in the repos connected on This laptop."},
+  files: {label: "Files and git", desc: "Read, search and write files in the repos connected on This laptop; branch, commit, push and open pull requests."},
   terminal: {label: "Terminal", desc: "Run shell commands on this laptop. Always asks first."},
   browser: {label: "Browser", desc: "Read web pages and show pages in the browser panel."},
   memory: {label: "Memory", desc: "Remember notes, and search earlier chats and your coding sessions in every project on this laptop."},
@@ -628,6 +629,12 @@ const TOOL_UI = {
   search_files: ["search", "Search", a => `“${a.query}”${a.path ? ` in ${a.path}` : ""}`],
   write_file: ["edit", "Write", a => a.path],
   run_command: ["term", "Run", a => a.command],
+  git_status: ["branch", "Git status", a => a.repo || ""],
+  git_branch: ["branch", "Branch", a => a.name],
+  git_commit: ["check", "Commit", a => `${(a.message || "").split("\n")[0]}${a.files ? ` · ${a.files.length} file${a.files.length === 1 ? "" : "s"}` : ""}`],
+  git_push: ["up", "Push", a => a.repo || "this branch"],
+  open_pr: ["github", "Pull request", a => a.title],
+  git_pull: ["reload", "Pull", a => a.repo || ""],
   fetch_url: ["globe", "Read page", a => a.url],
   open_in_browser: ["globe", "Open", a => a.url],
   load_skill: ["book", "Use skill", a => a.name],
@@ -688,6 +695,9 @@ function askBox(c, st) {
   const box = el("div", "ask-box");
   if (e.name === "run_command") box.append(el("p", null, `${who} wants to run this on your laptop${a.cwd ? ` in ${a.cwd}` : ""}:`), el("pre", null, a.command || ""));
   else if (e.name === "write_file") box.append(el("p", null, `${who} wants to write ${a.path}:`), el("pre", null, (a.content || "").slice(0, 6000)));
+  else if (e.name === "git_commit") box.append(el("p", null, `${who} wants to commit these files on the current branch:`), el("pre", null, `${a.message || ""}\n\n${(a.files || []).join("\n")}`));
+  else if (e.name === "git_push") box.append(el("p", null, `${who} wants to push the current branch${a.repo ? ` of ${a.repo}` : ""} to GitHub, with your sign-in. Your team will see it there.`));
+  else if (e.name === "open_pr") box.append(el("p", null, `${who} wants to open a pull request${a.base ? ` into ${a.base}` : ""}:`), el("pre", null, `${a.title || ""}\n\n${a.body || ""}`));
   else if ((e.group || "").startsWith("mcp:")) box.append(el("p", null, `${who} wants to use ${toolUi(e)[1]} with:`), el("pre", null, JSON.stringify(a, null, 2)));
   else box.append(el("p", null, `${who} wants to make this change.`));
   const row = el("div", "row gap");
@@ -1929,6 +1939,11 @@ function renderLaptop() {
   };
   repos.append(ul, add, log); left.append(repos);
 
+  const proj = el("section", "panel"), plist = el("ul", "repos");
+  proj.append(el("h3", null, "Team projects"), el("p", "sub", "Your team's GitHub repos. Get one and it's cloned into a folder you pick, with your own GitHub sign-in, then connected here. Agents commit and push there like Claude Code: on a branch, asking before each push."), plist);
+  left.append(proj);
+  fillProjects(proj, plist);
+
   const tools = el("section", "panel"); tools.append(el("h3", null, "Coding tools on this laptop"));
   const T = L.tools || {}; const tl = el("ul", "repos");
   for (const [k, label, hint] of [["claude_code", "Claude Code", "the claude CLI wasn't found on PATH"], ["codex", "Codex", "the codex CLI wasn't found on PATH"]]) {
@@ -1945,6 +1960,51 @@ function renderLaptop() {
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);
   grid.append(left, right);
+}
+
+const HELPERS = {manager: "Git Credential Manager", "manager-core": "Git Credential Manager", wincred: "the Windows credential store"};
+const sameRepo = u => (u || "").trim().replace(/^git@github\.com:/, "https://github.com/").replace(/\.git$|\/$/g, "").toLowerCase();
+async function fillProjects(panel, ul) {
+  let r, g;
+  try { [r, g] = await Promise.all([hub(`teams/${S.team}/repos`), api("/api/laptop/git")]); }
+  catch (e) { ul.replaceChildren(el("li", "sub", e.message)); return; }
+  const here = new Set(Object.values(g.origins || {}).map(sameRepo));
+  ul.replaceChildren();
+  for (const p of r.repos) {
+    const li = el("li", "repo"), f = el("span", "folder"), ctl = el("div", "checks"); f.append(ic("github"));
+    if (here.has(sameRepo(p.url))) ctl.append(el("span", "ck ok", "on this laptop ✓"));
+    else {
+      const get = btn("Get the project", "primary", async () => {
+        get.disabled = true; get.textContent = "Pick where to put it…";
+        try {
+          const res = await api("/api/laptop/clone", {method: "POST", body: {url: p.url}});
+          if (!res.cancelled) { toast(res.ok ? `${p.name} is in ${res.path} and connected.` : `Cloned into ${res.path}, but connecting it failed.`, !res.ok); await refreshLaptop(false); }
+        } catch (e) { toast(e.message, true); }
+        if (S.view === "laptop") renderLaptop();
+      }, "plus");
+      ctl.append(get);
+    }
+    if (r.can_edit) ctl.append(btn("Remove", "ghost", async () => {
+      try { await hub(`teams/${S.team}/repos?url=${encodeURIComponent(p.url)}`, {method: "DELETE"}); } catch (e) { toast(e.message, true); }
+      renderLaptop();
+    }));
+    li.append(f, el("b", null, p.name), ctl); ul.append(li);
+  }
+  if (!r.repos.length) ul.append(el("li", "sub", r.can_edit ? "No repos linked yet. Link your team's GitHub repos and teammates get them in one click." : "Your lead hasn't linked the team's GitHub repos yet."));
+  if (r.can_edit) {
+    const form = el("form", "row gap"), url = inputEl({placeholder: "https://github.com/owner/repo", autocomplete: "off", spellcheck: false});
+    url.setAttribute("aria-label", "A GitHub repo for the team"); url.style.flex = "1";
+    form.append(url, btn("Link repo", "", null, "plus")); form.lastChild.type = "submit";
+    form.addEventListener("submit", async ev => {
+      ev.preventDefault(); if (!url.value.trim()) return;
+      try { await hub(`teams/${S.team}/repos`, {method: "POST", body: {url: url.value.trim()}}); renderLaptop(); } catch (e) { toast(e.message, true); }
+    });
+    panel.append(form);
+  }
+  const helper = HELPERS[g.helper] || (g.helper ? g.helper : "");
+  panel.append(el("p", "sub", !g.git ? "Git isn't installed here: install Git for Windows (it brings Git Credential Manager for GitHub sign-in)."
+    : `Git ✓ · GitHub sign-in through ${helper || "no credential helper: pushes will fail until you set one up (Git for Windows includes Git Credential Manager)"}`
+      + ` · ${g.gh ? "GitHub CLI ✓: when it's signed in, pull requests open directly" : "no GitHub CLI: pull requests open on github.com for you to click Create"}.`));
 }
 
 // ---- settings: the account, the look, and what you share (the same switches as This laptop, Agents → Memory and

@@ -338,16 +338,23 @@ def session_prompt(ctx, id: str, wait: float = 30) -> str:
 
 
 # ---- code review: diffs to read ------------------------------------------------------------------------------
-def _git(path: Path, *args: str) -> subprocess.CompletedProcess:
+def _git(path: Path, *args: str, timeout: int = 30, input: str | None = None) -> subprocess.CompletedProcess:
+    # GIT_TERMINAL_PROMPT=0: never wait on a terminal prompt; Git Credential Manager signs in through its own window
     return subprocess.run(["git", *args], cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          timeout=30, stdin=subprocess.DEVNULL)
+                          timeout=timeout, input=input, stdin=None if input is not None else subprocess.DEVNULL,
+                          env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
 
 
-def git_diff(ctx, repo: str = "", base: str = "") -> str:
+def _repo(repo: str) -> Path:
     rs = roots()
     path = rs.get(repo) if repo else (next(iter(rs.values())) if len(rs) == 1 else None)
     if not path:
         raise ValueError(f"Say which repo: {', '.join(rs) or 'connect one on This laptop first'}")
+    return path.resolve()
+
+
+def git_diff(ctx, repo: str = "", base: str = "") -> str:
+    path = _repo(repo)
     if base and not re.fullmatch(r"[A-Za-z0-9._/~^-]{1,100}", base):
         raise ValueError("That base doesn't look like a branch or a commit")
     if _git(path, "rev-parse", "--verify", "HEAD").returncode != 0:
@@ -360,6 +367,136 @@ def git_diff(ctx, repo: str = "", base: str = "") -> str:
     log = _git(path, "log", "--oneline", "-8", *([f"{base}..HEAD"] if base else [])).stdout.strip()
     what = f"changes on this branch since {base}" if base else "uncommitted changes"
     return _clip(f"{display(path.resolve())}: {what}\n{stat or '(none)'}\n\nCommits:\n{log}\n\n{diff.stdout}", 80_000)
+
+
+# ---- git: commit, push and pull requests like Claude Code, with this laptop's own git and its GitHub sign-in (Git
+# Credential Manager, part of Git for Windows) and the GitHub CLI when it's signed in. No GitHub token is kept here.
+# Commits name their files and never land on the default branch; pushes never force and never go to it.
+GITHUB = re.compile(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?/?$")
+
+
+def github_repo(url: str) -> str | None:
+    """'owner/repo' for a GitHub remote or URL, else None."""
+    m = GITHUB.match((url or "").strip())
+    return f"{m.group(1)}/{m.group(2)}" if m else None
+
+
+def _ok(r: subprocess.CompletedProcess, what: str) -> str:
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).strip()[:800] or f"git {what} failed")
+    return r.stdout
+
+
+def _branch(path: Path) -> str:
+    return _git(path, "branch", "--show-current").stdout.strip()
+
+
+def _default_branch(path: Path) -> str:
+    r = _git(path, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip().removeprefix("origin/")
+    for name in ("main", "master"):
+        if _git(path, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}").returncode == 0:
+            return name
+    return "main"
+
+
+def _on_work_branch(path: Path, doing: str) -> str:
+    branch, default = _branch(path), _default_branch(path)
+    if not branch:
+        raise ValueError(f"This repo isn't on a branch; switch to one with git_branch before you {doing}")
+    if branch == default:
+        raise ValueError(f"This repo is on {default}, the default branch: make a branch with git_branch, then {doing} there")
+    return branch
+
+
+def _in_repo(root: Path, name: str) -> str:
+    """A file named as the other tools show it ('acme-web/src/a.ts') or relative to the repo ('src/a.ts') -> its path
+    for git. Anything outside the repo, or the repo itself, is refused."""
+    f = str(name).strip().replace("\\", "/")
+    head, _, rest = f.partition("/")
+    target = Path(f) if Path(f).is_absolute() else root / rest if head == root.name and rest and (root / rest).exists() else root / f
+    target = target.resolve()
+    if root not in target.parents:
+        raise PermissionError(f"{name} isn't a file in {root.name}")
+    return target.relative_to(root).as_posix()
+
+
+def git_status(ctx, repo: str = "") -> str:
+    path = _repo(repo)
+    st = _ok(_git(path, "status", "--short", "--branch"), "status").strip()
+    return _clip(f"{display(path)} (default branch {_default_branch(path)})\n{st}")
+
+
+def git_branch(ctx, name: str, repo: str = "") -> str:
+    path = _repo(repo)
+    if not re.fullmatch(r"[A-Za-z0-9._/-]{1,100}", name or "") or _git(path, "check-ref-format", "--branch", name).returncode != 0:
+        raise ValueError("That isn't a valid branch name; use something like fix/login-timeout")
+    exists = _git(path, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}").returncode == 0
+    _ok(_git(path, "switch", name) if exists else _git(path, "switch", "-c", name), "switch")
+    return f"{path.name} is on {'the existing' if exists else 'a new'} branch {name}; uncommitted changes came along."
+
+
+def git_commit(ctx, message: str, files: list, repo: str = "") -> str:
+    path = _repo(repo)
+    branch = _on_work_branch(path, "commit")
+    if not (message or "").strip():
+        raise ValueError("Write a commit message")
+    names = [_in_repo(path, f) for f in (files or [])]
+    if not names:
+        raise ValueError("Name the files to commit; nothing is committed by wildcard")
+    _ok(_git(path, "add", "--", *names), "add")
+    # only these files go in, even if other changes are staged; the repo's commit hook adds the task trailer
+    _ok(_git(path, "commit", "--only", "-F", "-", "--", *names, input=message.strip() + "\n", timeout=120), "commit")
+    head = _git(path, "log", "-1", "--format=%h %s").stdout.strip()
+    return f"Committed {head} on {branch}: {', '.join(names)}. Push it with git_push."
+
+
+def git_push(ctx, repo: str = "") -> str:
+    path = _repo(repo)
+    branch = _on_work_branch(path, "push")
+    if _git(path, "remote", "get-url", "origin").returncode != 0:
+        raise ValueError(f"{path.name} has no origin remote to push to")
+    r = _git(path, "push", "--set-upstream", "origin", f"{branch}:{branch}", timeout=180)
+    return f"Pushed {branch} to origin.\n" + _ok(r, "push") + r.stderr.strip()[-1500:]
+
+
+def open_pr(ctx, title: str, body: str = "", base: str = "", repo: str = "") -> str:
+    import shutil
+    import webbrowser
+
+    path = _repo(repo)
+    branch = _on_work_branch(path, "open a pull request")
+    base = base or _default_branch(path)
+    slug = github_repo(_git(path, "remote", "get-url", "origin").stdout)
+    if not slug:
+        raise ValueError(f"{path.name}'s origin isn't on GitHub")
+    if _git(path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode != 0:
+        raise ValueError(f"Push {branch} first (git_push)")
+    gh = shutil.which("gh")
+    try:
+        signed_in = bool(gh) and subprocess.run([gh, "auth", "status"], capture_output=True, timeout=10,
+                                                stdin=subprocess.DEVNULL).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        signed_in = False
+    if signed_in:
+        r = subprocess.run([gh, "pr", "create", "--title", title, "--body-file", "-", "--base", base, "--head", branch],
+                           cwd=path, input=body or "", capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        return f"Opened the pull request: {_ok(r, 'pr create').strip()}"
+    q = urllib.parse.urlencode({"quick_pull": 1, "title": title, "body": (body or "")[:3000]})
+    url = f"https://github.com/{slug}/compare/{urllib.parse.quote(base)}...{urllib.parse.quote(branch)}?{q}"
+    webbrowser.open(url)
+    return (f"The GitHub CLI isn't signed in here, so GitHub's new pull request page is open in the browser with the title "
+            f"and description filled in ({branch} → {base}): the person clicks Create. {url}")
+
+
+def git_pull(ctx, repo: str = "") -> str:
+    path = _repo(repo)
+    r = _git(path, "pull", "--ff-only", timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).strip()[:800] + "\nOnly fast-forward pulls run here; if both sides moved, "
+                           "the person merges or rebases.")
+    return (r.stdout + r.stderr).strip()[:2000] or "Already up to date."
 
 
 def _github_token() -> str | None:
@@ -451,6 +588,18 @@ BUILTINS = [
             {"path": S, "content": S}, ("path", "content"), write_file),
     Builtin("git_diff", "files", "read", "A connected repo's diff for review: uncommitted changes, or with base (a branch or commit) "
             "everything on this branch since it, with the commits.", {"repo": S, "base": S}, (), git_diff),
+    Builtin("git_status", "files", "read", "A connected repo's branch, how far it is ahead of or behind origin, and its changed files.",
+            {"repo": S}, (), git_status),
+    Builtin("git_branch", "files", "change", "Create a branch (or switch to an existing one) in a connected repo; uncommitted "
+            "changes come along. Work goes on a branch, never on the default branch.", {"name": S, "repo": S}, ("name",), git_branch),
+    Builtin("git_commit", "files", "change", "Commit the named files (paths in the repo) with a message, on the current branch. "
+            "Only those files go in. To ship work: git_branch, edit, git_commit, git_push, open_pr.",
+            {"message": S, "files": {"type": "array", "items": S}, "repo": S}, ("message", "files"), git_commit),
+    Builtin("git_push", "files", "ask", "Push the current branch to origin (never the default branch, never forced), with the "
+            "laptop's own GitHub sign-in.", {"repo": S}, (), git_push),
+    Builtin("open_pr", "files", "ask", "Open a GitHub pull request from the pushed current branch into base (default: the repo's "
+            "default branch).", {"title": S, "body": S, "base": S, "repo": S}, ("title",), open_pr),
+    Builtin("git_pull", "files", "change", "Bring the current branch up to date with origin (fast-forward only).", {"repo": S}, (), git_pull),
     Builtin("run_command", "terminal", "ask", "Run a shell command on this laptop (PowerShell on Windows) in a connected repo; returns output and exit code.",
             {"command": S, "cwd": S}, ("command",), run_command),
     Builtin("fetch_url", "browser", "read", "Read a web page as text.", {"url": S}, ("url",), fetch_url),

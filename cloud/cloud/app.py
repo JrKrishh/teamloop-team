@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import time
 import urllib.error
@@ -160,6 +161,21 @@ class TeamIn(BaseModel):
 
 class InviteIn(BaseModel):
     role: str = Field(default="member", pattern="^(lead|member)$")
+
+
+class RepoLinkIn(BaseModel):
+    url: str = Field(min_length=10, max_length=300)
+
+
+GITHUB_REPO = re.compile(r"^(?:https://github\.com/|git@github\.com:)([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?/?$")
+
+
+def github_url(raw: str) -> str:
+    """https://github.com/owner/repo for a GitHub repo URL in any of its usual forms, or a 400."""
+    m = GITHUB_REPO.match((raw or "").strip())
+    if not m:
+        raise HTTPException(400, "That isn't a GitHub repo URL (https://github.com/owner/repo)")
+    return f"https://github.com/{m.group(1)}/{m.group(2)}"
 
 
 class EventsIn(BaseModel):
@@ -401,6 +417,32 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if not back:
             raise HTTPException(404, "That member isn't removed")
         return {"ok": True}
+
+    # ---- the team's GitHub repos: a teammate's app clones one into a folder they pick (Get the project) ----------
+    def repos_of(conn, team_id: str, role: str, c: Caller) -> dict:
+        rows = conn.execute("select url from team_repos where team_id = %s order by added_at", (team_id,)).fetchall()
+        return {"repos": [{"url": r["url"], "name": r["url"].removeprefix("https://github.com/")} for r in rows],
+                "can_edit": role == "lead" and c.kind == "session"}
+
+    @app.get("/v1/teams/{team}/repos")
+    def team_repos(team: str, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _, role = team_scope(c, team, conn)
+        return repos_of(conn, team_id, role, c)
+
+    @app.post("/v1/teams/{team}/repos")
+    def add_team_repo(team: str, body: RepoLinkIn, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _ = lead_scope(c, team, conn)
+        if conn.execute("select count(*) as n from team_repos where team_id = %s", (team_id,)).fetchone()["n"] >= 20:
+            raise HTTPException(400, "A team can link up to 20 repos")
+        conn.execute("insert into team_repos (team_id, url, added_by) values (%s, %s, %s) on conflict do nothing",
+                     (team_id, github_url(body.url), c.person.id))
+        return repos_of(conn, team_id, "lead", c)
+
+    @app.delete("/v1/teams/{team}/repos")
+    def remove_team_repo(team: str, url: str, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _ = lead_scope(c, team, conn)
+        conn.execute("delete from team_repos where team_id = %s and url = %s", (team_id, github_url(url)))
+        return repos_of(conn, team_id, "lead", c)
 
     @app.get("/v1/settings")
     def settings(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:

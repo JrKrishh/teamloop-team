@@ -21,10 +21,11 @@ browser / app window           --session cookie---->       (same function)      
 - **Limits:** 60 event batches per member per minute, 8 KB per event, 30-day retention (swept on writes), no live stream (the board polls every 15 s and skips hidden tabs).
 
 - **Super Team:** `GET /v1/sessions` (teammates' sessions from the last 14 days, with each owner's rules, whether their app is online or since when it's been offline, and how many prompts are in each thread), `GET /v1/sessions/{session}/thread` (that session and the prompts into it you may see, oldest first), `PUT /v1/sessions/access` (your rules: `mode` off/ask/auto, `access` read/edit, `daily_tokens` or null), `POST /v1/prompts` (into a session), `GET /v1/prompts?box=all|in|out` and `/v1/prompts/{id}` (the record: the lead sees all, a member what they sent or received), `POST /v1/prompts/{id}/decide` (the owner), `/cancel` (the sender, before it runs). The owner's app uses `GET /v1/prompts/runnable` (which also marks it online), `POST …/claim` (with what's left of the sender's tokens today and the sender's last 3 answered exchanges in that session) and `POST …/finish`. A prompt still pending or approved after 7 days expires.
+- **Team projects:** `GET /v1/teams/{team}/repos` (the team's GitHub repos, for Get the project; anyone in the team), `POST` with `{url}` and `DELETE ?url=` (the lead; up to 20; any usual form of a GitHub URL is stored as `https://github.com/owner/repo`).
 - **Deadlines:** `due` (YYYY-MM-DD) on `POST /v1/tasks` and `PATCH /v1/tasks/{task}` (`""` clears); the board and task detail return it.
 
 ### Migrations
-`schema.sql` is the whole schema for a fresh database. A live one gets [cloud/cloud/migrations.sql](../cloud/cloud/migrations.sql), in order: `teamloop_cloud_v1` (applied), `teamloop_cloud_v2_tasks` (`tasks`), `teamloop_cloud_v3_usage` (`agent_usage`), `teamloop_cloud_v4_super_team` (`tasks.due`, `session_access`, `session_prompts`). Each statement is safe to run twice.
+`schema.sql` is the whole schema for a fresh database. A live one gets [cloud/cloud/migrations.sql](../cloud/cloud/migrations.sql), in order: `teamloop_cloud_v1` (applied), `teamloop_cloud_v2_tasks` (`tasks`), `teamloop_cloud_v3_usage` (`agent_usage`), `teamloop_cloud_v4_super_team` (`tasks.due`, `session_access`, `session_prompts`), `teamloop_cloud_v5_team_repos` (`team_repos`). Each statement is safe to run twice.
 
 ## One-time setup (Yang)
 These four switch it on. They need your Supabase and GitHub accounts, and step 4 holds the database password, so they're yours.
