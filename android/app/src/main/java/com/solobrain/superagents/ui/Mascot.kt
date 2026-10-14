@@ -70,10 +70,11 @@ private const val HOOD = "M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 1
 
 /**
  * The Super Agents mascot, drawn from its own vector paths (sharp at any size) and alive: [drop] brings it in from
- * above on a spring, with a squash as it lands, then [onLanded]. [interactive] lets a tap make it giggle.
+ * above on a spring, with a squash as it lands, then [onLanded]. [interactive] lets a tap make it giggle; [fidget] off
+ * keeps it calm when idle.
  */
 @Composable
-fun Mascot(modifier: Modifier = Modifier, mood: Mood = Mood.Idle, size: Dp = 96.dp, drop: Boolean = false, interactive: Boolean = false,
+fun Mascot(modifier: Modifier = Modifier, mood: Mood = Mood.Idle, size: Dp = 96.dp, drop: Boolean = false, interactive: Boolean = false, fidget: Boolean = true,
            onLanded: () -> Unit = {}) {
     val p = LocalPalette.current
     val rim = p.bg.luminance() < 0.5f  // on a dark page the black hood needs an edge to be seen
@@ -134,7 +135,7 @@ fun Mascot(modifier: Modifier = Modifier, mood: Mood = Mood.Idle, size: Dp = 96.
                 launch { squash.snapTo(0.9f); squash.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 300f)) }
                 lean.animateTo(-8f, spring(dampingRatio = 0.5f, stiffness = 200f))
             }
-            Mood.Idle -> while (true) {  // left alone, it fidgets now and then
+            Mood.Idle -> while (fidget) {  // left alone, it fidgets now and then (not as an avatar beside every answer)
                 delay(Random.nextLong(4500, 8500))
                 when (Random.nextInt(3)) {
                     0 -> { glance.animateTo(-3.5f, tween(240)); delay(450); glance.animateTo(3.5f, tween(360)); delay(450); glance.animateTo(0f, tween(240)) }

@@ -1,6 +1,32 @@
 package com.solobrain.superagents.ui
 
 import android.widget.Toast
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Build
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
+import com.solobrain.superagents.remote.Agent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -26,7 +52,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -35,14 +60,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -179,6 +201,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     var mode by remember { mutableStateOf("manual") }
     var picking by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(open.id != null) }
+    var follow by remember { mutableStateOf(true) }  // stay with the newest message, unless they scrolled up to read
     val catchUp: (String, Int) -> Unit = { turn, after -> scope.launch { runCatching { r.watch(turn, after) } } }
     BackHandler(onBack = onBack)
 
@@ -186,6 +209,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
         val msg = message.trim()
         if (msg.isEmpty() || model.running != null) return
         text = ""
+        follow = true
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         model.user(msg)
         val b = model.agent(agent)
@@ -228,36 +252,42 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     LaunchedEffect(model.running) {  // anything lost at a turn's very end comes back within 30 s
         while (model.running != null) { delay(30_000); model.running?.let { t -> catchUp(t, model.nextOf(t)) } }
     }
-    LaunchedEffect(model.tick) { if (model.items.isNotEmpty()) list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000) }
+    LaunchedEffect(model.tick) { if (follow && model.items.isNotEmpty()) list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000) }
+    LaunchedEffect(list.isScrollInProgress, list.canScrollForward) {
+        if (!list.canScrollForward) follow = true else if (list.isScrollInProgress) follow = false
+    }
 
+    val who = laptop?.agent(agent)
     Column(Modifier.fillMaxSize().background(p.bg).imePadding()) {
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.testTag("back")) { Icon(Glyph.Back, "Back") }
-            Column(Modifier.weight(1f)) {
-                Text(model.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${laptop?.agent(agent)?.name ?: "Agent S"} · ${MODES.first { it.first == mode }.second}", style = MaterialTheme.typography.bodySmall)
-            }
+            Text(model.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 16.dp))
         }
+        if (list.canScrollBackward) HorizontalDivider(color = p.line) else Spacer(Modifier.height(1.dp))
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            if (loading) Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Mascot(size = 72.dp, mood = Mood.Think); Text("Opening…", color = p.muted)
-            }
-            LazyColumn(state = list, contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                itemsIndexed(model.items) { _, item ->
-                    when (item) {
-                        is Item.User -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            Text(item.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.widthIn(max = 300.dp)
-                                .clip(RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)).background(p.panel2).padding(horizontal = 14.dp, vertical = 10.dp))
+            when {
+                loading -> Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Mascot(size = 72.dp, mood = Mood.Think); Text("Opening…", color = p.muted)
+                }
+                model.items.isEmpty() -> Welcome(onAsk = { send(it) })
+                else -> LazyColumn(state = list, contentPadding = PaddingValues(18.dp, 16.dp, 18.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
+                    itemsIndexed(model.items) { _, item ->
+                        when (item) {
+                            is Item.User -> UserBubble(item.text)
+                            is Item.Agent -> AgentBlock(item.block, laptop?.agent(item.block.agent), model)
                         }
-                        is Item.Agent -> AgentBlock(item.block, laptop?.agent(item.block.agent)?.name ?: "Agent S",
-                            laptop?.agent(item.block.agent)?.color, model)
                     }
                 }
             }
+            if (!follow && model.items.isNotEmpty()) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).size(40.dp)
+                .shadow(6.dp, CircleShape).clip(CircleShape).background(p.panel2)
+                .clickable { follow = true; scope.launch { list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000) } },
+                contentAlignment = Alignment.Center) { Icon(Glyph.Down, "To the newest message", Modifier.size(20.dp)) }
         }
-        Composer(text, { text = it }, model.running != null, "${laptop?.agent(agent)?.name ?: "Agent S"} · ${MODES.first { it.first == mode }.second}",
-            parseColor(laptop?.agent(agent)?.color) ?: p.brick, onPick = { picking = true },
-            onSend = { send(text) }, onStop = { model.running?.let { t -> haptic.performHapticFeedback(HapticFeedbackType.Reject); scope.launch { runCatching { r.stopTurn(t) } } } })
+        Composer(text, { text = it }, model.running != null, agent, who?.name ?: "Agent S", who?.color, MODES.first { it.first == mode }.second,
+            onPick = { picking = true }, onSend = { send(text) },
+            onStop = { model.running?.let { t -> haptic.performHapticFeedback(HapticFeedbackType.Reject); scope.launch { runCatching { r.stopTurn(t) } } } })
     }
 
     if (picking) ModalBottomSheet(onDismissRequest = { picking = false }, containerColor = p.bg2) {
@@ -267,7 +297,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
             for (a in laptop?.agents.orEmpty()) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                 .background(if (a.id == agent) p.panel2 else p.bg2).clickable { agent = a.id; a.mode?.let { m -> if (MODES.any { it.first == m }) mode = m }; picking = false }
                 .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(10.dp).background(parseColor(a.color) ?: p.brick, CircleShape)); Spacer(Modifier.width(12.dp))
+                Avatar(a.id, a.name, a.color, 26.dp); Spacer(Modifier.width(12.dp))
                 Text(a.name, style = MaterialTheme.typography.titleMedium)
             }
             Label("Mode")
@@ -281,63 +311,181 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     }
 }
 
+/** A new chat: the mascot says hello, with a few things to ask. */
 @Composable
-private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, who: String, dot: androidx.compose.ui.graphics.Color,
+private fun Welcome(onAsk: (String) -> Unit) {
+    val p = LocalPalette.current
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Mascot(size = 88.dp, mood = Mood.Wave, interactive = true)
+        Spacer(Modifier.height(18.dp))
+        Text("What should your agents do?", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
+        Text("They work on your laptop. Each step shows here, and anything that needs your yes.",
+            style = MaterialTheme.typography.bodyMedium, color = p.muted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(24.dp))
+        for (q in QUICK) Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(p.panel)
+            .clickable { onAsk(q) }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(q, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Icon(Glyph.Right, null, Modifier.size(16.dp), tint = p.faint)
+        }
+    }
+}
+
+@Composable
+private fun UserBubble(text: String) {
+    val p = LocalPalette.current
+    Row(Modifier.fillMaxWidth().padding(start = 48.dp), horizontalArrangement = Arrangement.End) {
+        Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier
+            .clip(RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp)).background(p.bubble).padding(horizontal = 16.dp, vertical = 11.dp))
+    }
+}
+
+/** Who answers: the mascot is Agent S's face; other agents get their colour and initial. */
+@Composable
+private fun Avatar(agentId: String?, name: String, color: String?, size: Dp) {
+    if (agentId == null || agentId == "agent-s") Mascot(size = size, mood = Mood.Idle, fidget = false)
+    else Box(Modifier.size(size).background(parseColor(color) ?: LocalPalette.current.brick, CircleShape), contentAlignment = Alignment.Center) {
+        Text(name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium.copy(fontSize = (size.value * 0.48f).sp), color = Color.White)
+    }
+}
+
+/** One box for writing: the message, then who answers and how, and send, all inside it, as in Claude's app. */
+@Composable
+private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, agentId: String, agentName: String, agentColor: String?, modeName: String,
                      onPick: () -> Unit, onSend: () -> Unit, onStop: () -> Unit) {
     val p = LocalPalette.current
-    Column(Modifier.fillMaxWidth().background(p.bg).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(Modifier.clip(RoundedCornerShape(999.dp)).border(1.dp, p.line2, RoundedCornerShape(999.dp)).background(p.panel).clickable(onClick = onPick)
-            .padding(horizontal = 12.dp, vertical = 6.dp).testTag("pick"), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(9.dp).background(dot, CircleShape)); Spacer(Modifier.width(8.dp))
-            Text(who, style = MaterialTheme.typography.labelMedium, color = p.muted); Spacer(Modifier.width(4.dp))
-            Icon(Glyph.Down, null, Modifier.size(16.dp), tint = p.muted)
-        }
-        Spacer(Modifier.size(8.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            OutlinedTextField(text, onText, Modifier.weight(1f).heightIn(min = 52.dp, max = 180.dp).testTag("input"), shape = RoundedCornerShape(18.dp),
-                placeholder = { Text("Message your laptop's agents") })
-            Spacer(Modifier.width(8.dp))
-            FilledIconButton(onClick = { if (running) onStop() else onSend() }, modifier = Modifier.size(52.dp).testTag("send"),
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (running) p.panel2 else p.brick, contentColor = if (running) p.text else p.onBrick)) {
-                Icon(if (running) Glyph.Stop else Glyph.Up, if (running) "Stop" else "Send")
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(26.dp)
+    val ready = running || text.isNotBlank()
+    Box(Modifier.fillMaxWidth().background(p.bg).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp)) {
+        Column(Modifier.fillMaxWidth().shadow(if (p.bg.luminance() > 0.5f) 10.dp else 0.dp, shape).clip(shape).background(p.panel)
+            .border(1.dp, if (focused) p.brick.copy(alpha = 0.55f) else p.line, shape)) {
+            BasicTextField(text, onText, Modifier.fillMaxWidth().heightIn(max = 168.dp).padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 6.dp)
+                .onFocusChanged { focused = it.isFocused }.testTag("input"),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = p.text), cursorBrush = SolidColor(p.brick),
+                decorationBox = { inner ->
+                    Box { if (text.isEmpty()) Text("Message your laptop's agents", style = MaterialTheme.typography.bodyLarge, color = p.faint); inner() }
+                })
+            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.clip(RoundedCornerShape(999.dp)).background(p.panel2).clickable(onClick = onPick)
+                    .padding(start = 6.dp, end = 10.dp, top = 5.dp, bottom = 5.dp).testTag("pick"), verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(agentId, agentName, agentColor, 20.dp); Spacer(Modifier.width(6.dp))
+                    Text("$agentName · $modeName", style = MaterialTheme.typography.labelMedium); Spacer(Modifier.width(2.dp))
+                    Icon(Glyph.Down, null, Modifier.size(14.dp), tint = p.muted)
+                }
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.size(40.dp).clip(CircleShape).background(if (running) p.text else if (ready) p.brick else p.panel2)
+                    .clickable { if (running) onStop() else onSend() }.testTag("send"), contentAlignment = Alignment.Center) {
+                    Icon(if (running) Glyph.Stop else Glyph.Up, if (running) "Stop" else "Send", Modifier.size(20.dp),
+                        tint = if (running) p.bg else if (ready) p.onBrick else p.faint)
+                }
             }
         }
     }
 }
 
+/** One answer: who's answering, the steps folded into a line, anything waiting for a yes, what it's doing now, then
+ *  the answer itself as plain text on the page, no box around it. */
 @Composable
-private fun AgentBlock(b: Block, name: String, color: String?, model: ChatModel) {
+private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
     val p = LocalPalette.current
     val ctx = LocalContext.current
     val r = ctx.remote
     val scope = rememberCoroutineScope()
-    val folded = b.order.mapNotNull { b.cards[it] }.filter { !b.waiting(it) }
-    val waiting = b.order.mapNotNull { b.cards[it] }.filter { b.waiting(it) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val cards = b.order.mapNotNull { b.cards[it] }
+    val folded = cards.filter { !b.waiting(it) }
+    val asking = cards.filter { b.waiting(it) && it.status == "asking" }
+    val planned = cards.filter { b.waiting(it) && it.status == "planned" }
+    val name = who?.name ?: "Agent S"
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).background(parseColor(color) ?: p.brick, CircleShape)); Spacer(Modifier.width(8.dp))
-            Text(name, style = MaterialTheme.typography.titleMedium)
+            Avatar(b.agent, name, who?.color, 24.dp); Spacer(Modifier.width(8.dp))
+            Text(name, style = MaterialTheme.typography.labelLarge, color = p.muted)
         }
         if (folded.isNotEmpty() || b.notes.isNotEmpty()) Steps(b, folded)
-        for (c in waiting) ToolCard(c, b, open = true, onDecide = { ok ->
+        for (c in asking) Approval(c) { ok ->
             scope.launch { runCatching { r.decide(b.turn ?: return@launch, c.id, ok) }.onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } }
-        })
+        }
         b.line?.let { WorkingLine(b, it) }
-        b.answer?.let { Markdown(it) }
-        b.failed?.let { Row { Mascot(size = 30.dp, mood = Mood.Oops); Spacer(Modifier.width(10.dp)); Text(it, color = p.bad) } }
-        if (b.planned > 0 && !b.planDone && model.running != b.turn) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, p.plan, RoundedCornerShape(14.dp))
-            .background(p.panel).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("${b.planned} change${if (b.planned > 1) "s" else ""} planned. Nothing has changed yet.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = { b.planDone = true; for (c in waiting.filter { it.status == "planned" }) c.status = "discarded" }, colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Discard") }
-            Spacer(Modifier.width(6.dp))
-            Button(onClick = { b.planDone = true; model.running = b.turn; scope.launch { runCatching { r.runPlan(b.turn ?: return@launch) } } },
-                colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text("Run plan") }
+        b.answer?.let { a ->
+            Markdown(a)
+            if (model.running == null || model.running != b.turn) AnswerActions(a)  // not while it's still being written
+        }
+        b.failed?.let {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.bad.copy(alpha = 0.10f)).padding(12.dp)) {
+                Mascot(size = 28.dp, mood = Mood.Oops); Spacer(Modifier.width(10.dp))
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = p.bad)
+            }
+        }
+        if (b.planned > 0 && !b.planDone && model.running != b.turn) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(p.plan.copy(alpha = 0.10f)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${b.planned} change${if (b.planned > 1) "s" else ""} planned", style = MaterialTheme.typography.titleMedium)
+            Text("Nothing has changed yet. Run the plan to make ${if (b.planned > 1) "them" else "it"}.", style = MaterialTheme.typography.bodySmall)
+            for (c in planned) Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(6.dp).background(p.plan, CircleShape)); Spacer(Modifier.width(10.dp))
+                Text(Labels.of(c.name, c.args).let { (v, w) -> "$v $w".trim() }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = { b.planDone = true; for (c in planned) c.status = "discarded" }, modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Discard") }
+                Button(onClick = { b.planDone = true; model.running = b.turn; scope.launch { runCatching { r.runPlan(b.turn ?: return@launch) } } },
+                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text("Run plan") }
+            }
         }
     }
 }
 
-/** What the agent is doing now: the mascot acts out the step and the line names it. A quick step (reading a file takes
- *  milliseconds) stays up a moment, long enough to be seen. */
+/** A step waiting for a yes: what it is, the command or change itself, and the two answers. */
+@Composable
+private fun Approval(c: Card, onDecide: (Boolean) -> Unit) {
+    val p = LocalPalette.current
+    var busy by remember(c.status) { mutableStateOf(false) }
+    val (verb, what) = Labels.of(c.name, c.args)
+    val detail = Labels.detail(c.name, c.args).ifEmpty { "$verb $what".trim() }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.panel).border(1.dp, p.warn.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+        .padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Mascot(size = 32.dp, mood = Mood.Ask)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (c.name == "run_command") "Wants to run a command" else "Wants to ${verb.lowercase()} this", style = MaterialTheme.typography.titleMedium)
+                Text("Nothing happens until you say yes", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Text(detail, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 10, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(p.bg2).padding(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = { busy = true; onDecide(false) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Deny") }
+            Button(onClick = { busy = true; onDecide(true) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("allow"),
+                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) {
+                Text(if (c.name == "run_command") "Run it" else "Allow")
+            }
+        }
+    }
+}
+
+/** Under a finished answer: copy it. */
+@Composable
+private fun AnswerActions(answer: String) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    Box(Modifier.size(34.dp).clip(CircleShape).clickable {
+        ctx.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("answer", answer))
+        if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()  // Android 13+ says so itself
+    }, contentAlignment = Alignment.Center) { Icon(Glyph.Copy, "Copy the answer", Modifier.size(18.dp), tint = p.faint) }
+}
+
+@Composable
+private fun shimmer(base: Color, glow: Color): Brush {
+    val x by rememberInfiniteTransition(label = "shimmer").animateFloat(-240f, 960f, infiniteRepeatable(tween(1700, easing = LinearEasing)), label = "x")
+    return Brush.linearGradient(listOf(base, glow, base), start = Offset(x, 0f), end = Offset(x + 240f, 0f))
+}
+
+/** What the agent is doing now: the mascot acts out the step, and the line names it with a shimmer, like Claude's
+ *  "thinking". A quick step (reading a file takes milliseconds) stays up a moment, long enough to be seen. */
 @Composable
 private fun WorkingLine(b: Block, line: String) {
     val p = LocalPalette.current
@@ -348,16 +496,17 @@ private fun WorkingLine(b: Block, line: String) {
         else if (shown != null) { delay(1600); shown = null }
     }
     val step = shown
+    val acting = step != null && step.status != "asking"
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Mascot(size = 40.dp, mood = when { step == null -> Mood.Think; step.status == "asking" -> Mood.Ask; else -> moodFor(step.name) })
+        Mascot(size = 32.dp, mood = when { step == null -> Mood.Think; step.status == "asking" -> Mood.Ask; else -> moodFor(step.name) })
         Spacer(Modifier.width(10.dp))
-        if (step != null && step.status != "asking") Text(Labels.of(step.name, step.args).let { (v, w) -> "$v $w".trim() }, color = p.muted,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono))
-        else Text(line, color = p.muted)
+        val style = if (acting) MaterialTheme.typography.bodySmall.copy(fontFamily = Mono) else MaterialTheme.typography.bodyMedium
+        Text(if (acting) Labels.of(step!!.name, step.args).let { (v, w) -> "$v $w".trim() } else line, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = style.copy(brush = shimmer(p.faint, p.text)))
     }
 }
 
-/** The turn's steps, folded into one line like Claude Code's: what they did, what failed or never ran, what's running. */
+/** The turn's steps, folded into one quiet line like Claude Code's; open, a timeline of what ran, each with its result. */
 @Composable
 private fun Steps(b: Block, folded: List<Card>) {
     val p = LocalPalette.current
@@ -366,57 +515,50 @@ private fun Steps(b: Block, folded: List<Card>) {
     val skipped = folded.count { it.status in setOf("asking", "planned", "discarded", "declined") }
     val ran = folded.filter { it.status !in setOf("asking", "planned", "discarded", "declined") }
     val failed = ran.count { it.status == "failed" }
-    val now = ran.lastOrNull { it.status == "running" }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.bg2).border(1.dp, p.line, RoundedCornerShape(14.dp))) {
-        Row(Modifier.fillMaxWidth().clickable { openSteps = !openSteps }.padding(horizontal = 12.dp, vertical = 10.dp).testTag("steps"), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Glyph.Right, null, Modifier.size(16.dp).rotate(turn), tint = p.faint)
-            Spacer(Modifier.width(8.dp))
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.clip(RoundedCornerShape(10.dp)).clickable { openSteps = !openSteps }.padding(vertical = 6.dp, horizontal = 2.dp).testTag("steps"),
+            verticalAlignment = Alignment.CenterVertically) {
             Text(if (ran.isEmpty() && skipped == 0) "Notes along the way" else Labels.summary(ran.map { it.name }),
                 style = MaterialTheme.typography.bodyMedium, color = p.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            if (skipped > 0) Text("  $skipped not run", style = MaterialTheme.typography.labelSmall, color = p.faint)
-            if (failed > 0) Text("  $failed failed", style = MaterialTheme.typography.labelSmall, color = p.bad)
-            now?.let { Spacer(Modifier.weight(1f)); Text(Labels.line(com.solobrain.superagents.remote.Step(it.id, it.name, it.args)),
-                style = MaterialTheme.typography.labelSmall, color = p.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp)) }
+            if (failed > 0) Text("  · $failed failed", style = MaterialTheme.typography.bodyMedium, color = p.bad)
+            if (skipped > 0) Text("  · $skipped not run", style = MaterialTheme.typography.bodyMedium, color = p.faint)
+            Spacer(Modifier.width(6.dp))
+            Icon(Glyph.Right, if (openSteps) "Hide the steps" else "Show the steps", Modifier.size(14.dp).rotate(turn), tint = p.faint)
         }
         AnimatedVisibility(openSteps, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (n in b.notes) Text(n, style = MaterialTheme.typography.bodyMedium, color = p.muted, modifier = Modifier.padding(horizontal = 4.dp))
-                for (c in folded) ToolCard(c, b, open = false, onDecide = {})
+            Column(Modifier.fillMaxWidth().padding(start = 2.dp, top = 6.dp)) {
+                for (n in b.notes) Text(n, style = MaterialTheme.typography.bodyMedium, color = p.muted, modifier = Modifier.padding(start = 26.dp, bottom = 8.dp))
+                folded.forEachIndexed { i, c -> StepRow(c, last = i == folded.lastIndex) }
             }
         }
     }
 }
 
+/** One step on the timeline: a dot for how it went, what it did, and its output on a tap. */
 @Composable
-private fun ToolCard(c: Card, b: Block, open: Boolean, onDecide: (Boolean) -> Unit) {
+private fun StepRow(c: Card, last: Boolean) {
     val p = LocalPalette.current
     var showOut by remember { mutableStateOf(false) }
-    var busy by remember(c.status) { mutableStateOf(false) }
     val (verb, what) = Labels.of(c.name, c.args)
-    val color = when (c.status) { "done" -> p.ok; "failed" -> p.bad; "asking" -> p.warn; "planned" -> p.plan; else -> p.faint }
-    val said = mapOf("running" to "running", "asking" to "needs you", "planned" to "planned", "done" to "✓ done", "failed" to "✕ failed",
-        "declined" to "declined", "discarded" to "discarded")[c.status] ?: c.status
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(p.panel)
-        .border(1.dp, if (open) color.copy(alpha = 0.7f) else p.line, RoundedCornerShape(12.dp))) {
-        Row(Modifier.fillMaxWidth().clickable(enabled = c.result != null) { showOut = !showOut }.padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Text(verb, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.width(8.dp))
-            Text(what, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(said, style = MaterialTheme.typography.labelSmall, color = color)
+    val color = when (c.status) { "done" -> p.ok; "failed" -> p.bad; "running" -> p.brick; else -> p.faint }
+    val said = when (c.status) { "failed" -> "failed"; "running" -> "running"; "declined", "discarded", "planned", "asking" -> "not run"; else -> "" }
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Column(Modifier.width(18.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.size(8.dp).background(color, CircleShape))
+            if (!last) Box(Modifier.padding(top = 4.dp).width(1.5.dp).weight(1f).background(p.line2))
         }
-        if (showOut) c.result?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 30, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().background(p.bg2).padding(10.dp))
-        }
-        if (open && c.status == "asking") Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            val detail = Labels.detail(c.name, c.args)
-            if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 10, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(p.bg2).padding(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { busy = true; onDecide(false) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Deny") }
-                Button(onClick = { busy = true; onDecide(true) }, enabled = !busy, modifier = Modifier.weight(1f).testTag("allow"), shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text(if (c.name == "run_command") "Run it" else "Allow") }
+        Column(Modifier.weight(1f).padding(start = 8.dp, bottom = if (last) 0.dp else 6.dp)) {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = c.result != null) { showOut = !showOut }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(verb, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(8.dp))
+                Text(what, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (said.isNotEmpty()) Text(said, style = MaterialTheme.typography.labelSmall, color = color)
+            }
+            if (showOut) c.result?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 30, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(10.dp)).background(p.bg2).padding(10.dp))
             }
         }
     }

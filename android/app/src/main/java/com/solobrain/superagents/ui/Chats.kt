@@ -49,7 +49,7 @@ import com.solobrain.superagents.remote.ChatItem
 import com.solobrain.superagents.remote.Laptop
 import com.solobrain.superagents.remote.Link
 
-private val QUICK = listOf("What's blocked right now?", "Which tasks used the most AI this week?", "Plan our next tasks with owners and deadlines", "Write today's digest")
+internal val QUICK = listOf("What's blocked right now?", "Which tasks used the most AI this week?", "Plan our next tasks with owners and deadlines", "Write today's digest")
 private const val GENERAL = "General"  // chats that worked in no repo: the team, the board, questions
 
 fun ago(t: Double): String {
