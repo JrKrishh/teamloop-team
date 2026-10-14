@@ -15,6 +15,7 @@ import org.junit.Test
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.URLDecoder
+import java.net.URLEncoder
 import java.security.MessageDigest
 
 /** Signing in against a stand-in for the hub and Supabase on one local port: the requests the desktop app makes. */
@@ -59,7 +60,7 @@ class AuthTest {
     @Before fun start() {
         stub = Stub { method, path, headers, body ->
             seen.add("$method $path ${headers["apikey"] ?: "-"} ${headers["authorization"] ?: "-"} $body")
-            when (path) {
+            when (if (path.startsWith("/auth/v1/signup?")) "/auth/v1/signup" else path) {
                 "/v1/config" -> 200 to """{"supabase_url": "$hub", "supabase_key": "sb_publishable_test"}"""
                 "/auth/v1/token?grant_type=password" ->
                     if (JSONObject(body).optString("password") == "right-password") 200 to """{"access_token": "sb-access", "user": {"id": "u1"}}"""
@@ -91,7 +92,6 @@ class AuthTest {
     @Test fun saysWhatSupabaseSaid() {
         val e = assertThrows(AuthError::class.java) { auth.password(auth.supabase(hub), "yang@example.com", "wrong-password") }
         assertEquals("Invalid login credentials", e.message)
-        assertNull(auth.signUp(auth.supabase(hub), "new@example.com", "a-password", "New"))  // confirm the email first
         val old = assertThrows(AuthError::class.java) { auth.session("$hub/old", "sb-access") }  // a hub from before phone sign-in
         assertEquals("This server can't sign phones in yet: it needs the latest hub.", old.message)
     }
@@ -106,5 +106,13 @@ class AuthTest {
         assertTrue(url, url.endsWith("&code_challenge=$challenge&code_challenge_method=s256"))
         assertEquals("sb-from-github", auth.exchange(auth.supabase(hub), "the-code", verifier))
         assertTrue(seen.last(), seen.last().contains("\"auth_code\":\"the-code\"") && seen.last().contains("\"code_verifier\":\"$verifier\""))
+    }
+
+    @Test fun emailSignUpComesBackToTheAppToo() {  // the confirmation link opens the app, not the hub's website
+        val (_, challenge) = Auth.pkce()
+        assertNull(auth.signUp(auth.supabase(hub), "new@example.com", "a-password", "New", challenge))  // confirm the email first
+        val req = seen.last()
+        assertTrue(req, req.startsWith("POST /auth/v1/signup?redirect_to=" + URLEncoder.encode(Auth.REDIRECT, "UTF-8") + " sb_publishable_test"))
+        assertTrue(req, req.contains("\"code_challenge\":\"$challenge\"") && req.contains("\"code_challenge_method\":\"s256\""))
     }
 }

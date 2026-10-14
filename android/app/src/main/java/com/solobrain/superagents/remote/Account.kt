@@ -61,7 +61,8 @@ object Accounts {
         return Account(p.getString("account_hub", null) ?: HUB, token, p.getString("name", null), p.getString("email", null))
     }
 
-    /** A GitHub sign-in in progress: the PKCE verifier waits here while the browser is open (the app may be closed). */
+    /** A GitHub sign-in or an email sign-up in progress: the PKCE verifier waits here while the browser or the email is
+     *  open (the app may be closed). */
     fun startPending(ctx: Context, hub: String, verifier: String) = prefs(ctx).edit().putString("verifier", verifier).putString("pending_hub", hub).apply()
 
     fun takePending(ctx: Context): Pair<String, String>? {

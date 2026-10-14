@@ -31,10 +31,11 @@ class Auth(private val http: OkHttpClient) {
     fun password(s: Supa, email: String, password: String): String =
         post("${s.url}/auth/v1/token?grant_type=password", JSONObject().put("email", email).put("password", password), s).getString("access_token")
 
-    /** A new account: its access token, or null when Supabase wants the email confirmed first. */
-    fun signUp(s: Supa, email: String, password: String, name: String): String? =
-        post("${s.url}/auth/v1/signup", JSONObject().put("email", email).put("password", password).put("data", JSONObject().put("full_name", name)), s)
-            .text("access_token")
+    /** A new account: its access token, or null when Supabase wants the email confirmed first. The link in that email
+     *  comes back to the app at [REDIRECT] with a code for [challenge], as GitHub does, instead of opening the website. */
+    fun signUp(s: Supa, email: String, password: String, name: String, challenge: String): String? =
+        post("${s.url}/auth/v1/signup?redirect_to=" + URLEncoder.encode(REDIRECT, "UTF-8"), JSONObject().put("email", email).put("password", password)
+            .put("data", JSONObject().put("full_name", name)).put("code_challenge", challenge).put("code_challenge_method", "s256"), s).text("access_token")
 
     fun authorizeUrl(s: Supa, challenge: String): String = "${s.url}/auth/v1/authorize?provider=github&redirect_to=" +
         URLEncoder.encode(REDIRECT, "UTF-8") + "&code_challenge=$challenge&code_challenge_method=s256"

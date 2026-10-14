@@ -108,7 +108,7 @@ Your agents keep running on the laptop; the phone drives them, like Claude Code'
   - in a chat: start or continue one with any agent and mode (one tap picks both); watch a turn live with its steps folded as on the laptop; approve or deny; run or discard a plan; stop a turn. Answers show as on Claude: tables (sideways scrolling when wide), headings, lists, quotes, and code blocks with a Copy button.
 - **Board:** the team's tasks, active first, with Agent S's estimate next to what the coding agent claims and what blocks each one. Tap a task to ask Agent S about it.
 - **The Android app adds:**
-  - **sign-in** with the desktop's account: GitHub (in a browser tab that comes back to the app; Supabase must allow `superagents://auth/callback`) or email. A new phone is offered it first and can skip it: the pairing code is what connects a phone. The session token is sealed with a key in Android Keystore. The laptop shows who each phone is signed in as.
+  - **sign-in** with the desktop's account: GitHub (in a browser tab that comes back to the app; Supabase must allow `superagents://auth/callback`) or email; a new email account's confirmation link comes back to the app the same way (PKCE), so open it on the phone. A new phone is offered it first and can skip it: the pairing code is what connects a phone. The session token is sealed with a key in Android Keystore. The laptop shows who each phone is signed in as.
   - **model and effort** in a chat's "Who, and how" sheet, starting from what the desktop is set to; picking an agent applies its default model;
   - **questions in the background:** each one arrives as a notification with **Deny** and **Run it** (or **Approve**) on it, so you answer without opening the app. Run it asks for the phone to be unlocked, and the lock screen shows only "Agent S needs you". An answer posts "Agent S answered".
   - a quiet "Connected to …'s laptop" notification while it holds the line; Settings → Stay connected in the background turns that off;
@@ -183,7 +183,7 @@ It listens on 127.0.0.1 only, on a new random port each launch. Every `/api` cal
 - The browser frame is sandboxed without top navigation and can't load the app's own address.
 
 ## One-time setup for GitHub sign-in in the app (Yang)
-Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:*/**`. The `*` matches the port, which changes every launch.
+Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:*/**` (the desktop app; the `*` matches the port, which changes every launch) and `superagents://auth/callback` (the Android app, for GitHub and for email confirmation links). Supabase sends any return address that isn't on this list to the Site URL instead, so a sign-in from the app would end on the website.
 
 ## Build and run
 ```bash

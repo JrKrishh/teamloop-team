@@ -145,14 +145,14 @@ private fun Root(activity: MainActivity, incoming: StateFlow<Intent?>) {
         val i = intent ?: return@LaunchedEffect
         i.getStringExtra("account_hub")?.let { Accounts.overrideHub(ctx, it) }  // debug builds only: tests sign in to a local hub
         val data = i.data
-        if (data?.scheme == "superagents" && data.host == "auth") {  // back from GitHub: superagents://auth/callback?code=…
+        if (data?.scheme == "superagents" && data.host == "auth") {  // back from GitHub or an email link: superagents://auth/callback?code=…
             finishing = true; authError = null
             if (route != Route.Intro) route = Route.SignIn
             runCatching {
                 withContext(Dispatchers.IO) {
                     val (hub, verifier) = Accounts.takePending(ctx) ?: throw AuthError("That sign-in ran out. Try again.")
                     data.getQueryParameter("error_description")?.let { throw AuthError(it) }
-                    val code = data.getQueryParameter("code") ?: throw AuthError("GitHub didn't sign you in.")
+                    val code = data.getQueryParameter("code") ?: throw AuthError("That sign-in didn't finish. Try again.")
                     val auth = Auth(r.http)
                     auth.session(hub, auth.exchange(auth.supabase(hub), code, verifier))
                 }

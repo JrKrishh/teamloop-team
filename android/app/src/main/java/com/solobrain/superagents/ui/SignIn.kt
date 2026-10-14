@@ -95,11 +95,15 @@ fun SignIn(finishing: Boolean, outerError: String?, onDone: () -> Unit, onSkip: 
                 withContext(Dispatchers.IO) {
                     val hub = Accounts.hub(ctx)
                     val s = auth.supabase(hub)
-                    val token = if (creating) auth.signUp(s, email.trim(), password, name.trim()) else auth.password(s, email.trim(), password)
+                    val token = if (creating) {
+                        val (verifier, challenge) = Auth.pkce()
+                        Accounts.startPending(ctx, hub, verifier)  // the confirmation link comes back here with a code for this
+                        auth.signUp(s, email.trim(), password, name.trim(), challenge)
+                    } else auth.password(s, email.trim(), password)
                     token?.let { auth.session(hub, it) }
                 }
             }.onSuccess { account ->
-                if (account == null) { notice = "Check your email to confirm the account, then sign in."; creating = false }
+                if (account == null) { notice = "Check your email and open the link on this phone: it signs you in here."; creating = false }
                 else { Accounts.save(ctx, account); onDone() }
             }.onFailure { error = it.message ?: "Couldn't sign in." }
             busy = null
