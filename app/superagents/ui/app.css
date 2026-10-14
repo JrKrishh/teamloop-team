@@ -358,6 +358,7 @@ button.tchip:hover{background:var(--panel2)}
 .custom-frame .splash,.custom-frame .rail-brand,.custom-frame .top{app-region:drag}
 .custom-frame .rail-brand button,.custom-frame .top button,.custom-frame .top input,.custom-frame .top .menu{app-region:no-drag}
 .custom-frame .top{padding-right:158px}  /* room for the window's buttons */
+.custom-frame .drawer{top:var(--winbar,40px)}  /* side panels open under the window's buttons, not beneath them */
 /* Effort: a track whose thumb slides to the level you pick */
 .menu.up.effort{left:auto;right:0;min-width:300px;padding:12px 12px 10px;transform-origin:bottom right}
 .menu.effort .title{display:block;margin:0 2px 8px;font:600 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}

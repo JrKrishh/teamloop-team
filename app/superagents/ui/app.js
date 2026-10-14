@@ -412,11 +412,11 @@ async function loadBoard() {
 }
 function renderLive() {
   const ul = $("liveList"); ul.replaceChildren();
-  const people = (S.board ? S.board.members : []).slice().sort((a, b) => b.last_activity - a.last_activity);
+  const people = (S.board ? S.board.members : []).slice().sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0));
   const live = people.filter(p => p.active);
   for (const p of (live.length ? live : people.slice(0, 4))) {
     const li = el("li"); li.append(mascot(p.name, p.active ? "idle" : "sleep"), el("span", null, p.name));
-    li.title = `${p.name}: ${p.active ? "active in the last 5 minutes" : `last seen ${ago(p.last_activity)}`}`; ul.append(li);
+    li.title = `${p.name}: ${p.active ? "active in the last 5 minutes" : p.last_activity ? `last seen ${ago(p.last_activity)}` : "no sessions yet"}`; ul.append(li);
   }
   if (!people.length) ul.append(el("li", "none", "Nobody has reported yet."));
 }
@@ -639,6 +639,10 @@ function handleEvent(st, e, past) {
   } else if (e.kind === "tool") {
     toolCard(st, e, past);
     if (!past && (e.status === "asking" || e.status === "running")) { s.line.textContent = e.status === "asking" ? "Waiting for you…" : "Working…"; s.body.append(s.line); }
+  } else if (e.kind === "mode") {  // switched while it ran
+    st.mode = MODES[e.mode] ? e.mode : st.mode;
+    st.steps.append(el("div", "narr", `Switched to ${MODES[st.mode].label} mode`));
+    updateHead(st);
   } else if (e.kind === "browser") {
     if (!past && SIDE.pane !== "browser") openPane("browser");  // the person watches the agent use it
   } else if (e.kind === "answer") {
@@ -915,11 +919,14 @@ async function digest() {
 
 // ---- the composer: agent, import, mode, model ------------------------------------------------------------------
 function setMode(mode, save = true) {
+  const was = S.mode;
   S.mode = MODES[mode] ? mode : "manual";
   const m = MODES[S.mode];
   $("modePick").className = `cbtn mode ${S.mode}`; $("modeLabel").textContent = m.label;
   $("modeIc").innerHTML = icon(m.icon); $("modeHint").textContent = m.desc;
   if (save) api("/api/prefs", {method: "POST", body: {mode: S.mode}}).catch(() => {});
+  if (save && S.running && S.turn && was !== S.mode)  // the answer that's running carries on in the new mode
+    api(`/api/turns/${S.turn}/mode`, {method: "POST", body: {mode: S.mode}}).catch(() => {});
 }
 const EFFORTS = {
   low: {label: "Low", desc: "Quickest; fine for lookups and small edits"},
@@ -1394,11 +1401,19 @@ async function renderAgents() {
   add.append(ic("plus"), el("b", null, "New agent"), el("span", "sub", "A reviewer, a release manager, a researcher: give it instructions, skills and tools."));
   add.onclick = () => editAgent(null);
   grid.append(add);
+  for (const [tab, icn, title, sub] of [["skills", "book", "Skills", "Teach agents a way of working: write one, or import Claude Code's."],
+    ["connectors", "plug", "Connectors (MCP)", "MCP servers, as in Claude Desktop: GitHub, a database, your files, your own."]]) {
+    const c = el("button", "agent-card add"); c.type = "button";
+    c.append(ic(icn), el("b", null, title), el("span", "sub", sub));
+    c.onclick = () => showAgentTab(tab);
+    grid.append(c);
+  }
 }
-async function editAgent(a) {
+let backToAgent = null;  // adding a connector from an agent's editor: the editor to go back to, with what was filled in
+async function editAgent(a, kept) {
   const isNew = !a;
-  const draft = a ? JSON.parse(JSON.stringify(a)) : {name: "", color: S.colors[S.agents.length % S.colors.length] || "#3E9B6B", instructions: "",
-    model: "auto", mode: "manual", skills: ["karpathy-guidelines"], connectors: [], tools: {team: true, files: true, terminal: true, browser: true}};
+  const draft = kept || (a ? JSON.parse(JSON.stringify(a)) : {name: "", color: S.colors[S.agents.length % S.colors.length] || "#3E9B6B", instructions: "",
+    model: "auto", mode: "manual", skills: ["karpathy-guidelines"], connectors: [], tools: {team: true, files: true, terminal: true, browser: true}});
   const [skills, conns] = await Promise.all([api("/api/skills").then(r => r.skills).catch(() => []), api("/api/connectors").then(r => r.items).catch(() => [])]);
   const name = inputEl({value: draft.name, maxLength: 40, placeholder: "e.g. Reviewer", required: true});
   const sw = el("div", "swatches");
@@ -1423,14 +1438,24 @@ async function editAgent(a) {
     o.c.onchange = () => { draft.connectors = o.c.checked ? [...new Set([...draft.connectors, c.id])] : draft.connectors.filter(x => x !== c.id); };
     cn.append(o.l);
   }
-  if (!conns.length) { const p = el("p", "sub"); p.append("No connectors yet. "); const l = el("button", "link-btn", "Add one"); l.type = "button"; l.onclick = () => { closeDrawer(); showAgentTab("connectors"); }; p.append(l); cn.append(p); }
+  // add a skill or a connector from here, then come back to this agent with what was filled in, the new one switched on
+  const snap = () => ({...draft, name: name.value, instructions: instr.value});
+  const withSkills = names => { const k = snap(); k.skills = [...new Set([...k.skills, ...names])]; editAgent(a, k); };
+  const addConn = () => { backToAgent = {a, kept: snap()}; closeDrawer(); showAgentTab("connectors"); };
+  if (!conns.length) cn.append(el("p", "sub", "No connectors yet: MCP servers such as GitHub, a database or your files."));
+  const skAdd = el("div", "row gap");
+  skAdd.append(btn("New skill", "ghost", () => editSkill(null, {back: () => editAgent(a, snap()), saved: n => withSkills([n])}), "plus"),
+    btn("Import from Claude Code", "ghost", () => importSkills({done: withSkills}), "book"));
+  const cnAdd = el("div", "row gap"); cnAdd.append(btn("Add connector", "ghost", addConn, "plus"));
+  sk.append(skAdd); cn.append(cnAdd);
   const form = el("form", "form");
   form.append(fieldBox("Name", name), groupBox("Hood", sw),
     fieldBox("Instructions", instr, "Its behaviour: role, tone, what to check, what never to do. Added to every message."),
+    groupBox("Skills", sk, "Karpathy's guidelines are on by default: think first, keep it simple, change only what's asked."),
+    groupBox("Connectors (MCP)", cn),
     groupBox("Default model", segEl(Object.keys(MODELS).map(k => [k, MODELS[k].label.replace("Nemotron ", "")]), draft.model, k => { draft.model = k; })),
     groupBox("Default mode", segEl(MODE_ORDER.map(k => [k, MODES[k].label]), draft.mode, k => { draft.mode = k; })),
-    groupBox("Tools", tools), groupBox("Skills", sk, "Karpathy's guidelines are on by default: think first, keep it simple, change only what's asked."),
-    groupBox("Connectors", cn));
+    groupBox("Tools", tools));
   const save = async () => {
     if (!name.value.trim()) { name.focus(); return toast("Give the agent a name.", true); }
     const body = {name: name.value.trim(), color: draft.color, instructions: instr.value, model: draft.model, mode: draft.mode,
@@ -1457,7 +1482,7 @@ async function renderSkills() {
   let skills;
   try { skills = (await api("/api/skills")).skills; } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
   const bar = el("div", "bar");
-  bar.append(btn("New skill", "primary", () => editSkill(null), "plus"), btn("Import from Claude Code", "", importSkills, "book"));
+  bar.append(btn("New skill", "primary", () => editSkill(null), "plus"), btn("Import from Claude Code", "", () => importSkills(), "book"));
   const rows = el("div", "list");
   skills.forEach((s, i) => {
     const it = el("div", "item"); it.style.animationDelay = `${Math.min(i, 8) * 30}ms`;
@@ -1485,7 +1510,7 @@ async function viewSkill(name) {
   foot.push(el("span", "grow"), btn(s.bundled ? "Customize" : "Edit", "", () => editSkill(s), "edit"));
   openDrawer(s.bundled ? "Built-in skill" : "Your skill", s.name, nodes, foot);
 }
-function editSkill(s) {
+function editSkill(s, ret) {  // ret: from an agent's editor, {back, saved(name)}
   const isNew = !s;
   const name = inputEl({value: s ? s.name : "", maxLength: 64, placeholder: "e.g. release-notes", className: "mono", disabled: !isNew});
   const desc = inputEl({value: s ? s.description : "", maxLength: 400, placeholder: "When to use it, in one line. Agents decide from this."});
@@ -1493,6 +1518,7 @@ function editSkill(s) {
   const save = async () => {
     try {
       const r = await api("/api/skills", {method: "POST", body: {name: name.value.trim(), description: desc.value.trim(), body: body.value}});
+      if (ret) { toast(`Saved ${r.name} and switched it on for this agent.`); return ret.saved(r.name); }
       closeDrawer(); toast(`Saved ${r.name}. Turn it on for an agent in Agents.`); renderSkills();
     } catch (e) { toast(e.message, true); }
   };
@@ -1500,26 +1526,27 @@ function editSkill(s) {
   form.append(fieldBox("Name", name, "Lowercase letters, digits and dashes."), fieldBox("Description", desc), fieldBox("Instructions (SKILL.md)", body, "Markdown. Claude Code's skill format, so the same skill works in both."));
   form.addEventListener("submit", e => { e.preventDefault(); save(); });
   openDrawer(isNew ? "New skill" : s.bundled ? "Your copy of a built-in skill" : "Edit skill", isNew ? "New skill" : s.name, [form],
-    [el("span", "grow"), btn("Cancel", "ghost", closeDrawer), btn("Save skill", "primary", save)]);
+    [el("span", "grow"), btn(ret ? "Back" : "Cancel", "ghost", ret ? ret.back : closeDrawer), btn("Save skill", "primary", save)]);
   (isNew ? name : body).focus();
 }
-async function importSkills() {
+async function importSkills(ret) {  // ret: from an agent's editor, {done(names)}: back to it with the imported ones on
   let found;
   try { found = (await api("/api/skills/claude-code")).skills; } catch (e) { return toast(e.message, true); }
-  const rows = el("div", "list");
+  const rows = el("div", "list"), added = [];
   for (const s of found) {
     const it = el("div", "item"); const iic = el("span", "iic"); iic.append(ic("book"));
     const w = el("div"); w.append(el("b", "mono", s.name), el("small", null, s.description || ""));
     const ctl = el("div", "ctl");
     const b = btn(s.installed ? "Import again" : "Import", s.installed ? "ghost" : "primary", async () => {
       b.disabled = true;
-      try { await api("/api/skills/import", {method: "POST", body: {name: s.name}}); b.textContent = "Added"; renderSkills(); }
+      try { await api("/api/skills/import", {method: "POST", body: {name: s.name}}); b.textContent = "Added"; added.push(s.name); if (!ret) renderSkills(); }
       catch (e) { toast(e.message, true); b.disabled = false; }
     });
     ctl.append(b); it.append(iic, w, ctl); rows.append(it);
   }
   openDrawer("Claude Code", "Import skills", [el("p", "sub", "Skills installed for Claude Code on this laptop (~/.claude/skills). Importing copies one into Super Agents."),
-    found.length ? rows : el("p", "sub", "No Claude Code skills found on this laptop.")]);
+    found.length ? rows : el("p", "sub", "No Claude Code skills found on this laptop.")],
+    ret ? [el("span", "grow"), btn("Back to the agent", "primary", () => ret.done(added))] : undefined);
 }
 
 async function renderConnectors() {
@@ -1533,6 +1560,11 @@ async function renderConnectors() {
   for (const p of r.presets) presets.append(presetCard(p));
   presets.append(customCard());
   box.replaceChildren(el("h3", "section-title", "Your connectors"), rows, el("h3", "section-title", "Add a connector"), presets);
+  if (backToAgent) {  // came from an agent's editor
+    const bar = el("div", "bar");
+    bar.append(btn(`Back to ${backToAgent.kept.name.trim() || "the new agent"}`, "", () => { const b = backToAgent; backToAgent = null; showAgentTab("agents"); editAgent(b.a, b.kept); }));
+    box.prepend(bar);
+  }
 }
 function connectorItem(c, r) {
   const it = el("div", "item" + (c.enabled ? "" : " off"));
@@ -1562,7 +1594,13 @@ async function addConnector(body, give, msg) {
     const c = await api("/api/connectors", {method: "POST", body});
     if (give) { const s = S.agents.find(a => a.id === "agent-s"); await api("/api/agents/agent-s", {method: "PATCH", body: {connectors: [...new Set([...(s ? s.connectors : []), c.id])]}}); }
     toast(`Added ${c.name}.${give ? " Agent S can use it now." : ""}`);
-    await loadAgents(); renderConnectors();
+    await loadAgents();
+    if (backToAgent) {  // back to the agent being set up, with this connector switched on
+      const b = backToAgent; backToAgent = null;
+      b.kept.connectors = [...new Set([...b.kept.connectors, c.id])];
+      showAgentTab("agents"); return editAgent(b.a, b.kept);
+    }
+    renderConnectors();
   } catch (e) { msg.textContent = e.message; }
 }
 function giveBox() { const o = optEl(true, "Give it to Agent S", null); o.l.style.padding = "6px 10px"; return o; }
@@ -2387,7 +2425,8 @@ function renderLaptop() {
     li.append(f, name, checks); ul.append(li);
   }
   if (!(L.repos || []).length) ul.append(el("li", "sub", "No repos connected yet."));
-  const add = el("button", "btn primary", "Connect a repo"); add.type = "button";
+  const fromGitHub = btn("Connect from GitHub", "primary", githubRepos, "github"); fromGitHub.classList.remove("small");  // as big as the folder button
+  const add = el("button", "btn", "Connect a folder"); add.type = "button";
   const log = el("pre", "log"); log.hidden = true;
   add.onclick = async () => {
     add.disabled = true; add.textContent = "Pick the repo folder…";
@@ -2395,10 +2434,11 @@ function renderLaptop() {
       const r = await api("/api/laptop/repos", {method: "POST", body: {}});
       if (!r.cancelled) { log.textContent = r.log; log.hidden = false; toast(r.ok ? `Connected ${r.repo.name}. Restart its coding sessions.` : "That folder isn't a git repo.", !r.ok); await refreshLaptop(false); }
     } catch (e) { toast(e.message, true); }
-    add.disabled = false; add.textContent = "Connect a repo";
+    add.disabled = false; add.textContent = "Connect a folder";
     if (S.view === "laptop") { const keep = log.hidden ? null : log.textContent; renderLaptop(); if (keep) { const l2 = $("laptopGrid").querySelector(".log"); l2.textContent = keep; l2.hidden = false; } }
   };
-  repos.append(ul, add, log); left.append(repos);
+  const adds = el("div", "row gap"); adds.append(fromGitHub, add);
+  repos.append(ul, adds, log); left.append(repos);
 
   const proj = el("section", "panel"), plist = el("ul", "repos");
   proj.append(el("h3", null, "Team projects"), el("p", "sub", "Your team's GitHub repos. Get one and it's cloned into a folder you pick, with your own GitHub sign-in, then connected here. Agents commit and push there like Claude Code: on a branch, asking before each push."), plist);
@@ -2421,6 +2461,45 @@ function renderLaptop() {
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);
   grid.append(left, right);
+}
+
+// Connect from GitHub: the repos this laptop's GitHub sign-in can open; Get clones one into a folder you pick and connects it
+async function githubRepos() {
+  const q = inputEl({type: "search", placeholder: "Search your repos", autocomplete: "off", spellcheck: false});
+  const list = el("div", "list"); list.append(el("div", "skeleton"));
+  openDrawer("GitHub", "Connect from GitHub", [el("p", "sub", "Your GitHub repos, through this laptop's GitHub sign-in. Get one: it's cloned into a folder you pick and connected here, so its Claude Code and Codex sessions report to the team."), q, list]);
+  let r, g;
+  try { [r, g] = await Promise.all([api("/api/github/repos"), api("/api/laptop/git")]); }
+  catch (e) { list.replaceChildren(el("p", "err", e.message)); return; }
+  const here = new Set(Object.values(g.origins || {}).map(sameRepo));
+  const draw = () => {
+    const words = q.value.trim().toLowerCase();
+    const shown = r.repos.filter(p => !words || `${p.name} ${p.description}`.toLowerCase().includes(words));
+    list.replaceChildren();
+    for (const p of shown.slice(0, 200)) {
+      const it = el("div", "item"), iic = el("span", "iic"); iic.append(ic("github"));
+      const w = el("div"), nm = el("b", "mono", p.name);
+      if (p.private) nm.append(el("span", "pill-tag", "private"));
+      w.append(nm, el("small", null, [p.description, p.pushed ? `pushed ${ago(Date.parse(p.pushed) / 1000)}` : ""].filter(Boolean).join(" · ") || " "));
+      const ctl = el("div", "ctl");
+      if (here.has(sameRepo(p.url))) ctl.append(el("span", "pill-tag on", "on this laptop"));
+      else {
+        const get = btn("Get", "primary", async () => {
+          get.disabled = true; get.textContent = "Pick a folder…";
+          try {
+            const res = await api("/api/laptop/clone", {method: "POST", body: {url: p.url}});
+            if (res.cancelled) { get.disabled = false; get.textContent = "Get"; return; }
+            toast(res.ok ? `${p.name} is in ${res.path} and connected.` : `Cloned into ${res.path}, but connecting it failed.`, !res.ok);
+            here.add(sameRepo(p.url)); draw(); await refreshLaptop(false); if (S.view === "laptop") renderLaptop();
+          } catch (e) { toast(e.message, true); get.disabled = false; get.textContent = "Get"; }
+        }, "plus");
+        ctl.append(get);
+      }
+      it.append(iic, w, ctl); list.append(it);
+    }
+    if (!shown.length) list.append(el("p", "sub", r.repos.length ? "No repo matches." : "This GitHub sign-in has no repos yet."));
+  };
+  q.oninput = draw; draw(); q.focus();
 }
 
 const HELPERS = {manager: "Git Credential Manager", "manager-core": "Git Credential Manager", wincred: "the Windows credential store"};

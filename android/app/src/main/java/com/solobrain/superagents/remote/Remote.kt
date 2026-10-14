@@ -217,6 +217,8 @@ class Remote(private val app: Context) {
     }
 
     suspend fun stopTurn(turn: String) { request(JSONObject().put("t", "stop").put("turn", turn)) }
+    /** Switched while the answer runs: it carries on in the new mode. */
+    suspend fun setMode(turn: String, mode: String) { request(JSONObject().put("t", "mode").put("turn", turn).put("mode", mode)) }
 
     suspend fun runPlan(turn: String) { request(JSONObject().put("t", "run_plan").put("turn", turn)) }
 

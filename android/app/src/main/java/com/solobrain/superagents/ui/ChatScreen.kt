@@ -178,6 +178,7 @@ class ChatModel {
         when (e.optString("kind")) {
             "thinking" -> b.line = "Thinking…"
             "text" -> b.notes.add(e.optString("text"))
+            "mode" -> MODES.firstOrNull { it.first == e.optString("mode") }?.let { b.notes.add("Switched to ${it.second} mode") }  // while it ran
             "tool" -> {
                 val id = e.optString("id")
                 val c = b.cards[id] ?: Card(id).also { b.cards[id] = it; b.order.add(id) }
@@ -334,7 +335,10 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
             Label("Mode")
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
                 MODES.forEachIndexed { i, (k, name) ->
-                    SegmentedButton(selected = mode == k, onClick = { mode = k }, shape = SegmentedButtonDefaults.itemShape(i, MODES.size), label = { Text(name) })
+                    SegmentedButton(selected = mode == k, onClick = {
+                        if (mode != k) model.running?.let { t -> scope.launch { runCatching { r.setMode(t, k) } } }  // the running answer switches too
+                        mode = k
+                    }, shape = SegmentedButtonDefaults.itemShape(i, MODES.size), label = { Text(name) })
                 }
             }
             Text(MODE_HINT[mode].orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))

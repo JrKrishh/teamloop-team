@@ -140,6 +140,8 @@ class Turn:
         self.ui_written: list[str] = []  # UI files this turn wrote, and how many of them a browser step came after
         self.ui_checked = 0
         self.failures: dict[tuple, int] = {}  # failing calls, by tool and arguments
+        self.waiting: dict[str, str] = {}  # calls waiting for a yes, and their kind ("change" or "ask")
+        self.mode_note: str | None = None  # told to the model before its next step, after a mode switch
 
     # ---- events for the window -----------------------------------------------------------------------------
     def emit(self, kind: str, **data) -> None:
@@ -162,6 +164,19 @@ class Turn:
         self.cancelled = True
         for ev in self.decisions.values():
             ev.set()
+
+    def set_mode(self, mode: str) -> None:
+        """The person switched modes while this turn runs: its next steps work that way, and the model hears it. What waits
+        for a yes moves on too: a change runs now in Auto (shell commands still ask), and anything is queued in Plan."""
+        if mode not in MODE_RULES or mode == self.mode:
+            return
+        self.mode = mode
+        self.mode_note = f"(The person switched this chat to {mode} mode. {MODE_RULES[mode]})"
+        self.emit("mode", mode=mode)
+        for cid, kind in list(self.waiting.items()):
+            if mode == "plan" or (mode == "auto" and kind == "change"):
+                self.answers[cid] = True
+                self.decisions[cid].set()
 
     # ---- the loop --------------------------------------------------------------------------------------------
     def _system(self, board: dict) -> str:
@@ -242,6 +257,9 @@ class Turn:
                 answer = answer or "Stopped."
                 break
             self.emit("thinking")
+            if self.mode_note:  # the person switched modes since the last step
+                messages.append({"role": "user", "content": self.mode_note})
+                self.mode_note = None
             step = self.llm(messages, tools, self.model)
             model = step.get("model", model)
             self.spent["calls"] += 1
@@ -303,11 +321,17 @@ class Turn:
             return "Not run: plan mode. This change is part of the plan the person will review and run."
         if kind == "ask" or (kind == "change" and self.mode == "manual"):
             ev = self.decisions[cid] = threading.Event()
+            self.waiting[cid] = kind
             self.emit("tool", **card, status="asking")
             ev.wait()
+            self.waiting.pop(cid, None)
             if self.cancelled or not self.answers.get(cid):
                 self.emit("tool", **card, status="declined")
                 return "The person declined this action. Don't retry it; ask or continue without it."
+            if self.mode == "plan":  # switched to Plan while it waited: queued, not run
+                self.planned.append((cid, tool, args))
+                self.emit("tool", **card, status="planned")
+                return "Not run: the person switched to plan mode. This change is part of the plan they will review and run."
         self.emit("tool", **card, status="running")
         try:
             result, is_error = self._execute(tool, args)

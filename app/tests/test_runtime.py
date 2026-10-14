@@ -127,6 +127,40 @@ def test_declining_stops_the_change(home):
     assert "declined" in [m for m in sent[1]["messages"] if m["role"] == "tool"][0]["content"]
 
 
+def start_waiting(mode, llm, hub_calls):
+    """A turn started in `mode`, running until its first call waits for a yes."""
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="plan it", attachments=[], mode=mode,
+                  model="auto", hub=fake_hub(hub_calls), llm=llm, mcp=NoMcp(), person="Yang")
+    th = threading.Thread(target=t.run, daemon=True)
+    th.start()
+    deadline = time.time() + 10
+    while not any(e["kind"] == "tool" and e["status"] == "asking" for e in t.events) and time.time() < deadline:
+        time.sleep(0.02)
+    return t, th
+
+
+def test_switching_to_auto_while_it_runs(home):
+    hub_calls = []
+    llm, sent = script(call("create_task", {"title": "Rate limits"}, "w1"), call("create_task", {"title": "Retries"}, "w2"), answer("Added both."))
+    t, th = start_waiting("manual", llm, hub_calls)
+    t.set_mode("auto")  # the person switches while the first change waits for a yes
+    th.join(10)
+    assert statuses(t, "create_task") == ["asking", "running", "done", "running", "done"]  # that one ran; the next didn't ask
+    assert sum(c[1] == "tasks" for c in hub_calls) == 2 and t.mode == "auto"
+    assert {"kind": "mode", "mode": "auto"}.items() <= next(e for e in t.events if e["kind"] == "mode").items()
+    assert sent[1]["messages"][-1] == {"role": "user", "content": f"(The person switched this chat to auto mode. {loop.MODE_RULES['auto']})"}
+
+
+def test_switching_to_plan_queues_what_waits(home):
+    hub_calls = []
+    llm, sent = script(call("create_task", {"title": "Rate limits"}, "w1"), answer("1. Add the rate limits task"))
+    t, th = start_waiting("manual", llm, hub_calls)
+    t.set_mode("plan")
+    th.join(10)
+    assert statuses(t, "create_task") == ["asking", "planned"] and not any(c[1] == "tasks" for c in hub_calls)
+    assert len(t.planned) == 1 and "switched to plan mode" in [m for m in sent[1]["messages"] if m["role"] == "tool"][0]["content"]
+
+
 def test_plan_queues_changes_until_run_plan(home):
     hub_calls = []
     llm, sent = script(call("create_task", {"title": "Rate limits"}), answer("1. Add rate limits task"))
