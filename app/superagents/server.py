@@ -30,7 +30,7 @@ from . import __version__, laptop, store, supa
 
 UI = Path(__file__).parent / "ui"
 # what the UI may ask the hub for, through /api/cloud/<path>
-CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|digest|refresh|settings|events"
+CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|agent|tasks|digest|refresh|settings|events"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?)"
                          r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40})$")
 
@@ -139,7 +139,40 @@ class ThemeIn(BaseModel):
 
 
 class PrefsIn(BaseModel):
-    theme: str = Field(pattern="^(dark|light)$")
+    theme: Optional[str] = Field(default=None, pattern="^(dark|light)$")
+    mode: Optional[str] = Field(default=None, pattern="^(plan|manual|auto)$")
+    model: Optional[str] = Field(default=None, pattern="^(auto|lightning|super|ultra)$")
+
+
+class StartIn(BaseModel):
+    task: str = Field(pattern=r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
+    title: str = Field(default="", max_length=120)
+    repo: Optional[str] = Field(default=None, max_length=1000)
+
+
+ISSUES_MAX = 50
+
+
+def github_issues(repo: str) -> dict:
+    """Open issues of a public GitHub repo, as text Agent S can plan from. Pull requests are left out."""
+    url = f"https://api.github.com/repos/{repo}/issues?state=open&per_page={ISSUES_MAX}"
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": f"SuperAgents/{__version__}"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            items = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise HTTPException(404 if e.code == 404 else 502,
+                            "No such public repo (private repos aren't supported yet)" if e.code == 404 else f"GitHub said {e.code}") from None
+    except OSError:
+        raise HTTPException(503, "Can't reach GitHub right now") from None
+    lines = []
+    for i in items:
+        if "pull_request" in i:
+            continue
+        labels = ", ".join(lb.get("name", "") for lb in i.get("labels") or [])
+        body = " ".join((i.get("body") or "").split())[:300]
+        lines.append(f"#{i['number']} {i['title']}" + (f"  [{labels}]" if labels else "") + (f"\n   {body}" if body else ""))
+    return {"name": f"{repo} issues ({len(lines)})", "text": "\n".join(lines) or "(no open issues)", "count": len(lines)}
 
 
 def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
@@ -246,12 +279,12 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         return {"ok": True}
 
     # ---- the hub, through us ------------------------------------------------------------------------
-    @app.api_route("/api/cloud/{path:path}", methods=["GET", "POST", "DELETE"])
+    @app.api_route("/api/cloud/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"])
     async def to_cloud(path: str, request: Request) -> JSONResponse:
         if not CLOUD_PATHS.match(path):
             raise HTTPException(404, "Not a Super Agents call")
         body = None
-        if request.method == "POST":
+        if request.method in ("POST", "PATCH"):
             raw = await request.body()
             body = json.loads(raw) if raw else {}
         code, data = await run_in_threadpool(cloud, state, request.method, f"/v1/{path}", body,
@@ -303,8 +336,26 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     @app.post("/api/prefs")
     def prefs(body: PrefsIn) -> dict:
         s = store.load()
-        s["prefs"] = {**(s.get("prefs") or {}), "theme": body.theme}
+        s["prefs"] = {**(s.get("prefs") or {}), **body.model_dump(exclude_none=True)}
         store.save(s)
         return s["prefs"]
+
+    @app.post("/api/laptop/task")
+    def laptop_task(body: StartIn) -> dict:
+        """Agent S's start_task: make it the task this laptop's sessions report on, in the repo you choose."""
+        repos = [r for r in laptop.status()["repos"] if r["ok"]]
+        repo = body.repo or (repos[0]["path"] if len(repos) == 1 else None)
+        if not repo:
+            raise HTTPException(409, "Pick the repo for this task" if repos else "Connect a repo on This laptop first")
+        if repo not in [r["path"] for r in repos]:
+            raise HTTPException(400, "That repo isn't connected")
+        return laptop.start_task(repo, body.task, body.title)
+
+    @app.get("/api/import/github")
+    def import_github(repo: str) -> dict:
+        repo = repo.strip().removeprefix("https://github.com/").strip("/")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
+            raise HTTPException(400, "Use owner/repo, for example vercel/next.js")
+        return github_issues(repo)
 
     return app

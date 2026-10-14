@@ -9,12 +9,15 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
+from agent_s import llm
 from cloud import auth
 from cloud.app import create
 from tests.conftest import person
 
 GOLDEN = Path(__file__).parents[2] / "agent_s" / "golden"
 calls: list[str] = []
+AGENT_SEEN: list = []
+AGENT_REPLY: dict = {}
 
 
 def golden(name):
@@ -25,6 +28,9 @@ def fake_chat(job, messages, schema):
     calls.append(job)
     if job == "qa":
         return {"answerable": True, "answer": "T-3 is done (e1).", "citations": ["e1"], "unknowns": []}
+    if job == "agent":
+        AGENT_SEEN.append(llm._pinned.get())
+        return AGENT_REPLY
     if job == "digest":
         return {"headline": "One fix shipped.", "shipped": [{"text": "T-3 add() fixed", "evidence": ["e1"]}],
                 "in_progress": [], "blocked": [], "at_risk": []}
@@ -334,3 +340,55 @@ def test_citations_expand_to_their_events(app):
     assert c.get("/v1/events", params={"team": team, "ids": ",".join(wanted)}).status_code == 401
     demo_ids = [r["id"] for r in c.get("/v1/board").json()["tasks"][0]["recent"][:2]]
     assert [e["id"] for e in c.get("/v1/events", params={"ids": ",".join(demo_ids)}).json()["events"]] == demo_ids
+
+
+def test_planned_tasks_show_on_the_board_until_sessions_take_over(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    join(app, yang, team, "asha")
+    q = {"team": team}
+    t = yang.post("/v1/tasks", params=q, json={"title": "Build the OAuth callback", "owner": "ASHA"}).json()
+    assert t == {"task": "T-1", "title": "Build the OAuth callback", "owner": "asha", "state": "open"}
+    assert yang.post("/v1/tasks", params=q, json={"task": "T-1", "title": "Rate limits"}).json()["task"] == "T-2"  # taken
+    assert yang.post("/v1/tasks", params=q, json={"title": "x", "owner": "a stranger"}).status_code == 400
+    cards = {c["task"]: c for c in yang.get("/v1/board", params=q).json()["tasks"]}
+    assert cards["T-1"]["status"] == "todo" and cards["T-1"]["owner"] == "asha" and cards["T-1"]["members"] == ["asha"]
+    assert yang.get("/v1/tasks/T-1", params=q).json()["timeline"] == []
+    assert yang.patch("/v1/tasks/T-2", params=q, json={"owner": "yang"}).json()["owner"] == "yang"
+    assert yang.patch("/v1/tasks/T-2", params=q, json={"state": "closed"}).json() == {"task": "T-2", "title": "Rate limits", "owner": "yang", "state": "closed"}
+    assert "T-2" not in {c["task"] for c in yang.get("/v1/board", params=q).json()["tasks"]}  # closed before any session
+    assert yang.delete("/v1/tasks/T-1", params=q).json() == {"ok": True}  # undo
+    assert yang.delete("/v1/tasks/T-1", params=q).status_code == 404
+    # a task that only has session events can be assigned and closed too
+    TestClient(app).post("/v1/events", json={"events": golden("real_fix_add_done.json")}, headers=connect(app, yang, team))
+    assert yang.patch("/v1/tasks/T-3", params=q, json={"owner": "asha"}).json()["title"]  # keeps the session's title
+    card = next(c for c in yang.get("/v1/board", params=q).json()["tasks"] if c["task"] == "T-3")
+    assert card["owner"] == "asha" and card["events"] > 0
+    yang.patch("/v1/tasks/T-3", params=q, json={"state": "closed"})
+    assert next(c for c in yang.get("/v1/board", params=q).json()["tasks"] if c["task"] == "T-3")["status"] == "done"
+    assert yang.patch("/v1/tasks/T-9", params=q, json={"state": "closed"}).status_code == 404
+    assert signin(app, "stranger").post("/v1/tasks", params=q, json={"title": "x"}).status_code == 403
+
+
+def test_agent_turns_plan_and_route_models(app):
+    global AGENT_REPLY
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    join(app, yang, team, "asha")
+    q = {"team": team}
+    AGENT_REPLY = {"kind": "plan", "answer": "Two tasks from your spec.", "citations": [], "plan": ["Create", "Assign"],
+                   "actions": [{"type": "create_task", "task": "", "title": "OAuth callback", "owner": "asha", "why": "item 1"},
+                               {"type": "assign_task", "task": "T-404", "title": "", "owner": "asha", "why": "not on the board"}]}
+    AGENT_SEEN.clear()
+    spec = [{"name": "spec.md", "text": "- OAuth callback"}]
+    resp = yang.post("/v1/agent", params=q, json={"message": "plan this", "mode": "plan", "attachments": spec})
+    assert resp.status_code == 200, resp.text
+    r = resp.json()
+    assert r["plan"] == ["Create", "Assign"] and r["mode"] == "plan"
+    assert [(a["type"], a["task"], a["owner"]) for a in r["actions"]] == [("create_task", "T-1", "asha")]
+    yang.post("/v1/agent", params=q, json={"message": "what's up", "mode": "manual"})
+    yang.post("/v1/agent", params=q, json={"message": "what's up", "mode": "auto", "model": "lightning"})
+    assert AGENT_SEEN == ["ultra", None, "lightning"]  # Auto: Ultra for plans and imports; the picker pins a tier
+    assert yang.post("/v1/agent", params=q, json={"message": "x", "model": "gpt-9"}).status_code == 422
+    assert TestClient(app).post("/v1/agent", params=q, json={"message": "x"}).status_code == 401
+    assert signin(app, "stranger").post("/v1/agent", params=q, json={"message": "x"}).status_code == 403

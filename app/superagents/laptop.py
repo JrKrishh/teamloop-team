@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import contextlib
 import io
+import subprocess
 import time
 from pathlib import Path
 
-from teamloop import claude, codex, init, login, repo, send, spool
+from teamloop import claude, codex, init, login, normalize, redact, repo, send, spool
 
 from . import store
 
@@ -64,6 +65,17 @@ def connect_repo(path: str) -> dict:
     if code == 0 and found:
         store.add_repo(str(found.root))
     return {"ok": code == 0, "log": out.getvalue().strip(), "repo": repo_status(str(found.root) if found else path)}
+
+
+def start_task(path: str, task: str, title: str) -> dict:
+    """What `teamloop task T-23 "title"` does, for a repo the app connected: sessions there report on this task."""
+    found = repo.find(path)
+    subprocess.run(["git", "config", "teamloop.task", task], cwd=found.root, check=True, stdin=subprocess.DEVNULL,
+                   capture_output=True)
+    event = normalize.event("task_start", "app", {}, {"title": title} if title else {})
+    event.update(repo=found.root.name, branch=repo.branch(found), task=task)
+    spool.append(redact.redact_obj(event))
+    return repo_status(str(found.root))
 
 
 def set_paused(paused: bool) -> None:

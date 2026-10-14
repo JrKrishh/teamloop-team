@@ -91,7 +91,23 @@ create table public.snapshots (
 );
 create index snapshots_team_task_idx on public.snapshots (team_id, task, created_at desc);
 
+-- v2 (migration teamloop_cloud_v2_tasks): tasks planned on the board, by people or by Agent S, before any session
+-- reports on them. A task with session events shows its live progress; a planned one shows "to do" until then.
+create table public.tasks (
+  team_id uuid not null references public.teams(id) on delete cascade,
+  task text not null,
+  title text not null check (char_length(title) between 1 and 120),
+  owner_id uuid,
+  owner_name text,
+  state text not null default 'open' check (state in ('open', 'closed')),
+  created_by uuid not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (team_id, task)
+);
+
 alter table public.teams enable row level security;
+alter table public.tasks enable row level security;
 alter table public.memberships enable row level security;
 alter table public.invites enable row level security;
 alter table public.hub_sessions enable row level security;
