@@ -33,6 +33,9 @@ PROVIDERS = {
     },
 }
 _pinned: ContextVar[str | None] = ContextVar("agent_s_tier", default=None)
+# How hard the model thinks (Token Factory's reasoning_effort, checked on all three tiers with tools: 14 Oct).
+EFFORTS = ("low", "medium", "high", "max")
+_effort: ContextVar[str | None] = ContextVar("agent_s_effort", default=None)
 _meter: ContextVar[dict | None] = ContextVar("agent_s_meter", default=None)
 
 
@@ -45,6 +48,22 @@ def pinned(tier: str | None):
         yield
     finally:
         _pinned.reset(token)
+
+
+@contextmanager
+def effort(level: str | None):
+    """Think this hard on every call inside this block. None, or a level the models don't know, keeps the
+    provider's own setting."""
+    token = _effort.set(level if level in EFFORTS else None)
+    try:
+        yield
+    finally:
+        _effort.reset(token)
+
+
+def _extra(p: dict) -> dict:
+    level = _effort.get()
+    return {**p["extra"], "reasoning_effort": level} if level else p["extra"]
 
 
 @contextmanager
@@ -88,7 +107,7 @@ RETRYABLE = (TimeoutError, urllib.error.URLError, json.JSONDecodeError, KeyError
 def _call(p: dict, model: str, job: str, messages: list[dict], schema: dict, max_tokens: int, timeout: float) -> dict:
     body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.1,
             "response_format": {"type": "json_schema", "json_schema": {"name": job, "strict": True, "schema": schema}},
-            **p["extra"]}
+            **_extra(p)}
     headers = {"Content-Type": "application/json"}
     if p["key"]:
         headers["Authorization"] = f"Bearer {os.environ[p['key']]}"
@@ -107,7 +126,7 @@ def chat_tools(messages: list[dict], tools: list[dict], max_tokens: int = 2000, 
     POST /v1/llm). OpenAI-style tools in, {content, tool_calls, model, usage} out. Same retry rule as chat_json."""
     p = PROVIDERS[provider()]
     model = _model("agent")
-    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2, **p["extra"]}
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2, **_extra(p)}
     if tools:
         body.update(tools=tools, tool_choice="auto")
     headers = {"Content-Type": "application/json"}

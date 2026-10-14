@@ -51,9 +51,9 @@ class Api:
     def __call__(self, method, path, body=None):
         self.calls.append((method, path, body))
         if path == "/api/boot":
-            return {"signed_in": True, "user": {"name": "Yang"}}
+            return {"signed_in": True, "user": {"name": "Yang"}, "prefs": {"theme": "dark", "model": "super", "effort": "high"}}
         if path == "/api/agents":
-            return {"agents": [{"id": "agent-s", "name": "Agent S", "color": "#C2554C", "mode": "manual", "instructions": "private"}]}
+            return {"agents": [{"id": "agent-s", "name": "Agent S", "color": "#C2554C", "mode": "manual", "model": "auto", "instructions": "private"}]}
         if path == "/api/chats":
             return {"chats": [{"id": "c-1", "title": "Is main clean?", "agent": "agent-s", "updated": 1}]}
         if path == "/api/turns":
@@ -127,21 +127,23 @@ def test_a_phone_starts_a_turn_watches_it_and_answers_its_question(home):
     r.sync()
     relay = FakeRelay.made[0]
     assert relay.topic == f"realtime:sa-{pid}" and relay.url == "wss://relay"
-    relay.on_message(phone(key, pid, {"t": "hello", "device": "iPhone · Safari"}, id="m1"))
+    relay.on_message(phone(key, pid, {"t": "hello", "device": "iPhone · Safari", "account": {"name": "Yang", "email": "yang@example.com"}}, id="m1"))
     assert wait_for(lambda: relay.sent)
     state = heard(relay, key, pid)[0]
     assert state["t"] == "state" and state["re"] == "m1" and state["from"] == "laptop" and state["user"] == "Yang"
-    assert state["agents"] == [{"id": "agent-s", "name": "Agent S", "color": "#C2554C", "mode": "manual"}]  # not its instructions
+    assert state["agents"] == [{"id": "agent-s", "name": "Agent S", "color": "#C2554C", "mode": "manual", "model": "auto"}]  # not its instructions
+    assert state["prefs"] == {"model": "super", "effort": "high"}  # the phone starts where the desktop is
     [ph] = remote.status(r.online)["phones"]
     assert ph["id"] == pid and ph["name"] == "iPhone · Safari" and ph["online"] and ph["paired"]
-    relay.on_message(phone(key, pid, {"t": "send", "agent": "agent-s", "mode": "manual", "message": "Is main clean?"}, id="m2"))
+    assert ph["account"] == {"name": "Yang", "email": "yang@example.com"}  # who it's signed in as, shown on the laptop
+    relay.on_message(phone(key, pid, {"t": "send", "agent": "agent-s", "mode": "manual", "model": "ultra", "effort": "high", "message": "Is main clean?"}, id="m2"))
     assert wait_for(lambda: any(m.get("re") == "m2" for m in heard(relay, key, pid))  # the reply can come after the events
                     and any(m["t"] == "events" and m["events"][-1]["kind"] == "end" for m in heard(relay, key, pid)))
     got = heard(relay, key, pid)
     started = next(m for m in got if m.get("re") == "m2")
     assert started["t"] == "turn" and started["turn"] == "turn-0001" and started["chat"] == "c-2"
-    assert ("POST", "/api/turns", {"chat": None, "agent": "agent-s", "message": "Is main clean?", "mode": "manual", "model": "auto",
-                                   "team": TEAM}) in api.calls
+    assert ("POST", "/api/turns", {"chat": None, "agent": "agent-s", "message": "Is main clean?", "mode": "manual", "model": "ultra",
+                                   "effort": "high", "team": TEAM}) in api.calls
     assert [e["i"] for m in got if m["t"] == "events" for e in m["events"]] == [0, 1, 2, 3]
     relay.on_message(phone(key, pid, {"t": "decide", "turn": "turn-0001", "call": "c1", "approve": True}, id="m3"))
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/decide", {"call": "c1", "approve": True}) in api.calls)

@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** What the laptop tells the phone, as Kotlin. Parsed from the same messages the web app reads. */
-data class Agent(val id: String, val name: String, val color: String?, val mode: String?)
+data class Agent(val id: String, val name: String, val color: String?, val mode: String?, val model: String? = null)
 
 data class ChatItem(val id: String, val title: String, val agent: String?, val updated: Double, val project: String? = null)
 
@@ -12,7 +12,9 @@ data class Step(val id: String, val name: String, val args: JSONObject)
 
 data class LiveTurn(val turn: String, val chat: String?, val agent: String?, val message: String, val ask: Step?, val now: Step?)
 
-data class Laptop(val host: String, val user: String?, val agents: List<Agent>, val chats: List<ChatItem>, val live: List<LiveTurn>) {
+/** [model] and [effort]: what the desktop is set to, where the phone starts. */
+data class Laptop(val host: String, val user: String?, val agents: List<Agent>, val chats: List<ChatItem>, val live: List<LiveTurn>,
+                  val model: String? = null, val effort: String? = null) {
     val name: String get() = user?.substringBefore(' ')?.let { "$it's laptop" } ?: "Your laptop"
     fun agent(id: String?): Agent = agents.firstOrNull { it.id == id }
         ?: Agent(id ?: "agent-s", if (id == null || id == "agent-s") "Agent S" else "Agent", null, null)
@@ -42,9 +44,10 @@ fun parseLive(a: JSONArray?): List<LiveTurn> = a.objects().map {
 
 fun parseLaptop(o: JSONObject) = Laptop(
     host = o.optString("laptop"), user = o.text("user"),
-    agents = o.optJSONArray("agents").objects().map { Agent(it.optString("id"), it.optString("name"), it.text("color"), it.text("mode")) },
+    agents = o.optJSONArray("agents").objects().map { Agent(it.optString("id"), it.optString("name"), it.text("color"), it.text("mode"), it.text("model")) },
     chats = o.optJSONArray("chats").objects().map { ChatItem(it.optString("id"), it.optString("title"), it.text("agent"), it.optDouble("updated", 0.0), it.text("project")) },
     live = parseLive(o.optJSONArray("live")),
+    model = o.optJSONObject("prefs")?.text("model"), effort = o.optJSONObject("prefs")?.text("effort"),
 )
 
 fun parseBoard(o: JSONObject) = Board(

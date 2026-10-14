@@ -58,6 +58,12 @@ import com.solobrain.superagents.ui.SuperAgentsTheme
 import com.solobrain.superagents.ui.Tab
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import com.solobrain.superagents.remote.Accounts
+import com.solobrain.superagents.remote.Auth
+import com.solobrain.superagents.remote.AuthError
+import com.solobrain.superagents.ui.SignIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : FragmentActivity() {
     private val incoming = MutableStateFlow<Intent?>(null)
@@ -107,6 +113,7 @@ class MainActivity : FragmentActivity() {
 
 private sealed interface Route {
     data object Intro : Route
+    data object SignIn : Route
     data object Locked : Route
     data class Connecting(val stage: Stage) : Route
     data object Home : Route
@@ -123,7 +130,10 @@ private fun Root(activity: MainActivity, incoming: StateFlow<Intent?>) {
     var unlocked by remember { mutableStateOf(!Prefs.lock(ctx)) }
     var fresh by remember { mutableStateOf(false) }  // paired just now, by a link
     var waitingChat by remember { mutableStateOf<ChatOpen?>(null) }
+    var finishing by remember { mutableStateOf(false) }  // back from GitHub, trading the code for a session
+    var authError by remember { mutableStateOf<String?>(null) }
     fun next(): Route = when {
+        !r.paired && !Accounts.signedIn(ctx) && !Prefs.signInSkipped(ctx) -> Route.SignIn  // new phones; paired ones sign in from Settings
         !r.paired -> Route.Connecting(Stage.Welcome)
         !unlocked -> Route.Locked
         fresh -> Route.Connecting(Stage.Connecting)
@@ -133,6 +143,23 @@ private fun Root(activity: MainActivity, incoming: StateFlow<Intent?>) {
     val intent by incoming.collectAsState()
     LaunchedEffect(intent) {
         val i = intent ?: return@LaunchedEffect
+        i.getStringExtra("account_hub")?.let { Accounts.overrideHub(ctx, it) }  // debug builds only: tests sign in to a local hub
+        val data = i.data
+        if (data?.scheme == "superagents" && data.host == "auth") {  // back from GitHub: superagents://auth/callback?code=…
+            finishing = true; authError = null
+            if (route != Route.Intro) route = Route.SignIn
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val (hub, verifier) = Accounts.takePending(ctx) ?: throw AuthError("That sign-in ran out. Try again.")
+                    data.getQueryParameter("error_description")?.let { throw AuthError(it) }
+                    val code = data.getQueryParameter("code") ?: throw AuthError("GitHub didn't sign you in.")
+                    val auth = Auth(r.http)
+                    auth.session(hub, auth.exchange(auth.supabase(hub), code, verifier))
+                }
+            }.onSuccess { Accounts.save(ctx, it); finishing = false; if (route != Route.Intro) route = next() }
+                .onFailure { finishing = false; authError = it.message; if (route != Route.Intro) route = Route.SignIn }
+            return@LaunchedEffect
+        }
         val link = i.dataString?.let(Pairings::parse)
         if (link != null) {  // a pairing link: superagents://pair#… or the laptop's https link
             r.pair(link); fresh = true
@@ -158,10 +185,15 @@ private fun Root(activity: MainActivity, incoming: StateFlow<Intent?>) {
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         AnimatedContent(route, transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(200)) }, label = "route") { rt ->
             when (rt) {
-                Route.Intro -> Intro(short = Prefs.introSeen(ctx), activity.splashGone) { Prefs.setIntroSeen(ctx); route = next() }
+                Route.Intro -> Intro(short = Prefs.introSeen(ctx), activity.splashGone) {
+                    Prefs.setIntroSeen(ctx); route = if (finishing || authError != null) Route.SignIn else next()
+                }
+                Route.SignIn -> SignIn(finishing, authError, onDone = { authError = null; route = next() },
+                    onSkip = { authError = null; Prefs.setSignInSkipped(ctx); route = next() })
                 Route.Locked -> Locked { activity.authenticate { ok -> if (ok) { unlocked = true; route = next() } } }
                 is Route.Connecting -> Connect(activity, rt.stage) { fresh = false; route = next() }
-                Route.Home -> Home(activity, tab, { tab = it }, { route = Route.Chat(it) }, onForgotten = { route = Route.Connecting(Stage.Welcome) })
+                Route.Home -> Home(activity, tab, { tab = it }, { route = Route.Chat(it) }, onForgotten = { route = Route.Connecting(Stage.Welcome) },
+                    onSignIn = { route = Route.SignIn })
                 is Route.Chat -> ChatScreen(rt.open) { route = Route.Home }
             }
         }

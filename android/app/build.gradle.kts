@@ -48,6 +48,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.fragment:fragment-ktx:1.8.9")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")

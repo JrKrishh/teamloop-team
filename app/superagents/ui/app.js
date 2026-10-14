@@ -167,6 +167,7 @@ function applyBoot(boot) {
   setTheme(prefs.theme || "dark", false);
   setMode(prefs.mode || "manual", false);
   setModel(prefs.model || "auto", false);
+  setEffort(prefs.effort || "medium", false);
   S.agent = prefs.agent || "agent-s";
   if (!boot.signed_in) return showLogin();
   S.user = boot.user; S.teams = boot.teams; S.team = boot.team; S.laptop = boot.laptop;
@@ -337,7 +338,7 @@ $("railToggle").onclick = () => setRail(!$("shell").classList.contains("rail-min
 try { setRail(localStorage.getItem("sa-rail") === "min", false); } catch (e) { setRail(false, false); }
 
 function closeMenus() {
-  for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu", "agentMenu"]) $(id).hidden = true;
+  for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu", "effortMenu", "agentMenu"]) $(id).hidden = true;
   document.querySelectorAll('.cwrap > [aria-expanded="true"]').forEach(b => b.setAttribute("aria-expanded", "false"));
 }
 document.addEventListener("click", e => { if (!e.target.closest(".menu, #meBtn, #teamBtn, .cwrap")) closeMenus(); });
@@ -588,7 +589,7 @@ async function ask(q) {
   const slot = agentMsg(a);
   setRunning(true);
   try {
-    const r = await api("/api/turns", {method: "POST", body: {chat: S.chat, agent: a.id, message: q, mode: S.mode, model: S.model,
+    const r = await api("/api/turns", {method: "POST", body: {chat: S.chat, agent: a.id, message: q, mode: S.mode, model: S.model, effort: S.effort,
       team: S.team, attachments: files.map(f => ({name: f.name, text: f.text}))}});
     S.chat = r.chat; S.turn = r.turn;
     await follow(turnState(slot, r.turn, S.mode), 0);
@@ -903,6 +904,17 @@ function setMode(mode, save = true) {
   $("modeIc").innerHTML = icon(m.icon); $("modeHint").textContent = m.desc;
   if (save) api("/api/prefs", {method: "POST", body: {mode: S.mode}}).catch(() => {});
 }
+const EFFORTS = {
+  low: {label: "Low", desc: "Quickest; fine for lookups and small edits"},
+  medium: {label: "Medium", desc: "Thinks before it acts"},
+  high: {label: "High", desc: "Thinks longer: plans, reviews, tricky bugs"},
+  max: {label: "Max", desc: "Thinks the longest; slowest"},
+};
+function setEffort(effort, save = true) {
+  S.effort = EFFORTS[effort] ? effort : "medium";
+  $("effortLabel").textContent = EFFORTS[S.effort].label;
+  if (save) api("/api/prefs", {method: "POST", body: {effort: S.effort}}).catch(() => {});
+}
 function setModel(model, save = true) {
   S.model = MODELS[model] ? model : "auto";
   $("modelLabel").textContent = MODELS[S.model].label;
@@ -928,6 +940,8 @@ $("modePick").onclick = () => toggleMenu("modePick", "modeMenu", () => fillMenu(
   MODE_ORDER.map((k, i) => [k, MODES[k].label, MODES[k].desc, MODES[k].icon, i === 0 ? "Shift+Tab" : ""]), S.mode, setMode));
 $("modelBtn").onclick = () => toggleMenu("modelBtn", "modelMenu", () => fillMenu("modelMenu",
   Object.keys(MODELS).map(k => [k, MODELS[k].label, MODELS[k].desc, "chip"]), S.model, setModel));
+$("effortBtn").onclick = () => toggleMenu("effortBtn", "effortMenu", () => fillMenu("effortMenu",
+  Object.keys(EFFORTS).map(k => [k, EFFORTS[k].label, EFFORTS[k].desc, "gauge"]), S.effort, setEffort));
 $("importBtn").onclick = () => toggleMenu("importBtn", "importMenu", () => {});
 
 function renderChips() {
@@ -2489,7 +2503,8 @@ function phonePanel(panel, r) {
   if (!r.ready) panel.append(el("p", "sub", "The server this app uses can't relay to phones yet, so a phone can't reach this laptop."));
   for (const p of r.phones) {
     const row = el("div", "phone-row"), words = el("div");
-    words.append(el("b", null, p.name), el("small", null, p.online ? "Online now" : `Paired ${ago(p.paired)}`));
+    const who = p.account && (p.account.email || p.account.name);
+    words.append(el("b", null, p.name), el("small", null, (p.online ? "Online now" : `Paired ${ago(p.paired)}`) + (who ? ` · signed in as ${who}` : "")));
     row.append(ic("phone"), words, btn("Unpair", "ghost", async () => {
       try { phonePanel(panel, await api(`/api/remote/phones/${encodeURIComponent(p.id)}`, {method: "DELETE"})); toast(`${p.name} can't reach this laptop now.`); }
       catch (e) { toast(e.message, true); }

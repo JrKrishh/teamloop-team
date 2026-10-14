@@ -172,6 +172,7 @@ class PrefsIn(BaseModel):
     theme: Optional[str] = Field(default=None, pattern="^(dark|light)$")
     mode: Optional[str] = Field(default=None, pattern="^(plan|manual|auto)$")
     model: Optional[str] = Field(default=None, pattern="^(auto|lightning|super|ultra)$")
+    effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")
     agent: Optional[str] = Field(default=None, pattern="^[a-z0-9-]{3,40}$")
 
 
@@ -218,7 +219,12 @@ class TurnBody(BaseModel):
     attachments: list[dict] = Field(default_factory=list, max_length=5)
     mode: str = Field(default="manual", pattern="^(manual|auto|plan)$")
     model: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
+    effort: str = Field(default="medium", pattern="^(low|medium|high|max)$")
     team: str = Field(min_length=36, max_length=36)
+
+
+# Room for each step's answer: the model's thinking counts against it, and higher effort thinks longer.
+THINK_ROOM = {"low": 1800, "medium": 4000, "high": 6000, "max": 8000}
 
 
 class DecideBody(BaseModel):
@@ -604,10 +610,13 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
             return data
         return call
 
-    def llm_step(messages: list, tools: list, tier: str, team: str) -> dict:
-        """One model step through the hub; its tokens count toward the team's usage."""
-        payload = {"tier": tier, "messages": messages, "tools": tools, "max_tokens": 1800}
+    def llm_step(messages: list, tools: list, tier: str, team: str, effort: str = "medium") -> dict:
+        """One model step through the hub, thinking as hard as asked; its tokens count toward the team's usage."""
+        payload = {"tier": tier, "effort": effort, "messages": messages, "tools": tools, "max_tokens": THINK_ROOM[effort]}
         code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
+        if code == 422 and payload["max_tokens"] > 4000:  # a hub from before effort caps a step at 4000 tokens
+            payload = {**payload, "max_tokens": 4000}
+            code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
         if code == 502 and tier not in ("auto", "super"):  # a pinned tier that can't take tools: Super can
             code, data = cloud(state, "POST", "/v1/llm", {**payload, "tier": "super"}, {"team": team})
         if code != 200:
@@ -620,8 +629,8 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         files = [{"name": str(a.get("name", "file"))[:120], "text": str(a.get("text", ""))[:60_000]} for a in body.attachments]
         turn = runtime_loop.Turn(chat=chat, agent=agent_store.get(body.agent), message=body.message, attachments=files,
                                  mode=body.mode, model=body.model, hub=team_hub(body.team), mcp=state.mcp,
-                                 llm=lambda messages, tools, tier: llm_step(messages, tools, tier, body.team),
-                                 person=(store.load().get("profile") or {}).get("name") or "you")
+                                 llm=lambda messages, tools, tier: llm_step(messages, tools, tier, body.team, body.effort),
+                                 person=(store.load().get("profile") or {}).get("name") or "you", effort=body.effort)
         state.turns[turn.id] = turn
         threading.Thread(target=turn.run, daemon=True).start()
         return {"turn": turn.id, "chat": chat["id"]}

@@ -62,6 +62,32 @@ def test_client_errors_are_not_retried(provider):
     assert seen == ["mid"]
 
 
+def test_effort_sets_how_hard_the_model_thinks(provider):
+    bodies = []
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            bodies.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode())
+
+        def log_message(self, *a):
+            pass
+
+    s = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    provider(f"http://127.0.0.1:{s.server_port}/v1/chat/completions")
+    llm.PROVIDERS["test"]["extra"] = {"reasoning_effort": "low"}
+    hi = [{"role": "user", "content": "hi"}]
+    llm.chat_tools(hi, [])
+    with llm.effort("high"):
+        llm.chat_tools(hi, [])
+    with llm.effort("turbo"):  # not a level: the provider's own
+        llm.chat_tools(hi, [])
+    assert [b["reasoning_effort"] for b in bodies] == ["low", "high", "low"]
+
+
 def test_the_meter_counts_every_answered_call(provider):
     s, seen = server([503, 200, 200])
     provider(f"http://127.0.0.1:{s.server_port}/v1/chat/completions")

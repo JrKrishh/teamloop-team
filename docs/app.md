@@ -33,6 +33,8 @@ The loop runs on this laptop (`runtime/loop.py`), like Claude Code's: the model 
 
 **Model:** Auto uses Nemotron Super for chats (Ultra for the digest); or pin Lightning, Super or Ultra.
 
+**Effort:** how hard the model thinks before each step (Token Factory's `reasoning_effort`): Low, Medium (the default), High or Max. Higher thinks longer and gets more room (1800, 4000, 6000 or 8000 tokens a step); in a test, Low got a scheduling question wrong that Medium and up got right. Remembered like the model; a hub from before effort caps a step at 4000 tokens, and the app falls back to that.
+
 **Import (+):** files (specs, task lists, notes; up to 5, 200 KB each) or a public repo's open GitHub issues, added to the message.
 
 ## Git, like Claude Code
@@ -106,6 +108,8 @@ Your agents keep running on the laptop; the phone drives them, like Claude Code'
   - in a chat: start or continue one with any agent and mode (one tap picks both); watch a turn live with its steps folded as on the laptop; approve or deny; run or discard a plan; stop a turn. Answers show as on Claude: tables (sideways scrolling when wide), headings, lists, quotes, and code blocks with a Copy button.
 - **Board:** the team's tasks, active first, with Agent S's estimate next to what the coding agent claims and what blocks each one. Tap a task to ask Agent S about it.
 - **The Android app adds:**
+  - **sign-in** with the desktop's account: GitHub (in a browser tab that comes back to the app; Supabase must allow `superagents://auth/callback`) or email. A new phone is offered it first and can skip it: the pairing code is what connects a phone. The session token is sealed with a key in Android Keystore. The laptop shows who each phone is signed in as.
+  - **model and effort** in a chat's "Who, and how" sheet, starting from what the desktop is set to; picking an agent applies its default model;
   - **questions in the background:** each one arrives as a notification with **Deny** and **Run it** (or **Approve**) on it, so you answer without opening the app. Run it asks for the phone to be unlocked, and the lock screen shows only "Agent S needs you". An answer posts "Agent S answered".
   - a quiet "Connected to …'s laptop" notification while it holds the line; Settings → Stay connected in the background turns that off;
   - a QR scanner for pairing (Google's code scanner, so no camera permission);

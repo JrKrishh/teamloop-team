@@ -47,6 +47,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="superagents" android:host="pair" />
             </intent-filter>
+            <!-- back from GitHub sign-in: superagents://auth/callback?code=… (Supabase must allow this redirect) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="superagents" android:host="auth" />
+            </intent-filter>
         </activity>
 
         <!-- holds the line to the laptop while the app is in the background (Settings → Stay connected) -->

@@ -242,6 +242,34 @@ def test_a_real_mcp_server(home):
     assert m.tools([broken["id"]], timeout=30) == [] and broken["id"] in m.errors
 
 
+def test_effort_reaches_the_model_with_room_to_think(client, monkeypatch):
+    sent, hub, old = [], server.cloud, {"hub": False}
+
+    def cloud(state, method, path, body=None, query=None, token=None):
+        if path == "/v1/llm":
+            sent.append(body)
+            if old["hub"] and body["max_tokens"] > 4000:
+                return 422, {"detail": "max_tokens"}
+            return 200, {"content": "Done.", "tool_calls": [], "model": "nebius:nvidia/nemotron-3-super-120b-a12b"}
+        return hub(state, method, path, body, query, token)
+
+    monkeypatch.setattr(server, "cloud", cloud)
+    def run(effort):
+        tid = client.post("/api/turns", json={"message": "hi", "team": TEAM, **({"effort": effort} if effort else {})}).json()["turn"]
+        deadline = time.time() + 10
+        while not client.get(f"/api/turns/{tid}").json()["done"] and time.time() < deadline:
+            time.sleep(0.05)
+        return client.get(f"/api/turns/{tid}").json()["events"]
+
+    run(None)
+    run("high")
+    assert [(b["effort"], b["max_tokens"]) for b in sent] == [("medium", 4000), ("high", 6000)]  # Medium unless asked
+    old["hub"] = True  # a hub from before effort: at most 4000 tokens a step
+    assert any(e["kind"] == "answer" for e in run("max")) and [b["max_tokens"] for b in sent[2:]] == [8000, 4000]
+    assert client.post("/api/turns", json={"message": "hi", "team": TEAM, "effort": "turbo"}).status_code == 422
+    assert client.post("/api/prefs", json={"effort": "max"}).json()["effort"] == "max"  # remembered like the model
+
+
 def test_citation_marks_are_taken_out_of_answers():
     for mark in ('【{"cursor": 0, "loc": 0}】', "【3†source】", "【38aaba8cab3c470287a8571e7d5b25f7】"):
         assert loop.CITE_MARK.sub("", f"T-11 is blocked {mark}. All else is moving.") == "T-11 is blocked. All else is moving."

@@ -43,7 +43,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +62,13 @@ import com.solobrain.superagents.remote.Laptop
 import com.solobrain.superagents.remote.Link
 import com.solobrain.superagents.remote.LinkService
 import com.solobrain.superagents.remote.LiveTurn
+import com.solobrain.superagents.remote.Accounts
+import com.solobrain.superagents.remote.Auth
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 enum class Tab(val title: String, val icon: ImageVector) { Needs("Needs you", Glyph.Inbox), Chats("Chats", Glyph.Chat), Board("Board", Glyph.Board) }
 
@@ -67,7 +77,7 @@ data class ChatOpen(val id: String? = null, val live: LiveTurn? = null, val pref
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOpen) -> Unit, onForgotten: () -> Unit) {
+fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOpen) -> Unit, onForgotten: () -> Unit, onSignIn: () -> Unit) {
     val p = LocalPalette.current
     val ctx = LocalContext.current
     val r = ctx.remote
@@ -123,7 +133,8 @@ fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOp
     }
 
     if (settings) ModalBottomSheet(onDismissRequest = { settings = false }, containerColor = p.bg2) {
-        Settings(activity, laptop, link, onForget = { settings = false; LinkService.stop(ctx); r.forget(); onForgotten() })
+        Settings(activity, laptop, link, onForget = { settings = false; LinkService.stop(ctx); r.forget(); onForgotten() },
+            onSignIn = { settings = false; onSignIn() })
     }
 }
 
@@ -143,8 +154,9 @@ fun Status(link: Link, laptop: Laptop?) {
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun Settings(activity: MainActivity, laptop: Laptop?, link: Link, onForget: () -> Unit) {
+private fun Settings(activity: MainActivity, laptop: Laptop?, link: Link, onForget: () -> Unit, onSignIn: () -> Unit) {
     val p = LocalPalette.current
     val ctx = LocalContext.current
     var lock by remember { mutableStateOf(Prefs.lock(ctx)) }
@@ -152,9 +164,11 @@ private fun Settings(activity: MainActivity, laptop: Laptop?, link: Link, onForg
     var stay by remember { mutableStateOf(Prefs.stay(ctx)) }
     var sure by remember { mutableStateOf(false) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> notify = granted; Prefs.setNotify(ctx, granted) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+    Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.padding(horizontal = 20.dp).padding(bottom = 28.dp)) {  // a sheet: its own window
         Text("Settings", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(14.dp))
+        AccountRow(onSignIn)
+        Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth().background(p.panel, RoundedCornerShape(16.dp)).border(1.dp, p.line, RoundedCornerShape(16.dp)).padding(14.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Mascot(size = 40.dp, mood = if (link == Link.Online) Mood.Idle else Mood.Sleep)
@@ -187,6 +201,34 @@ private fun Settings(activity: MainActivity, laptop: Laptop?, link: Link, onForg
         Spacer(Modifier.height(10.dp))
         val version = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull().orEmpty() }
         Text("Super Agents $version for Android · MIT licence", style = MaterialTheme.typography.bodySmall, color = p.faint)
+    }
+}
+
+/** Who's signed in on this phone (the desktop's account), with Sign out; or a way to sign in. */
+@Composable
+private fun AccountRow(onSignIn: () -> Unit) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var signedIn by remember { mutableStateOf(Accounts.signedIn(ctx)) }
+    val name = Accounts.name(ctx)
+    val email = Accounts.email(ctx)
+    Row(Modifier.fillMaxWidth().background(p.panel, RoundedCornerShape(16.dp)).border(1.dp, p.line, RoundedCornerShape(16.dp)).padding(14.dp)
+        .testTag("account"), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).background(if (signedIn) p.brick else p.panel2, CircleShape), contentAlignment = Alignment.Center) {
+            Text((name ?: email ?: "?").take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = if (signedIn) p.onBrick else p.muted)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(if (signedIn) name ?: email ?: "Signed in" else "Not signed in", style = MaterialTheme.typography.titleMedium)
+            Text(if (signedIn) email.orEmpty() else "Use the account from your laptop.", style = MaterialTheme.typography.bodySmall)
+        }
+        TextButton(onClick = {
+            if (!signedIn) onSignIn() else scope.launch {
+                withContext(Dispatchers.IO) { Accounts.load(ctx)?.let { Auth(ctx.remote.http).signOut(it) } }
+                Accounts.forget(ctx); signedIn = false
+            }
+        }, modifier = Modifier.testTag(if (signedIn) "sign-out" else "sign-in")) { Text(if (signedIn) "Sign out" else "Sign in", color = p.brick) }
     }
 }
 

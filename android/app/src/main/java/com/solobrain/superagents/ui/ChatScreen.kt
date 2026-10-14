@@ -64,6 +64,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -81,7 +82,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -184,8 +188,14 @@ class ChatModel {
 
 private val MODES = listOf("manual" to "Manual", "auto" to "Auto", "plan" to "Plan")
 private val MODE_HINT = mapOf("manual" to "Asks before each change", "auto" to "Routine changes itself; commands still ask", "plan" to "Nothing changes until you run the plan")
+// The desktop's model picker and effort levels, word for word
+private val MODELS = listOf("auto" to ("Auto" to "Super for chats, Ultra for the digest"), "lightning" to ("Lightning" to "Fastest replies"),
+    "super" to ("Super" to "Balanced · 120B"), "ultra" to ("Ultra" to "Deepest reasoning · 550B"))
+private val EFFORTS = listOf("low" to "Low", "medium" to "Medium", "high" to "High", "max" to "Max")
+private val EFFORT_HINT = mapOf("low" to "Quickest; fine for lookups and small edits", "medium" to "Thinks before it acts",
+    "high" to "Thinks longer: plans, reviews, tricky bugs", "max" to "Thinks the longest; slowest")
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     val p = LocalPalette.current
@@ -199,6 +209,8 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     var text by remember { mutableStateOf(open.prefill.orEmpty()) }
     var agent by remember { mutableStateOf(open.live?.agent ?: "agent-s") }
     var mode by remember { mutableStateOf("manual") }
+    var pickedModel by remember { mutableStateOf<String?>(null) }  // until picked: whatever the desktop is set to
+    var pickedEffort by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(open.id != null) }
     var follow by remember { mutableStateOf(true) }  // stay with the newest message, unless they scrolled up to read
@@ -215,7 +227,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
         val b = model.agent(agent)
         if (model.title == "New chat") model.title = msg.take(60)
         scope.launch {
-            runCatching { r.send(model.chatId, agent, mode, msg) }
+            runCatching { r.send(model.chatId, agent, mode, pickedModel ?: laptop?.model ?: "auto", pickedEffort ?: laptop?.effort ?: "medium", msg) }
                 .onSuccess { (turn, chat) -> model.chatId = chat; model.running = turn; model.bind(turn, b, catchUp) }
                 .onFailure { b.failed = it.message; b.line = null }
         }
@@ -285,17 +297,22 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
                 .clickable { follow = true; scope.launch { list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000) } },
                 contentAlignment = Alignment.Center) { Icon(Glyph.Down, "To the newest message", Modifier.size(20.dp)) }
         }
-        Composer(text, { text = it }, model.running != null, agent, who?.name ?: "Agent S", who?.color, MODES.first { it.first == mode }.second,
+        val tuning = "${MODELS.toMap()[pickedModel ?: laptop?.model ?: "auto"]?.first ?: "Auto"} · " +
+            (EFFORTS.toMap()[pickedEffort ?: laptop?.effort ?: "medium"] ?: "Medium")
+        Composer(text, { text = it }, model.running != null, agent, who?.name ?: "Agent S", who?.color, MODES.first { it.first == mode }.second, tuning,
             onPick = { picking = true }, onSend = { send(text) },
             onStop = { model.running?.let { t -> haptic.performHapticFeedback(HapticFeedbackType.Reject); scope.launch { runCatching { r.stopTurn(t) } } } })
     }
 
-    if (picking) ModalBottomSheet(onDismissRequest = { picking = false }, containerColor = p.bg2) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+    if (picking) ModalBottomSheet(onDismissRequest = { picking = false }, containerColor = p.bg2,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {  // four choices: open all the way
+        // a sheet is its own window: its tags need turning into resource ids again, for UI tests
+        Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }.verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("Who, and how", style = MaterialTheme.typography.titleLarge)
             Label("Agent")
             for (a in laptop?.agents.orEmpty()) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                .background(if (a.id == agent) p.panel2 else p.bg2).clickable { agent = a.id; a.mode?.let { m -> if (MODES.any { it.first == m }) mode = m }; picking = false }
+                .background(if (a.id == agent) p.panel2 else p.bg2).clickable { agent = a.id; a.mode?.let { m -> if (MODES.any { it.first == m }) mode = m }; pickedModel = a.model ?: "auto" }
                 .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Avatar(a.id, a.name, a.color, 26.dp); Spacer(Modifier.width(12.dp))
                 Text(a.name, style = MaterialTheme.typography.titleMedium)
@@ -307,6 +324,25 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
                 }
             }
             Text(MODE_HINT[mode].orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+            Label("Model")
+            val usingModel = pickedModel ?: laptop?.model ?: "auto"
+            for ((k, v) in MODELS) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (k == usingModel) p.panel2 else p.bg2)
+                .clickable { pickedModel = k }.padding(horizontal = 14.dp, vertical = 11.dp).testTag("model-$k"), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(v.first, style = MaterialTheme.typography.titleMedium)
+                    Text(v.second, style = MaterialTheme.typography.bodySmall)
+                }
+                if (k == usingModel) Box(Modifier.size(8.dp).background(p.brick, CircleShape))
+            }
+            Label("Effort")
+            val usingEffort = pickedEffort ?: laptop?.effort ?: "medium"
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                EFFORTS.forEachIndexed { i, (k, name) ->
+                    SegmentedButton(selected = usingEffort == k, onClick = { pickedEffort = k }, shape = SegmentedButtonDefaults.itemShape(i, EFFORTS.size),
+                        modifier = Modifier.testTag("effort-$k"), label = { Text(name) })
+                }
+            }
+            Text(EFFORT_HINT[usingEffort].orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -352,7 +388,7 @@ private fun Avatar(agentId: String?, name: String, color: String?, size: Dp) {
 
 /** One box for writing: the message, then who answers and how, and send, all inside it, as in Claude's app. */
 @Composable
-private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, agentId: String, agentName: String, agentColor: String?, modeName: String,
+private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, agentId: String, agentName: String, agentColor: String?, modeName: String, tuning: String,
                      onPick: () -> Unit, onSend: () -> Unit, onStop: () -> Unit) {
     val p = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
@@ -373,6 +409,12 @@ private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, a
                     Avatar(agentId, agentName, agentColor, 20.dp); Spacer(Modifier.width(6.dp))
                     Text("$agentName · $modeName", style = MaterialTheme.typography.labelMedium); Spacer(Modifier.width(2.dp))
                     Icon(Glyph.Down, null, Modifier.size(14.dp), tint = p.muted)
+                }
+                Spacer(Modifier.width(6.dp))
+                Row(Modifier.clip(RoundedCornerShape(999.dp)).background(p.panel2).clickable(onClick = onPick)
+                    .padding(horizontal = 10.dp, vertical = 7.dp).testTag("tuning"), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Glyph.Gauge, null, Modifier.size(14.dp), tint = p.muted); Spacer(Modifier.width(5.dp))
+                    Text(tuning, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
                 Spacer(Modifier.weight(1f))
                 Box(Modifier.size(40.dp).clip(CircleShape).background(if (running) p.text else if (ready) p.brick else p.panel2)

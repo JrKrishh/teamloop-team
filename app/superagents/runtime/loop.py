@@ -123,6 +123,7 @@ class Turn:
     llm: Callable          # llm(messages, tools, tier) -> {content, tool_calls, model}
     mcp: Manager
     person: str = "you"
+    effort: str = "medium"  # how hard the model thinks; the llm callable carries it to the hub
     id: str = field(default_factory=lambda: secrets.token_urlsafe(9))
     events: list = field(default_factory=list)
     planned: list = field(default_factory=list)
@@ -231,7 +232,7 @@ class Turn:
         board = self.hub("GET", "board")
         tools = self._toolset()
         self.emit("start", agent={k: self.agent[k] for k in ("id", "name", "color")}, mode=self.mode, model=self.model,
-                  tools=len(tools), mcp_errors=dict(self.mcp.errors))
+                  effort=self.effort, tools=len(tools), mcp_errors=dict(self.mcp.errors))
         content = self.message + "".join(f"\n\n[Imported file: {a['name']}]\n{a['text'][:60_000]}" for a in self.attachments)
         history = self.chat.get("messages", [])[-24:]
         messages = [{"role": "system", "content": self._system(board)}, *history, {"role": "user", "content": content}]

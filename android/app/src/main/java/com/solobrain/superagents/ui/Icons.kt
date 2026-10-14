@@ -21,6 +21,7 @@ object Glyph {
     val Gear = line("gear", "M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z", "M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1")
     val Folder = line("folder", "M3.5 7.5A1.5 1.5 0 0 1 5 6h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z")
     val Back = line("back", "M15 6l-6 6 6 6")
+    val Gauge = line("gauge", "M4.2 16.5a8 8 0 1 1 15.6 0", "m12 16.5 3.6-4.6")
     val Copy = line("copy", "M9 9h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z", "M5 15V5a1 1 0 0 1 1-1h10")
     val Up = line("up", "M12 19V5M6 11l6-6 6 6")
     val Stop = line("stop", "M7 7h10v10H7z")

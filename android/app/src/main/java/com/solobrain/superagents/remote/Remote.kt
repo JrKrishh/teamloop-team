@@ -33,7 +33,7 @@ private const val TAG = "SuperAgents"
 
 class Remote(private val app: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val http = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).connectTimeout(15, TimeUnit.SECONDS).build()
+    val http = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).connectTimeout(15, TimeUnit.SECONDS).build()
     private val random = SecureRandom()
 
     val link = MutableStateFlow(Link.NotPaired)
@@ -178,9 +178,13 @@ class Remote(private val app: Context) {
     }
 
     suspend fun refresh(waitMs: Long = 10_000) {
-        laptop.value = parseLaptop(request(JSONObject().put("t", "hello").put("device", device), waitMs))
+        laptop.value = parseLaptop(request(JSONObject().put("t", "hello").put("device", device).put("account", account()), waitMs))
         liveChanged()
     }
+
+    /** Who this phone is signed in as, for the laptop to show next to it (the pairing key is what lets it in). */
+    private fun account(): Any = if (!Accounts.signedIn(app)) JSONObject.NULL
+        else JSONObject().put("name", Accounts.name(app) ?: JSONObject.NULL).put("email", Accounts.email(app) ?: JSONObject.NULL)
 
     /** A question nobody has seen yet becomes a notification when the app isn't on screen; answered ones go away. */
     private fun liveChanged() {
@@ -194,9 +198,9 @@ class Remote(private val app: Context) {
         Notifications.keepAsks(app, lp.live.mapNotNull { it.ask?.id }.toSet())
     }
 
-    suspend fun send(chat: String?, agent: String, mode: String, message: String): Pair<String, String> {
+    suspend fun send(chat: String?, agent: String, mode: String, model: String, effort: String, message: String): Pair<String, String> {
         val r = request(JSONObject().put("t", "send").put("chat", chat ?: JSONObject.NULL).put("agent", agent)
-            .put("mode", mode).put("model", "auto").put("message", message))
+            .put("mode", mode).put("model", model).put("effort", effort).put("message", message))
         val turn = r.getString("turn")
         turns[turn] = r.getString("chat") to agent
         return turn to r.getString("chat")
