@@ -1,6 +1,6 @@
 [project]
 name = "superagents"
-version = "0.3.2"
+version = "0.3.3"
 description = "Super Agents: your team's AI coding agents, on one page. The desktop app with Agent S and the TeamLoop hub."
 license = "MIT"
 requires-python = ">=3.10"
