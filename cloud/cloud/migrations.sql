@@ -107,3 +107,15 @@ do $$ begin
     insert into storage.buckets (id, name, public, file_size_limit) values ('shares', 'shares', false, 26214400) on conflict (id) do nothing;
   end if;
 end $$;
+
+-- teamloop_cloud_v8_waitlist: the website's waitlist (an email once; name, team size and a note are optional)
+create table if not exists public.waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique check (char_length(email) between 3 and 254),
+  name text check (name is null or char_length(name) <= 120),
+  team_size text check (team_size is null or team_size in ('1', '2-5', '6-20', '21+')),
+  note text check (note is null or char_length(note) <= 1000),
+  source text check (source is null or char_length(source) <= 40),
+  created_at timestamptz not null default now()
+);
+alter table public.waitlist enable row level security;
