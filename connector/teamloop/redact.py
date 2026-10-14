@@ -22,6 +22,8 @@ _SHAPES = [re.compile(p) for p in (
     r"xox[abpr]-[A-Za-z0-9\-]{10,}",                    # Slack
     r"gsk_[A-Za-z0-9]{40,}",                            # Groq
     r"tvly-[A-Za-z0-9\-]{20,}",                         # Tavily
+    r"(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}",        # Stripe secret and restricted keys (pk_ is public)
+    r"whsec_[A-Za-z0-9]{24,}",                          # Stripe webhook signing secrets
     r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",  # JWT
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
     r"(?i)(?<=bearer )[A-Za-z0-9._\-]{16,}",

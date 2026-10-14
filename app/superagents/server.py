@@ -31,6 +31,7 @@ from . import __version__, laptop, store, supa
 from .runtime import agents as agent_store
 from .runtime import loop as runtime_loop
 from .runtime import mcpman
+from .runtime import memory
 from .runtime import skills as skill_store
 from .runtime import terminal as terminal_mod
 from .runtime import tools as runtime_tools
@@ -40,7 +41,8 @@ UI = Path(__file__).parent / "ui"
 CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events|usage"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?)"
                          r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40}"
-                         r"|sessions|sessions/access|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?)$")
+                         r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread"
+                         r"|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?)$")
 
 
 class State:
@@ -212,6 +214,15 @@ class TurnBody(BaseModel):
 class DecideBody(BaseModel):
     call: str = Field(min_length=1, max_length=100)
     approve: bool
+
+
+class NoteBody(BaseModel):
+    text: str = Field(min_length=1, max_length=600)
+    scope: str = Field(default="all", pattern="^[a-z0-9-]{3,40}$")
+
+
+class MemorySettings(BaseModel):
+    sessions: bool
 
 
 class UrlBody(BaseModel):
@@ -659,6 +670,34 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         if not f.is_file() or f.suffix.lower() not in IMAGES:
             raise HTTPException(404, "Only images are served raw")
         return FileResponse(f, media_type=IMAGES[f.suffix.lower()])
+
+    # ---- memory -------------------------------------------------------------------------------------------
+    @app.get("/api/memory")
+    def memory_view() -> dict:
+        return {"notes": memory.notes(), "settings": memory.settings(), "stats": memory.index().stats()}
+
+    @app.post("/api/memory/notes")
+    def memory_add(body: NoteBody) -> dict:
+        try:
+            return memory.add_note(body.text, body.scope, "you")
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.delete("/api/memory/notes/{nid}")
+    def memory_forget(nid: str) -> dict:
+        if not memory.delete_note(nid):
+            raise HTTPException(404, "No such note")
+        return {"ok": True}
+
+    @app.put("/api/memory/settings")
+    def memory_settings(body: MemorySettings) -> dict:
+        return memory.set_settings(sessions=body.sessions)
+
+    @app.get("/api/memory/search")
+    def memory_search(q: str, where: str = "everywhere") -> dict:
+        idx = memory.index()
+        idx.refresh(budget=1.0)
+        return {"hits": [{**h, "line": memory.describe(h)} for h in idx.search(q[:300], where)], "stats": idx.stats()}
 
     @app.post("/api/superteam/poke")
     def superteam_poke() -> dict:

@@ -423,9 +423,6 @@ button.tchip:hover{background:var(--panel2)}
 .rules input[type=number]{width:150px;height:34px;padding:0 10px}
 .item.sess .iic{background:none;overflow:hidden}
 .item.sess .iic img{width:36px;height:36px;object-fit:cover;object-position:top}
-.sess-composer{display:grid;gap:8px;padding:12px;border-radius:14px;background:var(--panel);border:1px solid var(--brick);margin:-2px 0 6px;animation:msgIn .25s var(--ease) both}
-.sess-composer textarea{min-height:84px;resize:vertical}
-.sess-composer .row{flex-wrap:wrap}
 .grow{flex:1}
 .pcard{display:grid;gap:8px;padding:14px 16px;border-radius:14px;background:var(--panel);border:1px solid var(--line);animation:msgIn .3s var(--ease) both;min-width:0}
 .pcard.pending{border-color:rgba(242,179,43,.55);box-shadow:0 0 0 3px rgba(242,179,43,.07)}
@@ -443,6 +440,28 @@ button.tchip:hover{background:var(--panel2)}
 .tag.due.late{color:var(--bad);border-color:rgba(240,122,112,.5)}
 .due-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .due-row input{height:34px;padding:0 10px;border-radius:9px;font:500 13px var(--fm)}
+
+/* ---- memory; Super Team threads ---- */
+.mem-stats{font:500 12.5px var(--fm);color:var(--faint)}
+.mem-search{display:flex;gap:8px;margin:14px 0 8px}
+.mem-search input{flex:1}
+.hit{display:grid;gap:4px;padding:10px 12px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
+.hit .src{font:600 11.5px var(--fm);color:var(--faint)}
+.hit .txt{font-size:14px;overflow-wrap:anywhere;white-space:pre-wrap}
+.note-add{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.note-add input{flex:1;min-width:240px}
+.note-add select{height:42px;border-radius:12px;border:1px solid var(--line2);background:var(--bg2);color:var(--text);padding:0 10px}
+.thread{display:grid;gap:14px}
+.turn-q{justify-self:end;max-width:86%;background:var(--panel2);border:1px solid var(--line);padding:9px 13px;border-radius:16px 16px 5px 16px;white-space:pre-wrap;overflow-wrap:anywhere}
+.turn-q small{display:block;font:500 11.5px var(--fm);color:var(--faint);margin-top:4px}
+.turn-a{display:grid;gap:4px;max-width:92%}
+.turn-a .md{font-size:14.5px;padding:10px 13px;border-radius:16px 16px 16px 5px;background:var(--panel);border:1px solid var(--line)}
+.turn-a .wait{font:500 12.5px var(--fm);color:var(--warn);padding:2px 4px}
+.turn-a .meta{font:500 11.5px var(--fm);color:var(--faint);padding:0 4px}
+.thread-head{font-size:13.5px;color:var(--muted)}
+.thread-head b{color:var(--text)}
+.drawer-foot.compose{align-items:flex-end}
+.drawer-foot.compose textarea{flex:1;min-height:64px;max-height:180px;resize:vertical}
 
 /* ---- team usage ---- */
 .usage-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}

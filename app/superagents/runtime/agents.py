@@ -12,7 +12,7 @@ from teamloop import spool
 
 from . import skills
 
-TOOL_GROUPS = ("team", "files", "terminal", "browser")
+TOOL_GROUPS = ("team", "files", "terminal", "browser", "memory")
 COLOURS = ("#C2554C", "#3E9B6B", "#8E6BD8", "#D98A2B", "#7A8B3A", "#3E7CB1", "#C44D8E")
 DEFAULT = {"id": "agent-s", "name": "Agent S", "color": "#C2554C", "builtin": True,
            "instructions": "", "model": "auto", "mode": "manual", "skills": [*skills.DEFAULT_ON, "code-review"], "connectors": [],

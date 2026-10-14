@@ -42,8 +42,11 @@ def framed(p: dict) -> str:
     who, owner = p["from"]["name"], p["to"]["name"]
     rights = ("You may read files in this repo but not change anything." if p["access"] == "read"
               else "You may read and edit files in this repo; you can't run commands.")
-    return (f"[Super Team] {who} is asking, through Super Agents, with {owner}'s permission. {rights} "
-            f"Answer {who} directly.\n\n{p['prompt']}")
+    head = f"[Super Team] {who} is asking, through Super Agents, with {owner}'s permission. {rights} Answer {who} directly."
+    earlier = "".join(f"\n\n{who} asked: {t['prompt']}\nThe answer was: {t['result']}" for t in p.get("thread") or [])
+    if earlier:  # each run starts from the live session; the thread so far makes a follow-up a follow-up
+        head += f"\n\nEarlier in this conversation with {who}:{earlier}"
+    return f"{head}\n\n{p['prompt']}"
 
 
 def command(p: dict, cli: str, last_message: Optional[str] = None) -> list[str]:

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import laptop
-from . import mcpman
+from . import mcpman, memory
 
 MAX_TEXT = 20_000
 TASK_ID = re.compile(r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
@@ -167,6 +167,26 @@ def open_in_browser(ctx, url: str) -> str:
         raise ValueError("Only http and https pages")
     ctx.emit("browser", url=url)
     return f"Opened {url} in the browser panel."
+
+
+# ---- memory: notes, and recall over earlier chats and coding sessions ------------------------------------------
+def remember(ctx, note: str, only_this_agent: bool = False) -> str:
+    n = memory.add_note(note, scope=ctx.agent["id"] if only_this_agent else "all", by=ctx.agent["name"])
+    return f"Remembered as {n['id']}{' (only you, ' + ctx.agent['name'] + ')' if n['scope'] != 'all' else ''}: {n['text']}"
+
+
+def forget(ctx, id: str) -> str:
+    return f"Forgot {id}." if memory.delete_note(id) else f"There's no note {id}."
+
+
+def recall(ctx, query: str, where: str = "everywhere", project: str = "") -> str:
+    idx = memory.index()
+    idx.refresh(budget=1.5)
+    hits = idx.search(query, where if where in ("notes", "chats", "sessions") else "everywhere", project)
+    if hits:
+        return "\n\n".join(memory.describe(h) for h in hits)
+    off = not memory.settings()["sessions"] and where in ("everywhere", "sessions")
+    return "Nothing found." + (" (Claude Code and Codex sessions aren't searched: the person switched that off in Agents → Memory.)" if off else "")
 
 
 # ---- skills ----------------------------------------------------------------------------------------------------
@@ -438,6 +458,14 @@ BUILTINS = [
             "need nothing; private ones use the GitHub connector's token if you added it.", {"repo": S, "number": I}, ("repo", "number"),
             github_pr),
     Builtin("open_in_browser", "browser", "read", "Show a page to the person in the app's browser panel.", {"url": S}, ("url",), open_in_browser),
+    Builtin("remember", "memory", "read", "Save a short, lasting fact for later chats: a preference, a decision, how a project works. "
+            "Call it whenever the person asks you to remember something; saying you will doesn't save it. Shared with every "
+            "agent unless only_this_agent. Never secrets.", {"note": S, "only_this_agent": {"type": "boolean"}},
+            ("note",), remember),
+    Builtin("forget", "memory", "read", "Delete a saved note by its id (n…) when it's wrong or out of date.", {"id": S}, ("id",), forget),
+    Builtin("recall", "memory", "read", "Search what happened before: saved notes, earlier Super Agents chats, and the person's own "
+            "Claude Code and Codex sessions in every project on this laptop (prompts and replies). where: everywhere, notes, chats "
+            "or sessions; project: a repo folder name to narrow it.", {"query": S, "where": S, "project": S}, ("query",), recall),
     Builtin("load_skill", "skills", "read", "Read a skill's full instructions by name.", {"name": S}, ("name",), load_skill),
     Builtin("read_skill_file", "skills", "read", "Read a file that a skill refers to.", {"name": S, "file": S}, ("name", "file"), read_skill_file),
 ]
