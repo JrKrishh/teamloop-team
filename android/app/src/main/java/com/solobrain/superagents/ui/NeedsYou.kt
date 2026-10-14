@@ -185,7 +185,7 @@ private fun AskCard(t: LiveTurn, agent: String, color: String?, onOpen: () -> Un
             Text("For: ${t.message}", style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { decide(false) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) { Text("Deny") }
+                OutlinedButton(onClick = { decide(false) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Deny") }
                 Button(onClick = { decide(true) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("approve"), shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) {
                     if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = p.onBrick)

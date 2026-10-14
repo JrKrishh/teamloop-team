@@ -1,6 +1,7 @@
 package com.solobrain.superagents.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -67,7 +68,8 @@ fun SuperAgentsTheme(content: @Composable () -> Unit) {
         surfaceContainerHighest = p.panel2, surfaceContainerLow = p.bg2, outline = p.line2, outlineVariant = p.line,
         secondaryContainer = p.panel2, onSecondaryContainer = p.text, error = p.bad,
     )
-    val base = TextStyle(fontFamily = Figtree, color = p.text)
+    // No colour in the styles: text takes its container's (a button's, a sheet's), and the palette's text everywhere else
+    val base = TextStyle(fontFamily = Figtree)
     val type = Typography(
         displaySmall = TextStyle(fontFamily = Bricolage, fontWeight = FontWeight(800), fontSize = 30.sp, lineHeight = 34.sp, letterSpacing = (-0.5).sp),
         headlineSmall = TextStyle(fontFamily = Bricolage, fontWeight = FontWeight(750), fontSize = 24.sp, lineHeight = 28.sp, letterSpacing = (-0.3).sp),
@@ -81,6 +83,8 @@ fun SuperAgentsTheme(content: @Composable () -> Unit) {
         labelSmall = TextStyle(fontFamily = Mono, fontWeight = FontWeight(600), fontSize = 11.sp, letterSpacing = 1.sp),
     )
     CompositionLocalProvider(LocalPalette provides p) {
-        MaterialTheme(colorScheme = scheme, typography = type, content = content)
+        MaterialTheme(colorScheme = scheme, typography = type) {
+            CompositionLocalProvider(LocalContentColor provides p.text, content = content)
+        }
     }
 }

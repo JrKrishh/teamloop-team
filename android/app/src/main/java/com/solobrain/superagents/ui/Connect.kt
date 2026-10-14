@@ -135,7 +135,7 @@ fun Connect(activity: MainActivity, start: Stage, onDone: () -> Unit) {
                             OutlinedTextField(pasted, { pasted = it }, Modifier.fillMaxWidth().testTag("paste"), singleLine = true,
                                 placeholder = { Text("https://…/remote/#p=…") }, shape = RoundedCornerShape(14.dp))
                             Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = { pairWith(pasted) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Pair") }
+                            OutlinedButton(onClick = { pairWith(pasted) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Pair") }
                         }
                         error?.let { Spacer(Modifier.height(12.dp)); Text(it, color = p.bad, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium) }
                         Spacer(Modifier.height(22.dp))
@@ -202,7 +202,7 @@ private fun OptIns(activity: MainActivity, onDone: () -> Unit) {
     }
     Choice("Let your agents reach you", "When an agent needs your yes, or answers, while the app is closed. Approve right from the notification.") {
         if (allowed) Text("On", color = p.ok, fontWeight = FontWeight.Bold)
-        else OutlinedButton(onClick = { if (Build.VERSION.SDK_INT >= 33) ask.launch(Manifest.permission.POST_NOTIFICATIONS) }) { Text("Allow") }
+        else OutlinedButton(onClick = { if (Build.VERSION.SDK_INT >= 33) ask.launch(Manifest.permission.POST_NOTIFICATIONS) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Allow") }
     }
     Spacer(Modifier.height(26.dp))
     Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(54.dp).testTag("done"), shape = RoundedCornerShape(16.dp),

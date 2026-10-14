@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -54,6 +55,7 @@ private const val HOOD = "M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 1
 @Composable
 fun Mascot(modifier: Modifier = Modifier, mood: Mood = Mood.Idle, size: Dp = 96.dp, drop: Boolean = false, onLanded: () -> Unit = {}) {
     val p = LocalPalette.current
+    val rim = p.bg.luminance() < 0.5f  // on a dark page the black hood needs an edge to be seen
     val hood = remember { PathParser().parsePathString(HOOD).toPath() }
     val loop = rememberInfiniteTransition(label = "mascot")
     val breath by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breath")
@@ -111,6 +113,7 @@ fun Mascot(modifier: Modifier = Modifier, mood: Mood = Mood.Idle, size: Dp = 96.
                 rotate(tilt, pivot = Offset(50f, 92f)) {
                     scale(scaleX = (2f - squash.value) * breathe, scaleY = squash.value * breathe, pivot = Offset(50f, 95f)) {
                         drawPath(hood, p.ink)
+                        if (rim) drawPath(hood, p.face.copy(alpha = 0.3f), style = Stroke(width = 2.4f))
                         drawOval(p.face, topLeft = Offset(20f, 34f), size = Size(60f, 54f))
                         eyes(p.ink, mood, blink.value, if (mood == Mood.Think) dart * 3f else 0f)
                     }

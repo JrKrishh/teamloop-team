@@ -328,7 +328,7 @@ private fun AgentBlock(b: Block, name: String, color: String?, model: ChatModel)
         if (b.planned > 0 && !b.planDone && model.running != b.turn) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, p.plan, RoundedCornerShape(14.dp))
             .background(p.panel).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${b.planned} change${if (b.planned > 1) "s" else ""} planned. Nothing has changed yet.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = { b.planDone = true; for (c in waiting.filter { it.status == "planned" }) c.status = "discarded" }) { Text("Discard") }
+            OutlinedButton(onClick = { b.planDone = true; for (c in waiting.filter { it.status == "planned" }) c.status = "discarded" }, colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Discard") }
             Spacer(Modifier.width(6.dp))
             Button(onClick = { b.planDone = true; model.running = b.turn; scope.launch { runCatching { r.runPlan(b.turn ?: return@launch) } } },
                 colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text("Run plan") }
@@ -393,7 +393,7 @@ private fun ToolCard(c: Card, b: Block, open: Boolean, onDecide: (Boolean) -> Un
             if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 10, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(p.bg2).padding(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { busy = true; onDecide(false) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Deny") }
+                OutlinedButton(onClick = { busy = true; onDecide(false) }, enabled = !busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Deny") }
                 Button(onClick = { busy = true; onDecide(true) }, enabled = !busy, modifier = Modifier.weight(1f).testTag("allow"), shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text(if (c.name == "run_command") "Run it" else "Allow") }
             }
