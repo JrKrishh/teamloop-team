@@ -31,6 +31,7 @@ from . import store
 FRESH = 120  # seconds a message stays valid
 PAIR_TTL = 600  # a pairing code nobody scanned expires
 TURN_ID = re.compile(r"[A-Za-z0-9_-]{4,64}")
+APPROVAL_ID = re.compile(r"[0-9a-f-]{36}")
 
 
 def b64(b: bytes) -> str:
@@ -208,10 +209,10 @@ class Remote:
         threading.Thread(target=loop, daemon=True, name="remote").start()
         threading.Thread(target=self.push_live, daemon=True, name="remote live").start()
 
-    def push_live(self, every: float = 2.0, rounds: Optional[int] = None) -> None:
+    def push_live(self, every: float = 2.0, rounds: Optional[int] = None, asks_every: float = 6.0) -> None:
         """While a phone is open, tell it when running turns change, so a question from a turn started at the desk
-        reaches its Needs you list in seconds."""
-        last = None
+        reaches its Needs you list in seconds; for a lead, also the steps of members' agents waiting on their yes."""
+        last, asks, asks_at = None, [], 0.0
         while rounds is None or rounds > 0:
             rounds = None if rounds is None else rounds - 1
             time.sleep(every)
@@ -221,16 +222,30 @@ class Remote:
                 if not open_:
                     last = None
                     continue
-                turns = slim_live(self.api("GET", "/api/turns")["turns"])
-                if turns == last:
+                if now - asks_at >= asks_every:  # the hub, less often than this laptop's own turns
+                    asks, asks_at = self.team_asks(), now
+                live = {"live": slim_live(self.api("GET", "/api/turns")["turns"]), "asks": asks}
+                if live == last:
                     continue
-                last = turns
+                last = live
                 keys = {p["id"]: unb64(p["key"]) for p in store.remote()["phones"]}
                 for pid in open_:
                     if pid in keys:
-                        self.send(pid, keys[pid], {"t": "live", "live": turns})
+                        self.send(pid, keys[pid], {"t": "live", **live})
             except Exception:  # noqa: BLE001 - the app is busy or closing; next round
                 pass
+
+    def team_asks(self) -> list:
+        """A lead's: steps of members' agents waiting on their yes, by the team's rules (none on an older hub)."""
+        team = self.team()
+        if not team:
+            return []
+        try:
+            got = self.api("GET", f"/api/cloud/approvals?team={urllib.parse.quote(team)}")["approvals"]
+        except Exception:  # noqa: BLE001 - an older hub, or the hub is away
+            return []
+        return [{"id": a["id"], "from": (a.get("from") or {}).get("name") or "A teammate", "what": a.get("what") or "",
+                 "detail": (a.get("detail") or "")[:1500], "rule": a.get("rule")} for a in got]
 
     def sync(self) -> None:
         cfg = store.remote()
@@ -328,6 +343,12 @@ class Remote:
             elif t == "steer":  # typed on the phone while the answer runs
                 self.api("POST", f"/api/turns/{turn}/steer", {"text": str(msg.get("text") or "")[:4000], "via": "phone"})
                 out = {"t": "ok"}
+            elif t == "team_decide":  # a lead's yes or no, from the phone, to a step of a member's agent
+                aid, team = str(msg.get("approval") or ""), self.team()
+                if not APPROVAL_ID.fullmatch(aid) or not team:
+                    raise ValueError("That request isn't in your team")
+                self.api("POST", f"/api/cloud/approvals/{aid}/decide?team={urllib.parse.quote(team)}", {"approve": bool(msg.get("approve"))})
+                out = {"t": "ok"}
             elif t == "run_plan":
                 r = self.api("POST", f"/api/turns/{turn}/run-plan")
                 self.follow(pid, key, turn, r["after"])
@@ -343,7 +364,8 @@ class Remote:
         return {"laptop": socket.gethostname(), "user": (boot.get("user") or {}).get("name"), "signed_in": boot.get("signed_in"),
                 "agents": [{k: a.get(k) for k in ("id", "name", "color", "mode", "model")} for a in self.api("GET", "/api/agents")["agents"]],
                 "prefs": {k: (boot.get("prefs") or {}).get(k) for k in ("model", "effort")},  # what the desktop is set to
-                "chats": self.api("GET", "/api/chats")["chats"][:40], "live": slim_live(self.api("GET", "/api/turns")["turns"])}
+                "chats": self.api("GET", "/api/chats")["chats"][:40], "live": slim_live(self.api("GET", "/api/turns")["turns"]),
+                "asks": self.team_asks()}
 
     def chat(self, cid: str) -> dict:
         c = self.api("GET", f"/api/chats/{urllib.parse.quote(cid)}")

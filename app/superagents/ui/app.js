@@ -562,6 +562,7 @@ const STEP_SAID = [[/^read_file$/, "read a file", "read # files"], [/^search_fil
   [/^(remember|forget|recall)$/, "used memory", "took # memory steps"], [/^(share_|take_share$|team_files$)/, "used team files", "took # sharing steps"],
   [/^mcp__/, "used a connector", "made # connector calls"], [/^(load_skill|read_skill_file)$/, "used a skill", "took # skill steps"],
   [/^(create_task|assign_task|close_task|set_deadline|start_task)$/, "changed the board", "made # board changes"],
+  [/^pin_decision$/, "pinned a decision", "pinned # decisions"],
   [/./, "looked up the team", "made # team lookups"]];
 function updateHead(st) {
   const cards = Object.values(st.cards).filter(c => c.box.parentElement === st.steps);  // not the ones waiting for you
@@ -656,7 +657,7 @@ function handleEvent(st, e, past) {
     updateHead(st);
   } else if (e.kind === "tool") {
     toolCard(st, e, past);
-    if (!past && (e.status === "asking" || e.status === "running")) { s.line.textContent = e.status === "asking" ? "Waiting for you…" : "Working…"; s.body.append(s.line); }
+    if (!past && (e.status === "asking" || e.status === "running")) { s.line.textContent = e.status === "asking" ? `Waiting for ${e.lead || "you"}…` : "Working…"; s.body.append(s.line); }
   } else if (e.kind === "mode") {  // switched while it ran
     st.mode = MODES[e.mode] ? e.mode : st.mode;
     st.steps.append(el("div", "narr", `Switched to ${MODES[st.mode].label} mode`));
@@ -744,6 +745,7 @@ const TOOL_UI = {
   desktop_open: ["play", "Open app", a => a.app],
   desktop_screenshot: ["laptop", "Screenshot", a => a.window || ""],
   desktop_batch: ["list", "Steps", a => `${(a.steps || []).length} in one go`],
+  pin_decision: ["check", "Pin a decision", a => a.text],
   load_skill: ["book", "Use skill", a => a.name],
   read_skill_file: ["book", "Read skill file", a => `${a.name}/${a.file}`],
 };
@@ -796,7 +798,7 @@ function setCard(c, status, st, past) {
   c.box.className = `tool ${status}`;
   c.tst.replaceChildren();
   if (status === "running") c.tst.append(el("span", "spin"));
-  c.tst.append(STATUS[status] ?? status);
+  c.tst.append(status === "asking" && c.e.lead ? `waiting for ${c.e.lead}` : STATUS[status] ?? status);
   c.box.querySelector(".ask-box")?.remove();
   if (status === "asking" && !past) c.box.append(askBox(c, st));
   // waiting for the person: in view; anything else: folded into the steps
@@ -830,6 +832,16 @@ function askBox(c, st) {
   else if (e.name.startsWith("desktop_")) box.append(el("p", null, `${who} wants to ${toolUi(e)[1].toLowerCase()} ${toolUi(e)[2](a) || ""}${e.name === "desktop_press" || a.mouse || a.keys ? " (this brings the window forward for a moment)" : ""}.`));
   else if (e.name.startsWith("browser_")) box.append(el("p", null, `${who} wants to ${toolUi(e)[1].toLowerCase()} ${toolUi(e)[2](a) || ""} on ${BR.state.url || "this page"}.`));
   else box.append(el("p", null, `${who} wants to make this change.`));
+  if (e.lead) {  // the team's rules give this step to a lead: their yes, not yours; you can still cancel it
+    box.append(el("p", "lead-note", `Your team's rules give this step to a lead. It goes ahead when ${e.lead} says yes, at their desk or on their phone.`));
+    const row = el("div", "row gap"), cancel = el("button", "btn small ghost", "Cancel the step"); cancel.type = "button";
+    cancel.onclick = async () => {
+      cancel.disabled = true;
+      try { await api(`/api/turns/${st.turn}/decide`, {method: "POST", body: {call: e.id, approve: false}}); } catch (err) { toast(err.message, true); cancel.disabled = false; }
+    };
+    row.append(cancel); box.append(row);
+    return box;
+  }
   const row = el("div", "row gap");
   const no = el("button", "btn small ghost", "Deny"), yes = el("button", "btn small primary", e.name === "run_command" ? "Run it" : "Allow");
   no.type = yes.type = "button";
@@ -2022,13 +2034,80 @@ let teamTab = "people";
 function showTeamTab(tab) {
   teamTab = tab;
   for (const b of $("teamTabs").children) b.classList.toggle("on", b.dataset.tab === tab);
-  for (const t of ["people", "sessions", "prompts", "files", "usage"]) $(`team-${t}`).hidden = t !== tab;
+  for (const t of ["people", "rules", "sessions", "prompts", "files", "usage"]) $(`team-${t}`).hidden = t !== tab;
   const t = team(); $("teamSub").textContent = t ? `${t.name} · ${t.role === "lead" ? "you lead this team" : "member"}` : "";
   if (tab === "people") loadTeam();
+  if (tab === "rules") loadRules();
   if (tab === "sessions") loadSessions();
   if (tab === "prompts") loadPrompts();
   if (tab === "files") loadShares();
   if (tab === "usage") loadUsage();
+}
+
+// ---- Super Team → Rules: decisions every agent follows, and the steps that wait for a lead's yes ------------------
+const RULE_KINDS = [["push", "Pushing to GitHub", "A member's agent pushing a branch"], ["pr", "Opening pull requests", "Into any branch"],
+  ["share", "Sharing with the team", "Files or a branch handed to teammates"], ["board", "Changing the board", "Creating, closing or assigning tasks, and deadlines"],
+  ["shell", "Running shell commands", "On the member's own laptop: a lead's yes instead of theirs"]];
+async function loadRules() {
+  const box = $("team-rules");
+  let r;
+  try { r = await hub(withTeam("rules")); }
+  catch (e) { box.replaceChildren(el("p", "err", e.status === 404 ? "Your team's server doesn't have rules yet: it needs an update." : e.message)); return; }
+  const lead = r.role === "lead";
+  const dec = el("section", "panel");
+  dec.append(el("h3", null, "Decisions every agent follows"),
+    el("p", "sub", "Pinned here, a decision is in every teammate's agents' instructions, with who decided. An agent asks before going against one. In a chat, \"pin that\" pins one too."));
+  const add = el("form", "note-add"), text = inputEl({placeholder: "A decision, e.g. Deploys go out on Fridays only", maxLength: 300});
+  add.append(text, btn("Pin", "primary", null, "plus")); add.lastChild.type = "submit";
+  add.addEventListener("submit", async e => {
+    e.preventDefault(); if (!text.value.trim()) return;
+    try { await hub(withTeam("decisions"), {method: "POST", body: {text: text.value.trim()}}); loadRules(); } catch (err) { toast(err.message, true); }
+  });
+  const list = el("div", "list");
+  for (const d of r.decisions) {
+    const it = el("div", "item"), iic = el("span", "iic"), w = el("div"), ctl = el("div", "ctl");
+    iic.append(ic("check")); w.append(el("b", null, d.text), el("small", null, `${d.by.name}${d.by.role === "lead" ? ", lead" : ""} · ${ago(d.at)}`));
+    if (lead || d.by.id === (S.user || {}).id) ctl.append(btn("Remove", "ghost", async () => {
+      try { await hub(withTeam(`decisions/${d.id}`), {method: "DELETE"}); } catch (err) { toast(err.message, true); }
+      loadRules();
+    }));
+    it.append(iic, w, ctl); list.append(it);
+  }
+  if (!r.decisions.length) list.append(el("p", "sub", "None yet."));
+  dec.append(add, list);
+  const gate = el("section", "panel");
+  gate.append(el("h3", null, "Steps that need a lead's yes"), el("p", "sub", lead
+    ? "When a member's agent reaches one of these, it waits for a lead's yes, here or on a lead's phone, instead of the member's own."
+    : `Set by ${r.leads.join(", ") || "your lead"}. When your agents reach one of these, they wait for a lead's yes.`));
+  for (const [k, title, sub] of RULE_KINDS) {
+    const on = r.lead_approves.includes(k);
+    const s = switchEl(title, sub, on, title, async () => {
+      const next = on ? r.lead_approves.filter(x => x !== k) : [...r.lead_approves, k];
+      try { await hub(withTeam("rules"), {method: "PUT", body: {lead_approves: next}}); } catch (err) { toast(err.message, true); }
+      loadRules();
+    });
+    s.querySelector(".toggle").disabled = !lead;
+    gate.append(s);
+  }
+  box.replaceChildren(dec, gate);
+}
+// A member's agent asked for a lead's yes: one card in Super Team → Prompts, Waiting for you
+const RULE_SAID = Object.fromEntries(RULE_KINDS.map(([k, title]) => [k, title[0].toLowerCase() + title.slice(1)]));
+function approvalCard(a) {
+  const c = el("article", "pcard pending"), head = el("div", "phead");
+  head.append(el("b", null, `${a.from.name}'s agent: ${a.what}`), el("span", "grow"), el("span", "pstatus", "needs your yes"));
+  c.append(head);
+  if (a.detail) c.append(el("blockquote", "pprompt", a.detail));
+  const meta = el("div", "pmeta"); meta.append(el("span", null, ago(a.created_at)), el("span", null, `the team's rule: ${RULE_SAID[a.rule] || a.rule}`));
+  const row = el("div", "row gap");
+  const decide = async ok => {
+    row.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    try { await hub(withTeam(`approvals/${a.id}/decide`), {method: "POST", body: {approve: ok}}); toast(ok ? `Allowed: ${a.from.name}'s agent goes ahead.` : "Denied."); }
+    catch (e) { toast(e.message, true); }
+    loadPrompts();
+  };
+  row.append(el("span", "grow"), btn("Deny", "ghost", () => decide(false)), btn("Allow", "primary", () => decide(true), "check"));
+  c.append(meta, row); return c;
 }
 
 // ---- Super Team → Files: what teammates share with you, and what you share -------------------------------------
@@ -2216,10 +2295,14 @@ async function checkInbox() {
   try {
     const r = await hub(withTeam("prompts?box=in&limit=30"));
     const waiting = r.prompts.filter(p => p.yours_to_decide);
-    const b = $("promptBadge"); b.hidden = !waiting.length; b.textContent = String(waiting.length);
+    const asks = await hub(withTeam("approvals")).then(x => x.approvals).catch(() => []);  // a lead's: members' agents waiting on a yes
+    const b = $("promptBadge"); b.hidden = !(waiting.length + asks.length); b.textContent = String(waiting.length + asks.length);
     const fresh = waiting.filter(p => !INBOX.has(p.id)); fresh.forEach(p => INBOX.add(p.id));
     if (fresh.length) toast(fresh.length === 1 ? `${fresh[0].from.name} wants to prompt your ${TOOL_LABEL[fresh[0].tool]} session. Super Team → Prompts.`
       : `${fresh.length} prompts are waiting for you. Super Team → Prompts.`);
+    const newAsks = asks.filter(a => !INBOX.has(a.id)); newAsks.forEach(a => INBOX.add(a.id));
+    if (newAsks.length) toast(newAsks.length === 1 ? `${newAsks[0].from.name}'s agent needs your yes: ${newAsks[0].what}. Super Team → Prompts.`
+      : `${newAsks.length} steps of your team's agents need your yes. Super Team → Prompts.`);
     const first = !checkInbox.sharesRead;  // what was already there when the app opened isn't news
     const shared = (await hub(withTeam("shares"))).shares.filter(s => s.for_me && s.status === "ready");
     checkInbox.sharesRead = true;
@@ -2323,8 +2406,12 @@ async function loadPrompts() {
   bar.append(segEl([["all", lead ? "Whole team" : "Everything of yours"], ["out", "Sent"], ["in", "Received"]], promptBox, k => { promptBox = k; loadPrompts(); }),
     el("span", "sub", `Every prompt into a teammate's session is on record: who asked what, who allowed it, what it used.${lead ? " As the lead, you see the whole team's." : " The lead sees the whole team's."}`));
   const waiting = r.prompts.filter(p => p.yours_to_decide), rest = r.prompts.filter(p => !p.yours_to_decide);
+  const asks = lead ? await hub(withTeam("approvals")).then(x => x.approvals).catch(() => []) : [];  // a lead's yes, by the team's rules
   const nodes = [bar];
-  if (waiting.length) { const w = el("div", "list"); waiting.forEach(p => w.append(promptCard(p, true))); nodes.push(el("h3", "section-title", "Waiting for you"), w); }
+  if (waiting.length || asks.length) {
+    const w = el("div", "list"); asks.forEach(a => w.append(approvalCard(a))); waiting.forEach(p => w.append(promptCard(p, true)));
+    nodes.push(el("h3", "section-title", "Waiting for you"), w);
+  }
   const list = el("div", "list"); rest.forEach(p => list.append(promptCard(p, false)));
   nodes.push(el("h3", "section-title", "Record"), rest.length ? list : el("p", "sub", "No prompts yet. Send one from Sessions."));
   box.replaceChildren(...nodes);

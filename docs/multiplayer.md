@@ -17,10 +17,10 @@ shared sandbox, CRDT canvases, 12 weeks) onto what Super Agents has, what was bu
 | A team prompt queue | On the desktop, a note sent just as an answer finishes goes as the next message | Partly; a visible queue when someone asks for it |
 | A human backchannel, "promote to agent context" | | Parked: teams already talk in Slack or Teams |
 | A private vault with taint tracking | Prompts, code, diffs and tool output stay on each laptop; only one-line summaries and facts reach the team | Have it, by design |
-| Session state with pinned decisions | Memory notes (per laptop, for one agent or all); plan mode | Next: team-wide decisions on the hub, in every agent's prompt with who decided |
+| Session state with pinned decisions | Team decisions (Super Team → Rules, or "pin that" in a chat) in every agent's prompt with who decided, an agent asks before going against one (T-53); memory notes per laptop | Built |
 | Institutional memory | `team_ask` answers from the team's events with citations; recall over earlier chats and coding sessions | Have it |
 | An agent identity, permissions as an intersection | Each laptop's tools run with that person's own sign-ins; a teammate's prompt into your session runs by your rules (read only, or edits in that repo), never shell commands | Have the essentials |
-| Role-routed approvals | A step waits for whoever runs the agent, at the desk or on the phone; a teammate's prompt into your session waits for your yes | Have it for sessions; routing a step to the lead is parked |
+| Role-routed approvals | A step waits for whoever runs the agent, at the desk or on the phone; a teammate's prompt into your session waits for your yes; steps a lead picks (push, pull request, share, board, shell) wait for a lead's yes instead, on their desk or their phone (T-53) | Built |
 | A CRDT canvas with presence cursors | | Parked |
 | Speculative forking of a session | | Parked |
 | A catch-up briefing for whoever joins | Today's digest; each task's timeline of what each session reported | Partly |

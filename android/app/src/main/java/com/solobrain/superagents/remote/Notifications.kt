@@ -83,6 +83,27 @@ object Notifications {
         runCatching { NotificationManagerCompat.from(ctx).notify("ask", id, n) }
     }
 
+    /** A lead's: a member's agent waits for their yes, by the team's rules. Deny or Approve right here. */
+    fun teamAsk(ctx: Context, a: TeamAsk) {
+        if (!may(ctx)) return
+        val id = a.id.hashCode()
+        fun decide(ok: Boolean) = PendingIntent.getBroadcast(ctx, id * 2 + (if (ok) 1 else 0),
+            Intent(ctx, DecideReceiver::class.java).putExtra("approval", a.id).putExtra("approve", ok),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val title = "${a.from}'s agent needs your yes"
+        val public = NotificationCompat.Builder(ctx, ASKS).setSmallIcon(R.drawable.ic_stat_icon).setColor(BRICK).setContentTitle(title).build()
+        val n = NotificationCompat.Builder(ctx, ASKS).setSmallIcon(R.drawable.ic_stat_icon).setColor(BRICK)
+            .setContentTitle(title).setContentText(a.what)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(if (a.detail.isEmpty()) a.what else "${a.what}\n${a.detail.take(400)}"))
+            .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
+            .setContentIntent(open(ctx, id)).setAutoCancel(true)
+            .addAction(NotificationCompat.Action.Builder(0, "Deny", decide(false)).build())
+            .addAction(NotificationCompat.Action.Builder(0, "Approve", decide(true)).setAuthenticationRequired(true).build())
+            .build()
+        runCatching { NotificationManagerCompat.from(ctx).notify("ask", id, n) }
+    }
+
     fun cancelAsk(ctx: Context, call: String) = NotificationManagerCompat.from(ctx).cancel("ask", call.hashCode())
 
     /** Questions answered elsewhere (at the desk, or in the app) leave the shade. */

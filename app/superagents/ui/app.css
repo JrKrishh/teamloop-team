@@ -481,6 +481,7 @@ button.tchip:hover{color:var(--text);background:var(--tint)}
 .ask-box p{margin:0;font-size:13.5px;color:var(--muted)}
 .ask-box pre{margin:0;padding:10px 12px;border-radius:10px;background:var(--term-bg);border:1px solid var(--line);font:500 12.5px/1.5 var(--fm);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
 .ask-box .row{justify-content:flex-end}
+.ask-box .lead-note{color:var(--text);font-weight:500}
 .plan-foot{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid color-mix(in srgb,var(--plan) 40%,transparent);background:color-mix(in srgb,var(--plan) 6%,var(--bg));animation:msgIn .3s var(--ease) both}
 .plan-foot > span{flex:1;min-width:180px;font-size:13.5px;color:var(--muted)}
 .plan-foot b{color:var(--plan)}

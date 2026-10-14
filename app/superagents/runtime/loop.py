@@ -36,6 +36,11 @@ WRAP_UP = ("That's {n} steps on this, the most one answer can take. Don't call a
            "left, and what the person can do next (they can ask you to continue).")
 REPEAT_NUDGE = ("\nThis exact call has now returned the same thing {n} times: don't repeat it. Try another way, or finish "
                 "with what you have.")
+# The team's rules (Super Team → Rules, set by a lead): steps of a member's agent that wait for a lead's yes instead of
+# the member's own, by rule.
+LEAD_RULE = {"git_push": "push", "open_pr": "pr", "share_files": "share", "share_branch": "share", "run_command": "shell",
+             **{n: "board" for n in ("create_task", "close_task", "assign_task", "set_deadline")}}
+LEAD_POLL = 3  # seconds between looks at the hub for a lead's answer
 # Typed while the turn works, as into Claude Code: read before the next step, nothing stops or starts over.
 STEER = ("{who} adds, while you work: {text}\n(Take this into account from your next step on; keep what's already done unless "
          "it says otherwise.)")
@@ -108,6 +113,23 @@ def compact(messages: list[dict], head: int) -> None:
         elif m["role"] != "tool" and text:
             lines.append(f"- ({'you said' if m['role'] == 'assistant' else 'note'}) {text[:200]}")
     messages[head:cut] = [{"role": "user", "content": FOLDED + "\n".join(lines[-200:])}]
+
+
+def lead_line(name: str, a: dict) -> tuple[str, str]:
+    """What a lead is asked to allow, in a line, and the text it would send when there is one. Never file contents."""
+    repo, to = f" of {a['repo']}" if a.get("repo") else "", a.get("to") or "the whole team"
+    what, detail = {
+        "git_push": (f"Push the current branch{repo} to GitHub", ""),
+        "open_pr": (f"Open a pull request{' into ' + str(a['base']) if a.get('base') else ''}: {a.get('title') or ''}", a.get("body")),
+        "share_files": (f"Share {', '.join(map(str, a.get('paths') or []))} with {to}", a.get("note")),
+        "share_branch": (f"Hand the current branch{repo} to {to}", a.get("note")),
+        "run_command": (f"Run a command{' in ' + str(a['cwd']) if a.get('cwd') else ''}", a.get("command")),
+        "create_task": (f"Create the task “{a.get('title') or ''}”" + (f" for {a['owner']}" if a.get("owner") else ""), ""),
+        "close_task": (f"Close {a.get('task') or 'a task'}", ""),
+        "assign_task": (f"Assign {a.get('task') or 'a task'} to {a.get('owner') or 'someone'}", ""),
+        "set_deadline": (f"Set {a.get('task') or 'a task'}'s deadline to {a.get('due') or 'none'}", ""),
+    }.get(name, (name, ""))
+    return what.strip()[:300], str(detail or "")[:4000]
 
 
 def _short_args(raw: str) -> str:
@@ -201,6 +223,7 @@ class Turn:
         self.mode_note: str | None = None  # told to the model before its next step, after a mode switch
         self.steers: list[tuple[str, str]] = []  # notes typed while it works (text, from where), read before its next step
         self.looping = False
+        self.lead_rules: set[str] = set()  # for a member: the rules whose steps wait for a lead's yes (from the board)
 
     # ---- events for the window -----------------------------------------------------------------------------
     def emit(self, kind: str, **data) -> None:
@@ -215,6 +238,8 @@ class Turn:
             return self.events[after:]
 
     def decide(self, call_id: str, approve: bool) -> None:
+        if approve and self.waiting.get(call_id) == "lead":
+            return  # that yes is a lead's to give; the person can still cancel the step
         self.answers[call_id] = approve
         if call_id in self.decisions:
             self.decisions[call_id].set()
@@ -275,6 +300,13 @@ class Turn:
                 kept.append(f"- {n['id']}: {n['text']}")
             if kept:
                 text += "\n\n## Memory (notes saved earlier: use them; forget or replace one when it's out of date)\n" + "\n".join(reversed(kept))
+        decisions = (board.get("rules") or {}).get("decisions") or []
+        if decisions:
+            text += ("\n\n## Team decisions (pinned in Super Team; every agent in the team follows them)\n"
+                     + "\n".join(f"- {d['text']} (decided by {d['by']['name']}{', lead' if d['by'].get('role') == 'lead' else ''})"
+                                 for d in decisions)
+                     + "\nIf the person asks for something that goes against one, say which decision and who made it, and ask "
+                       "before going against it.")
         if self.agent.get("instructions", "").strip():
             text += f"\n\n## Your instructions from {self.person}\n{self.agent['instructions'].strip()}"
         return text
@@ -323,6 +355,8 @@ class Turn:
     def _run(self) -> None:
         self.skills = skill_store.all_skills()
         board = self.hub("GET", "board")
+        if board.get("role") == "member":  # a lead's own yes is enough
+            self.lead_rules = set((board.get("rules") or {}).get("lead_approves") or [])
         tools = self._toolset()
         self.emit("start", agent={k: self.agent[k] for k in ("id", "name", "color")}, mode=self.mode, model=self.model,
                   effort=self.effort, tools=len(tools), mcp_errors=dict(self.mcp.errors))
@@ -415,7 +449,16 @@ class Turn:
             self.planned.append((cid, tool, args))
             self.emit("tool", **card, status="planned")
             return "Not run: plan mode. This change is part of the plan the person will review and run."
-        if kind == "ask" or (kind == "change" and self.mode == "manual"):
+        if kind != "read" and LEAD_RULE.get(name) in self.lead_rules:
+            ok, why = self._ask_lead(cid, card, name, args)
+            if self.mode == "plan":  # switched to Plan while it waited: queued, not run
+                self.planned.append((cid, tool, args))
+                self.emit("tool", **card, status="planned")
+                return "Not run: the person switched to plan mode. This change is part of the plan they will review and run."
+            if not ok:
+                self.emit("tool", **card, status="declined", result=why)
+                return f"{why} Don't retry it; tell the person."
+        elif kind == "ask" or (kind == "change" and self.mode == "manual"):
             ev = self.decisions[cid] = threading.Event()
             self.waiting[cid] = kind
             self.emit("tool", **card, status="asking")
@@ -457,14 +500,49 @@ class Turn:
                 result += REPEAT_NUDGE.format(n=self.repeats[same])
         return result
 
+    def _ask_lead(self, cid: str, card: dict, name: str, args: dict) -> tuple[bool, str]:
+        """A step the team's rules give to a lead: it waits for a lead's yes, on their desk or their phone, instead of the
+        person's own; the person can still cancel it. (True, "") once a lead says yes; else (False, what to tell the model)."""
+        what, detail = lead_line(name, args)
+        try:
+            req = self.hub("POST", "approvals", {"rule": LEAD_RULE[name], "tool": name, "what": what, "detail": detail})
+        except RuntimeError as e:
+            return False, f"Not run: the team's rules want a lead's yes for this, and asking failed ({e})."
+        ev = self.decisions[cid] = threading.Event()
+        self.waiting[cid] = "lead"
+        self.emit("tool", **card, status="asking", lead=", ".join(req.get("leads") or []) or "a lead")
+        r = {"status": "pending"}
+        while r["status"] == "pending" and not ev.wait(LEAD_POLL):  # set: the person cancelled it, switched to Plan, or stopped
+            try:
+                r = self.hub("GET", f"approvals/{req['id']}")
+            except RuntimeError:
+                continue  # the hub is away for a moment: keep waiting
+        self.waiting.pop(cid, None)
+        if r["status"] == "pending":
+            try:
+                self.hub("POST", f"approvals/{req['id']}/cancel")
+            except RuntimeError:
+                pass
+            return False, "Not run: the person cancelled it while it waited for a lead."
+        if r["status"] == "approved":
+            return True, ""
+        if r["status"] == "denied":
+            return False, f"{r.get('decided_by') or 'A lead'} said no" + (f": {r['note']}" if r.get("note") else ".")
+        return False, "Not run: no lead answered within a day."
+
     def run_plan(self) -> None:
-        """Apply the changes queued in plan mode, in order."""
+        """Apply the changes queued in plan mode, in order (what the team's rules give to a lead waits for their yes)."""
         planned, self.planned = self.planned, []
         self.done = False
         try:
             for cid, tool, args in planned:
                 card = {"id": cid, "name": tool.name if isinstance(tool, Builtin) else tool.full, "args": args,
                         "access": self._kind(tool, args), "group": tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"}
+                if card["access"] != "read" and LEAD_RULE.get(card["name"]) in self.lead_rules:
+                    ok, why = self._ask_lead(cid, card, card["name"], args)
+                    if not ok:
+                        self.emit("tool", **card, status="declined", result=why)
+                        continue
                 self.emit("tool", **card, status="running")
                 try:
                     result, is_error = self._execute(tool, args)

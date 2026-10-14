@@ -254,6 +254,26 @@ class DecideIn(BaseModel):
     approve: bool
 
 
+class DecisionIn(BaseModel):
+    text: str = Field(min_length=1, max_length=300)
+
+
+class RulesIn(BaseModel):
+    lead_approves: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ApprovalIn(BaseModel):
+    rule: str = Field(pattern="^(push|pr|share|board|shell)$")
+    tool: str = Field(min_length=1, max_length=64)
+    what: str = Field(min_length=1, max_length=300)
+    detail: str = Field(default="", max_length=4000)
+
+
+class ApprovalDecideIn(BaseModel):
+    approve: bool
+    note: str = Field(default="", max_length=500)
+
+
 class FinishIn(BaseModel):
     status: str = Field(pattern="^(done|failed|stopped)$")
     result: str = Field(default="", max_length=12000)
@@ -520,6 +540,120 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         team_id, _ = lead_scope(c, team, conn)
         conn.execute("delete from team_repos where team_id = %s and url = %s", (team_id, github_url(url)))
         return repos_of(conn, team_id, "lead", c)
+
+    # ---- Super Team → Rules: decisions every agent in the team follows (with who decided), and the steps of a
+    # member's agent that wait for a lead's yes instead of the member's own: push, pull request, share, board, shell ----
+    RULES = ("push", "pr", "share", "board", "shell")
+    APPROVAL_HOURS = 24  # a request nobody answered in a day is dropped: the agent has long moved on
+
+    def rules_of(conn, team_id: str) -> dict:
+        r = conn.execute("select lead_approves from team_rules where team_id = %s", (team_id,)).fetchone()
+        leads = [x["name"] for x in conn.execute("select name from memberships where team_id = %s and role = 'lead'"
+                                                 " and removed_at is null order by created_at", (team_id,))]
+        return {"lead_approves": [x for x in RULES if r and x in r["lead_approves"]], "leads": leads,
+                "decisions": [{"id": str(d["id"]), "text": d["text"], "by": {"id": str(d["by_user"]), "name": d["by_name"],
+                               "role": d["by_role"]}, "at": d["created_at"].timestamp()}
+                              for d in conn.execute("select * from decisions where team_id = %s order by created_at", (team_id,))]}
+
+    def my_name(c: Caller) -> str:
+        return c.person.name or (c.person.email or "").split("@")[0] or "A teammate"
+
+    @app.get("/v1/rules")
+    def team_rules(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _, role = team_scope(c, team, conn)
+        return {**rules_of(conn, team_id), "role": role}
+
+    @app.put("/v1/rules")
+    def set_rules(body: RulesIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _ = lead_scope(c, team, conn)
+        conn.execute("insert into team_rules (team_id, lead_approves, updated_by) values (%s, %s, %s) on conflict (team_id)"
+                     " do update set lead_approves = excluded.lead_approves, updated_by = excluded.updated_by, updated_at = now()",
+                     (team_id, [x for x in RULES if x in body.lead_approves], c.person.id))
+        return {**rules_of(conn, team_id), "role": "lead"}
+
+    @app.post("/v1/decisions")
+    def pin_decision(body: DecisionIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        if conn.execute("select count(*) as n from decisions where team_id = %s", (team_id,)).fetchone()["n"] >= 40:
+            raise HTTPException(400, "A team can pin up to 40 decisions: remove one first")
+        conn.execute("insert into decisions (team_id, text, by_user, by_name, by_role) values (%s, %s, %s, %s, %s)",
+                     (team_id, body.text.strip(), c.person.id, my_name(c), role))
+        return {**rules_of(conn, team_id), "role": role}
+
+    @app.delete("/v1/decisions/{did}")
+    def unpin_decision(did: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        mine = "" if role == "lead" else " and by_user = %s"  # a lead can remove any; a member, their own
+        gone = conn.execute(f"delete from decisions where team_id = %s and id = %s{mine}",
+                            (team_id, _uuid_or_400(did), *(() if role == "lead" else (c.person.id,)))).rowcount
+        if not gone:
+            raise HTTPException(404, "No such decision of yours (a lead can remove any)")
+        return {**rules_of(conn, team_id), "role": role}
+
+    def approval_view(r: dict, me: str) -> dict:
+        stale = r["status"] == "pending" and r["created_at"] < datetime.now(timezone.utc) - timedelta(hours=APPROVAL_HOURS)
+        return {"id": str(r["id"]), "from": {"id": str(r["from_user"]), "name": r["from_name"]}, "rule": r["rule"],
+                "tool": r["tool"], "what": r["what"], "detail": r["detail"], "status": "expired" if stale else r["status"],
+                "decided_by": r["decided_name"], "note": r["note"], "created_at": r["created_at"].timestamp(),
+                "mine": str(r["from_user"]) == me}
+
+    @app.post("/v1/approvals")
+    def ask_lead(body: ApprovalIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """A member's agent reached a step the team's rules give to the lead: it waits here for a lead's yes."""
+        team_id, role = session_scope(c, team, conn)
+        if role == "lead":
+            raise HTTPException(400, "You're a lead: your own yes is enough")
+        rules = rules_of(conn, team_id)
+        if body.rule not in rules["lead_approves"]:
+            raise HTTPException(400, "The team's rules don't send that to a lead")
+        row = conn.execute("insert into approvals (team_id, from_user, from_name, rule, tool, what, detail) values"
+                           " (%s, %s, %s, %s, %s, %s, %s) returning *", (team_id, c.person.id, my_name(c), body.rule, body.tool,
+                                                                         body.what.strip(), body.detail)).fetchone()
+        return {**approval_view(row, c.person.id), "leads": rules["leads"]}
+
+    @app.get("/v1/approvals")
+    def list_approvals(team: Optional[str] = None, box: str = "in", c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """box=in: what waits for a lead's yes now (a lead's list; a member's is empty). box=out: what your agents asked."""
+        team_id, role = session_scope(c, team, conn)
+        if box == "in" and role != "lead":
+            return {"approvals": []}
+        rows = conn.execute("select * from approvals where team_id = %s and status = 'pending' and created_at >"
+                            " now() - make_interval(hours => %s) order by created_at", (team_id, APPROVAL_HOURS)) if box == "in" \
+            else conn.execute("select * from approvals where team_id = %s and from_user = %s order by created_at desc limit 50",
+                              (team_id, c.person.id))
+        return {"approvals": [approval_view(r, c.person.id) for r in rows.fetchall()]}
+
+    @app.get("/v1/approvals/{aid}")
+    def get_approval(aid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        r = conn.execute("select * from approvals where team_id = %s and id = %s", (team_id, _uuid_or_400(aid))).fetchone()
+        if not r or (role != "lead" and str(r["from_user"]) != c.person.id):
+            raise HTTPException(404, "No such request")
+        return approval_view(r, c.person.id)
+
+    @app.post("/v1/approvals/{aid}/decide")
+    def decide_approval(aid: str, body: ApprovalDecideIn, team: Optional[str] = None, c: Caller = Depends(caller),
+                        conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        if role != "lead":
+            raise HTTPException(403, "Only a lead can decide")
+        row = conn.execute("update approvals set status = %s, decided_by = %s, decided_name = %s, note = %s, decided_at = now()"
+                           " where team_id = %s and id = %s and status = 'pending' and created_at > now() - make_interval(hours => %s)"
+                           " returning *", ("approved" if body.approve else "denied", c.person.id, my_name(c), body.note.strip() or None,
+                                            team_id, _uuid_or_400(aid), APPROVAL_HOURS)).fetchone()
+        if not row:
+            raise HTTPException(409, "Already decided, cancelled or expired")
+        return approval_view(row, c.person.id)
+
+    @app.post("/v1/approvals/{aid}/cancel")
+    def cancel_approval(aid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _ = session_scope(c, team, conn)
+        row = conn.execute("update approvals set status = 'cancelled', decided_at = now() where team_id = %s and id = %s"
+                           " and from_user = %s and status = 'pending' returning *",
+                           (team_id, _uuid_or_400(aid), c.person.id)).fetchone()
+        if not row:
+            raise HTTPException(409, "Only your own waiting request can be cancelled")
+        return approval_view(row, c.person.id)
 
     # ---- Super Team → Files: files and branches teammates share ---------------------------------------
     # The record (who shared what with whom, who saved it) is the team's, like prompts: the lead sees it all. The
@@ -861,7 +995,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             "select m.name, extract(epoch from max(e.received_at)) as last from memberships m left join events e"
             " on e.team_id = m.team_id and e.user_id = m.user_id where m.team_id = %s and m.removed_at is null"
             " group by m.name", (team_id,)).fetchall()
-        return {"room": team_name, "generated_at": now, "tasks": out, "demo": False,
+        return {"room": team_name, "generated_at": now, "tasks": out, "demo": False, "rules": rules_of(conn, team_id),
                 "members": [{"name": p["name"], "last_activity": float(p["last"] or 0),
                              "active": bool(p["last"]) and now - float(p["last"]) < ACTIVE_SECONDS} for p in people]}
 
