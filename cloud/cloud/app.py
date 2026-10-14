@@ -179,16 +179,43 @@ class DeviceApproveIn(BaseModel):
     team: str
 
 
+DATE = r"^\d{4}-\d{2}-\d{2}$"
+
+
 class TaskIn(BaseModel):
     task: str = Field(default="", max_length=30)
     title: str = Field(min_length=1, max_length=120)
     owner: Optional[str] = Field(default=None, max_length=64)
+    due: Optional[str] = Field(default=None, pattern=DATE)
 
 
 class TaskPatch(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=120)
     owner: Optional[str] = Field(default=None, max_length=64)  # "" unassigns
     state: Optional[str] = Field(default=None, pattern="^(open|closed)$")
+    due: Optional[str] = Field(default=None, pattern=r"^(\d{4}-\d{2}-\d{2})?$")  # "" clears
+
+
+class AccessIn(BaseModel):
+    mode: str = Field(pattern="^(off|ask|auto)$")
+    access: str = Field(default="read", pattern="^(read|edit)$")
+    daily_tokens: Optional[int] = Field(default=None, ge=1000, le=100_000_000)  # None: unlimited
+
+
+class PromptIn(BaseModel):
+    session: str = Field(min_length=4, max_length=80)
+    prompt: str = Field(min_length=1, max_length=4000)
+
+
+class DecideIn(BaseModel):
+    approve: bool
+
+
+class FinishIn(BaseModel):
+    status: str = Field(pattern="^(done|failed|stopped)$")
+    result: str = Field(default="", max_length=12000)
+    tokens: int = Field(default=0, ge=0, le=10_000_000_000)
+    run_session: Optional[str] = Field(default=None, max_length=80)
 
 
 class Attachment(BaseModel):
@@ -472,6 +499,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                          (c.team_id, RETENTION_DAYS))
             conn.execute("delete from agent_usage where team_id = %s and at < now() - make_interval(days => %s)",
                          (c.team_id, RETENTION_DAYS))
+            conn.execute("delete from session_prompts where team_id = %s and created_at < now() - make_interval(days => %s)",
+                         (c.team_id, RETENTION_DAYS))
             conn.execute("delete from hub_sessions where expires_at < now()")
             conn.execute("delete from devices where expires_at < now() - interval '1 day'")
         return {"accepted": new, "duplicates": len(rows) - new}
@@ -522,8 +551,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     def planned(conn, team_id: str) -> dict[str, dict]:
         return {r["task"]: r for r in conn.execute(
-            "select task, title, owner_name, state, extract(epoch from created_at) as at from tasks where team_id = %s",
-            (team_id,))}
+            "select task, title, owner_name, state, to_char(due, 'YYYY-MM-DD') as due, extract(epoch from created_at) as at"
+            " from tasks where team_id = %s", (team_id,))}
 
     def build_board(conn, team_id: str, team_name: str) -> dict:
         now = time.time()
@@ -543,6 +572,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             card["usage"] = spent.get(t["task"])
             p = plan.pop(t["task"], None)
             card["owner"] = p["owner_name"] if p else None
+            card["due"] = p["due"] if p else None
             if p:
                 card["title"] = card["title"] or p["title"]
                 if p["state"] == "closed":
@@ -552,7 +582,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             if p["state"] == "open":
                 out.append({"task": p["task"], "title": p["title"], "events": 0, "owner": p["owner_name"],
                             "members": [p["owner_name"]] if p["owner_name"] else [], "tools": [], "pr": None,
-                            "last_activity": float(p["at"]), "status": "todo", "progress": None, "recent": [], "usage": None})
+                            "last_activity": float(p["at"]), "status": "todo", "progress": None, "recent": [], "usage": None,
+                            "due": p["due"]})
         people = conn.execute(
             "select m.name, extract(epoch from max(e.received_at)) as last from memberships m left join events e"
             " on e.team_id = m.team_id and e.user_id = m.user_id where m.team_id = %s and m.removed_at is null"
@@ -588,11 +619,11 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                 raise HTTPException(404, "No activity for this task")
             return {"task": task, "title": p["title"], "status": "todo" if p["state"] == "open" else "done", "pr": None,
                     "members": [p["owner_name"]] if p["owner_name"] else [], "tools": [], "progress": None,
-                    "owner": p["owner_name"], "history": [], "timeline": []}
+                    "owner": p["owner_name"], "due": p["due"], "history": [], "timeline": []}
         history = conn.execute("select extract(epoch from created_at) as at, body from snapshots where team_id = %s and task = %s"
                                " order by created_at desc limit 20", (team_id, task)).fetchall()
         card = next((t for t in build_board(conn, team_id, name)["tasks"] if t["task"] == task), {})
-        return {**{k: card.get(k) for k in ("task", "title", "status", "pr", "members", "tools", "progress", "usage")},
+        return {**{k: card.get(k) for k in ("task", "title", "status", "pr", "members", "tools", "progress", "usage", "due", "owner")},
                 "history": [{"at": float(h["at"]), "percent": h["body"].get("percent"), "agent_says": h["body"].get("agent_says_percent")}
                             for h in reversed(history)],
                 "timeline": cards.timeline(evs)}
@@ -622,9 +653,9 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if not TASK_RE.match(task) or task in have:
             task = agent.next_id(have)
         owner_id, owner = member_named(conn, team_id, body.owner)
-        conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, created_by) values (%s, %s, %s, %s, %s, %s)",
-                     (team_id, task, body.title.strip(), owner_id, owner, c.person.id))
-        return {"task": task, "title": body.title.strip(), "owner": owner, "state": "open"}
+        conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, created_by, due)"
+                     " values (%s, %s, %s, %s, %s, %s, %s)", (team_id, task, body.title.strip(), owner_id, owner, c.person.id, body.due))
+        return {"task": task, "title": body.title.strip(), "owner": owner, "state": "open", "due": body.due}
 
     @app.patch("/v1/tasks/{task}")
     def update_task(task: str, body: TaskPatch, team: Optional[str] = None, c: Caller = Depends(caller),
@@ -643,11 +674,13 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if body.owner is None and row:  # keep the current owner
             current = conn.execute("select owner_id, owner_name from tasks where team_id = %s and task = %s", (team_id, task)).fetchone()
             owner_id, owner = (str(current["owner_id"]) if current["owner_id"] else None), current["owner_name"]
-        conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, state, created_by) values"
-                     " (%s, %s, %s, %s, %s, %s, %s) on conflict (team_id, task) do update set title = excluded.title,"
-                     " owner_id = excluded.owner_id, owner_name = excluded.owner_name, state = excluded.state, updated_at = now()",
-                     (team_id, task, title[:120], owner_id, owner, state, c.person.id))
-        return {"task": task, "title": title[:120], "owner": owner, "state": state}
+        due = (body.due or None) if body.due is not None else (row["due"] if row else None)
+        conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, state, created_by, due) values"
+                     " (%s, %s, %s, %s, %s, %s, %s, %s) on conflict (team_id, task) do update set title = excluded.title,"
+                     " owner_id = excluded.owner_id, owner_name = excluded.owner_name, state = excluded.state,"
+                     " due = excluded.due, updated_at = now()",
+                     (team_id, task, title[:120], owner_id, owner, state, c.person.id, due))
+        return {"task": task, "title": title[:120], "owner": owner, "state": state, "due": due}
 
     @app.delete("/v1/tasks/{task}")
     def delete_task(task: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
@@ -785,6 +818,196 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         digests[key] = (time.time(), out)
         return out
 
+    # ---- Super Team: prompts into teammates' coding sessions -------------------------------------------
+    # Someone in the team sends a prompt into a teammate's Claude Code or Codex session. The owner's rules decide:
+    # off, ask each time, or automatic; read-only or edit; tokens per teammate per day. The owner's Super Agents runs
+    # it as a fork of that session (their live session isn't touched) and reports back. Every prompt stays on record:
+    # the lead sees all of them, a member the ones they sent or received.
+    ACCESS = {"mode": "ask", "access": "read", "daily_tokens": None, "app_seen_at": None}
+
+    def access_of(conn, team_id: str, user_id: str) -> dict:
+        row = conn.execute("select mode, access, daily_tokens, app_seen_at from session_access where team_id = %s and user_id = %s",
+                           (team_id, user_id)).fetchone()
+        return {**ACCESS, **(row or {})}
+
+    def used_today(conn, team_id: str, from_user: str, to_user: str) -> int:
+        return int(conn.execute("select coalesce(sum(tokens), 0) as n from session_prompts where team_id = %s and from_user = %s"
+                                " and to_user = %s and created_at >= date_trunc('day', now())", (team_id, from_user, to_user)).fetchone()["n"])
+
+    def prompt_view(r: dict, me: str) -> dict:
+        return {"id": str(r["id"]), "from": {"id": str(r["from_user"]), "name": r["from_name"]},
+                "to": {"id": str(r["to_user"]), "name": r["to_name"]}, "session": r["session"], "tool": r["tool"],
+                "repo": r["repo"], "task": r["task"], "prompt": r["prompt"], "access": r["access"], "status": r["status"],
+                "decided_by": r["decided_by"], "tokens": int(r["tokens"] or 0), "result": r["result"],
+                "run_session": r["run_session"], "created_at": r["created_at"].timestamp(),
+                "finished_at": r["finished_at"].timestamp() if r["finished_at"] else None,
+                "yours_to_decide": str(r["to_user"]) == me and r["status"] == "pending",
+                "yours": str(r["from_user"]) == me}
+
+    def session_scope(c: Caller, team: Optional[str], conn) -> tuple[str, str]:
+        if c.kind != "session":
+            raise HTTPException(401, "Sign in first")
+        team_id, _, role = team_scope(c, team, conn)
+        return team_id, role
+
+    @app.get("/v1/sessions")
+    def team_sessions(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """Teammates' coding sessions from the last day, each with its owner's rules for prompts."""
+        team_id, role = session_scope(c, team, conn)
+        rows = conn.execute(
+            "select e.user_id, max(e.member) as member, e.body->>'session' as session, max(e.body->>'tool') as tool,"
+            " max(e.body->>'repo') as repo, max(e.body->>'branch') as branch, max(e.task) as task,"
+            " extract(epoch from max(e.received_at)) as last, count(*) filter (where e.kind = 'turn_end') as turns,"
+            " bool_or(e.kind = 'session_end') as ended from events e join memberships m on m.team_id = e.team_id"
+            " and m.user_id = e.user_id and m.removed_at is null where e.team_id = %s and e.received_at > now() - interval '1 day'"
+            " and e.body->>'session' is not null and e.body->>'tool' in ('claude_code', 'codex')"
+            " group by e.user_id, e.body->>'session' order by last desc limit 60", (team_id,)).fetchall()
+        now = time.time()
+        rules = {str(r["user_id"]): r for r in conn.execute(
+            "select user_id, mode, access, daily_tokens, app_seen_at from session_access where team_id = %s", (team_id,))}
+        out = []
+        for r in rows:
+            uid = str(r["user_id"])
+            a = {**ACCESS, **rules.get(uid, {})}
+            seen = a["app_seen_at"].timestamp() if a["app_seen_at"] else 0
+            out.append({"session": r["session"], "tool": r["tool"], "owner": {"id": uid, "name": r["member"]}, "repo": r["repo"],
+                        "branch": r["branch"], "task": r["task"], "last": float(r["last"]), "turns": int(r["turns"]),
+                        "ended": bool(r["ended"]), "active": now - float(r["last"]) < ACTIVE_SECONDS, "mine": uid == c.person.id,
+                        "mode": a["mode"], "access": a["access"], "daily_tokens": a["daily_tokens"],
+                        "app_online": now - seen < 120,
+                        "used_today": used_today(conn, team_id, c.person.id, uid) if uid != c.person.id else 0})
+        mine = access_of(conn, team_id, c.person.id)
+        return {"sessions": out, "role": role, "me": {k: mine[k] for k in ("mode", "access", "daily_tokens")}}
+
+    @app.put("/v1/sessions/access")
+    def set_access(body: AccessIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """Your rules for teammates' prompts into your sessions."""
+        team_id, _ = session_scope(c, team, conn)
+        conn.execute("insert into session_access (team_id, user_id, mode, access, daily_tokens) values (%s, %s, %s, %s, %s)"
+                     " on conflict (team_id, user_id) do update set mode = excluded.mode, access = excluded.access,"
+                     " daily_tokens = excluded.daily_tokens, updated_at = now()",
+                     (team_id, c.person.id, body.mode, body.access, body.daily_tokens))
+        return body.model_dump()
+
+    @app.post("/v1/prompts")
+    def send_prompt(body: PromptIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _ = session_scope(c, team, conn)
+        s = conn.execute(
+            "select e.user_id, max(e.member) as member, max(e.body->>'tool') as tool, max(e.body->>'repo') as repo,"
+            " max(e.task) as task from events e join memberships m on m.team_id = e.team_id and m.user_id = e.user_id"
+            " and m.removed_at is null where e.team_id = %s and e.body->>'session' = %s group by e.user_id",
+            (team_id, body.session)).fetchone()
+        if not s:
+            raise HTTPException(404, "No such session in this team")
+        owner = str(s["user_id"])
+        if owner == c.person.id:
+            raise HTTPException(400, "That's your own session")
+        if s["tool"] not in ("claude_code", "codex"):
+            raise HTTPException(400, "Only Claude Code and Codex sessions take prompts")
+        rules = access_of(conn, team_id, owner)
+        if rules["mode"] == "off":
+            raise HTTPException(403, f"{s['member']} isn't taking prompts into their sessions")
+        if rules["daily_tokens"] and used_today(conn, team_id, c.person.id, owner) >= rules["daily_tokens"]:
+            raise HTTPException(429, f"You've used today's {rules['daily_tokens']:,} tokens of {s['member']}'s sessions")
+        auto = rules["mode"] == "auto"
+        row = conn.execute(
+            "insert into session_prompts (team_id, from_user, from_name, to_user, to_name, session, tool, repo, task, prompt,"
+            " access, status, decided_by, decided_at) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+            " case when %s then now() end) returning *",
+            (team_id, c.person.id, c.person.name, owner, s["member"], body.session, s["tool"], s["repo"], s["task"],
+             body.prompt.strip(), rules["access"], "approved" if auto else "pending", "auto" if auto else None, auto)).fetchone()
+        return prompt_view(row, c.person.id)
+
+    @app.get("/v1/prompts")
+    def list_prompts(team: Optional[str] = None, box: str = "all", limit: int = 50, c: Caller = Depends(caller),
+                     conn=Depends(db)) -> dict:
+        """The record of prompts into sessions. The lead sees the whole team's; a member, what they sent or received."""
+        team_id, role = session_scope(c, team, conn)
+        me = c.person.id
+        where, params = "team_id = %s", [team_id]
+        if box == "in":
+            where, params = where + " and to_user = %s", params + [me]
+        elif box == "out":
+            where, params = where + " and from_user = %s", params + [me]
+        elif role != "lead":
+            where, params = where + " and (from_user = %s or to_user = %s)", params + [me, me]
+        rows = conn.execute(f"select * from session_prompts where {where} order by created_at desc limit %s",
+                            (*params, max(1, min(limit, 200)))).fetchall()
+        return {"prompts": [prompt_view(r, me) for r in rows], "role": role}
+
+    @app.get("/v1/prompts/runnable")
+    def runnable(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """The owner's Super Agents asks for approved prompts to run (and so shows as online to the team)."""
+        team_id, _ = session_scope(c, team, conn)
+        conn.execute("insert into session_access (team_id, user_id, app_seen_at) values (%s, %s, now()) on conflict"
+                     " (team_id, user_id) do update set app_seen_at = now()", (team_id, c.person.id))
+        rows = conn.execute("select * from session_prompts where team_id = %s and to_user = %s and status = 'approved'"
+                            " order by created_at limit 5", (team_id, c.person.id)).fetchall()
+        return {"prompts": [prompt_view(r, c.person.id) for r in rows]}
+
+    def visible_prompt(conn, team_id: str, role: str, pid: str, me: str) -> dict:
+        try:
+            row = conn.execute("select * from session_prompts where team_id = %s and id = %s", (team_id, _uuid_or_400(pid))).fetchone()
+        except HTTPException:
+            raise HTTPException(404, "No such prompt") from None
+        if not row or (role != "lead" and me not in (str(row["from_user"]), str(row["to_user"]))):
+            raise HTTPException(404, "No such prompt")
+        return row
+
+    @app.get("/v1/prompts/{pid}")
+    def get_prompt(pid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        return prompt_view(visible_prompt(conn, team_id, role, pid, c.person.id), c.person.id)
+
+    def change_prompt(conn, team_id: str, pid: str, sql: str, params: tuple, why: str) -> dict:
+        row = conn.execute(f"update session_prompts set {sql} returning *", params).fetchone()
+        if not row:
+            raise HTTPException(409, why)
+        return row
+
+    @app.post("/v1/prompts/{pid}/decide")
+    def decide_prompt(pid: str, body: DecideIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        visible_prompt(conn, team_id, role, pid, c.person.id)
+        row = change_prompt(conn, team_id, pid, "status = %s, decided_by = 'owner', decided_at = now() where team_id = %s"
+                            " and id = %s and to_user = %s and status = 'pending'",
+                            ("approved" if body.approve else "denied", team_id, pid, c.person.id), "Only the session's owner can decide, once")
+        return prompt_view(row, c.person.id)
+
+    @app.post("/v1/prompts/{pid}/cancel")
+    def cancel_prompt(pid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        visible_prompt(conn, team_id, role, pid, c.person.id)
+        row = change_prompt(conn, team_id, pid, "status = 'cancelled', finished_at = now() where team_id = %s and id = %s"
+                            " and from_user = %s and status in ('pending', 'approved')", (team_id, pid, c.person.id),
+                            "Only a prompt you sent that hasn't started can be cancelled")
+        return prompt_view(row, c.person.id)
+
+    @app.post("/v1/prompts/{pid}/claim")
+    def claim_prompt(pid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """The owner's Super Agents takes an approved prompt to run, with what's left of the teammate's tokens today."""
+        team_id, role = session_scope(c, team, conn)
+        row = visible_prompt(conn, team_id, role, pid, c.person.id)
+        limit = access_of(conn, team_id, c.person.id)["daily_tokens"]
+        budget = None if not limit else max(0, limit - used_today(conn, team_id, str(row["from_user"]), c.person.id))
+        if budget == 0:
+            change_prompt(conn, team_id, pid, "status = 'stopped', result = %s, finished_at = now() where team_id = %s and id = %s"
+                          " and to_user = %s and status = 'approved'", ("Not run: the daily token limit is used up.", team_id, pid,
+                                                                         c.person.id), "Not yours to run")
+            raise HTTPException(429, "That teammate's tokens for today are used up")
+        row = change_prompt(conn, team_id, pid, "status = 'running', budget = %s where team_id = %s and id = %s and to_user = %s"
+                            " and status = 'approved'", (budget, team_id, pid, c.person.id), "Not yours to run, or already running")
+        return {**prompt_view(row, c.person.id), "budget": budget}
+
+    @app.post("/v1/prompts/{pid}/finish")
+    def finish_prompt(pid: str, body: FinishIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        visible_prompt(conn, team_id, role, pid, c.person.id)
+        row = change_prompt(conn, team_id, pid, "status = %s, result = %s, tokens = %s, run_session = %s, finished_at = now()"
+                            " where team_id = %s and id = %s and to_user = %s and status = 'running'",
+                            (body.status, body.result, body.tokens, body.run_session, team_id, pid, c.person.id), "Not running")
+        return prompt_view(row, c.person.id)
+
     @app.get("/v1/usage")
     def usage_view(team: Optional[str] = None, days: int = 7, tz: int = 0, c: Caller = Depends(caller),
                    conn=Depends(db)) -> dict:
@@ -803,8 +1026,15 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             "select user_id, member, source, model, calls, tokens_in, tokens_out, extract(epoch from at) as at from agent_usage"
             " where team_id = %s and at > now() - make_interval(days => %s)", (team_id, days + 1)).fetchall()
         spent = [{**a, "user_id": str(a["user_id"]) if a["user_id"] else None, "at": float(a["at"])} for a in spent]
+        prompted = conn.execute(
+            "select from_name, to_name, count(*) as prompts, coalesce(sum(tokens), 0) as tokens from session_prompts where"
+            " team_id = %s and created_at > now() - make_interval(days => %s) and status in ('running', 'done', 'failed', 'stopped')"
+            + ("" if role == "lead" else " and (from_user = %s or to_user = %s)") + " group by from_name, to_name order by tokens desc",
+            (team_id, days) if role == "lead" else (team_id, days, c.person.id, c.person.id)).fetchall()
         return {**usage_sum.summarize(turns, spent, me=c.person.id, lead=role == "lead", days=days, tz_minutes=tz,
-                                      now=time.time()), "room": name, "role": role}
+                                      now=time.time()), "room": name, "role": role,
+                "prompted": [{"from": r["from_name"], "to": r["to_name"], "prompts": int(r["prompts"]), "tokens": int(r["tokens"])}
+                             for r in prompted]}
 
     return app
 

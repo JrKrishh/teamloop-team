@@ -416,6 +416,34 @@ button.tchip:hover{background:var(--panel2)}
 .btn.small{height:32px;padding:0 12px;font-size:13px;border-radius:9px}
 .btn.danger{background:var(--bad);border-color:transparent;color:#1A0E0C}
 
+/* ---- Super Team: sessions, prompts, deadlines ---- */
+.nav-badge{margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--brick-strong);color:var(--on-brick);font:700 11px/20px var(--fm);text-align:center}
+.rules{margin-bottom:8px}
+.rules .row{flex-wrap:wrap}
+.rules input[type=number]{width:150px;height:34px;padding:0 10px}
+.item.sess .iic{background:none;overflow:hidden}
+.item.sess .iic img{width:36px;height:36px;object-fit:cover;object-position:top}
+.sess-composer{display:grid;gap:8px;padding:12px;border-radius:14px;background:var(--panel);border:1px solid var(--brick);margin:-2px 0 6px;animation:msgIn .25s var(--ease) both}
+.sess-composer textarea{min-height:84px;resize:vertical}
+.sess-composer .row{flex-wrap:wrap}
+.grow{flex:1}
+.pcard{display:grid;gap:8px;padding:14px 16px;border-radius:14px;background:var(--panel);border:1px solid var(--line);animation:msgIn .3s var(--ease) both;min-width:0}
+.pcard.pending{border-color:rgba(242,179,43,.55);box-shadow:0 0 0 3px rgba(242,179,43,.07)}
+.phead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.phead b{font-weight:650}
+.pstatus{font:600 10.5px var(--fm);letter-spacing:.07em;text-transform:uppercase;padding:2px 8px;border-radius:6px;border:1px solid var(--line2);color:var(--muted)}
+.pcard.done .pstatus{color:var(--ok);border-color:rgba(76,195,138,.4)}
+.pcard.pending .pstatus,.pcard.approved .pstatus,.pcard.running .pstatus{color:var(--warn);border-color:rgba(242,179,43,.45)}
+.pcard.failed .pstatus,.pcard.denied .pstatus,.pcard.stopped .pstatus{color:var(--bad);border-color:rgba(240,122,112,.4)}
+.pprompt{margin:0;padding:8px 12px;border-left:3px solid var(--line2);background:var(--bg2);border-radius:0 10px 10px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
+.pmeta{display:flex;flex-wrap:wrap;gap:4px 14px;font:500 12px var(--fm);color:var(--faint)}
+.pans{font-size:14.5px;padding:10px 12px;border-radius:10px;background:var(--bg2);border:1px solid var(--line)}
+.pcard .row{flex-wrap:wrap}
+.tag.due.soon{color:var(--warn);border-color:rgba(242,179,43,.45)}
+.tag.due.late{color:var(--bad);border-color:rgba(240,122,112,.5)}
+.due-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.due-row input{height:34px;padding:0 10px;border-radius:9px;font:500 13px var(--fm)}
+
 /* ---- team usage ---- */
 .usage-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
 .usage-bar .sub{font-size:13px}

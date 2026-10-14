@@ -39,7 +39,8 @@ UI = Path(__file__).parent / "ui"
 # what the UI may ask the hub for, through /api/cloud/<path>
 CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events|usage"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?)"
-                         r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40})$")
+                         r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40}"
+                         r"|sessions|sessions/access|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?)$")
 
 
 class State:
@@ -54,6 +55,7 @@ class State:
         self.turns: dict[str, runtime_loop.Turn] = {}
         self._mcp: Optional[mcpman.Manager] = None
         self.open_window: Optional[Callable[[str], None]] = None  # a second app window for the browser panel
+        self.runner = None  # Super Team: runs teammates' prompts in this laptop's sessions (main.py starts it)
 
     @property
     def mcp(self) -> mcpman.Manager:
@@ -347,12 +349,12 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         return {"ok": True}
 
     # ---- the hub, through us ------------------------------------------------------------------------
-    @app.api_route("/api/cloud/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"])
+    @app.api_route("/api/cloud/{path:path}", methods=["GET", "POST", "PATCH", "PUT", "DELETE"])
     async def to_cloud(path: str, request: Request) -> JSONResponse:
         if not CLOUD_PATHS.match(path):
             raise HTTPException(404, "Not a Super Agents call")
         body = None
-        if request.method in ("POST", "PATCH"):
+        if request.method in ("POST", "PATCH", "PUT"):
             raw = await request.body()
             body = json.loads(raw) if raw else {}
         code, data = await run_in_threadpool(cloud, state, request.method, f"/v1/{path}", body,
@@ -657,6 +659,12 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         if not f.is_file() or f.suffix.lower() not in IMAGES:
             raise HTTPException(404, "Only images are served raw")
         return FileResponse(f, media_type=IMAGES[f.suffix.lower()])
+
+    @app.post("/api/superteam/poke")
+    def superteam_poke() -> dict:
+        if state.runner:
+            state.runner.poke()
+        return {"ok": True}
 
     # ---- browser and terminal ---------------------------------------------------------------------------
     @app.post("/api/browser/window")

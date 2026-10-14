@@ -20,8 +20,11 @@ browser / app window           --session cookie---->       (same function)      
 - **Usage:** each coding turn's token counts arrive on its `turn_end` event (`facts.usage`, counted on the laptop). Super Agents' own Nemotron calls (agent steps, answers, plans, progress, digests) go to `agent_usage`. `GET /v1/usage?team=&days=&tz=` sums both by day, tool, task, model and person; leads see everyone, members see themselves.
 - **Limits:** 60 event batches per member per minute, 8 KB per event, 30-day retention (swept on writes), no live stream (the board polls every 15 s and skips hidden tabs).
 
+- **Super Team:** `GET /v1/sessions` (teammates' sessions from the last day, with each owner's rules), `PUT /v1/sessions/access` (your rules: `mode` off/ask/auto, `access` read/edit, `daily_tokens` or null), `POST /v1/prompts` (into a session), `GET /v1/prompts?box=all|in|out` and `/v1/prompts/{id}` (the record: the lead sees all, a member what they sent or received), `POST /v1/prompts/{id}/decide` (the owner), `/cancel` (the sender, before it runs). The owner's app uses `GET /v1/prompts/runnable`, `POST …/claim` (with what's left of the sender's tokens today) and `POST …/finish`.
+- **Deadlines:** `due` (YYYY-MM-DD) on `POST /v1/tasks` and `PATCH /v1/tasks/{task}` (`""` clears); the board and task detail return it.
+
 ### Migrations
-`schema.sql` is the whole schema for a fresh database. On the live Supabase project, apply in order: `teamloop_cloud_v1` (applied), `teamloop_cloud_v2_tasks` (the `tasks` table), `teamloop_cloud_v3_usage` (the `agent_usage` table).
+`schema.sql` is the whole schema for a fresh database. A live one gets [cloud/cloud/migrations.sql](../cloud/cloud/migrations.sql), in order: `teamloop_cloud_v1` (applied), `teamloop_cloud_v2_tasks` (`tasks`), `teamloop_cloud_v3_usage` (`agent_usage`), `teamloop_cloud_v4_super_team` (`tasks.due`, `session_access`, `session_prompts`). Each statement is safe to run twice.
 
 ## One-time setup (Yang)
 These four switch it on. They need your Supabase and GitHub accounts, and step 4 holds the database password, so they're yours.

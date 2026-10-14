@@ -179,6 +179,19 @@ def test_task_changes_reach_the_hub(env, monkeypatch):
     assert client.post("/api/cloud/agent", params={"team": TEAM}, json={}).status_code == 404  # agents run on this laptop now
 
 
+def test_super_team_calls_reach_the_hub_but_running_prompts_stays_with_the_runner(env, monkeypatch):
+    client, hub, *_ = env
+    signed_in(monkeypatch, client)
+    pid = "11111111-2222-3333-4444-555555555555"
+    for method, path in [("GET", "sessions"), ("PUT", "sessions/access"), ("POST", "prompts"), ("GET", f"prompts/{pid}"),
+                         ("POST", f"prompts/{pid}/decide"), ("POST", f"prompts/{pid}/cancel")]:
+        r = client.request(method, f"/api/cloud/{path}", params={"team": TEAM}, json={"mode": "auto"} if method != "GET" else None)
+        assert r.json().get("detail") != "Not a Super Agents call", path
+    assert any(c[0] == "PUT" and c[1] == "/v1/sessions/access" and c[2] == {"mode": "auto"} for c in hub.calls)
+    for path in ("prompts/runnable", f"prompts/{pid}/claim", f"prompts/{pid}/finish"):  # only this laptop's runner does these
+        assert client.post(f"/api/cloud/{path}", json={}).json()["detail"] == "Not a Super Agents call"
+
+
 def test_start_task_on_this_laptop(env, monkeypatch, tmp_path):
     """The agents' start_task tool: this laptop's sessions report on a task, in the repo it names."""
     client, hub, *_ = env

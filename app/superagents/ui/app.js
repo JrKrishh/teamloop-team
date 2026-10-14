@@ -285,7 +285,8 @@ function showShell() {
   if (HASH.get("pane")) { openPane(HASH.get("pane")); HASH.delete("pane"); }
   clearInterval(pollTimer);
   let ticks = 0;
-  pollTimer = setInterval(() => { if (!document.hidden) { loadBoard(); refreshLaptop(); if (++ticks % 3 === 0) loadUsageChip(); } }, 20000);
+  checkInbox();
+  pollTimer = setInterval(() => { if (!document.hidden) { loadBoard(); refreshLaptop(); checkInbox(); if (++ticks % 3 === 0) loadUsageChip(); } }, 20000);
 }
 function go(view) {
   S.view = VIEWS.includes(view) ? view : "chat";
@@ -467,7 +468,7 @@ function renderHello() {
       : `${ag.name} is ready. ${agentLine(ag).replace(/[.!]$/, "")}.`));
   const ideas = [["flag", "What's blocked right now?", "Blockers, with the sessions that show them"],
     ["gauge", "Which tasks used the most AI this week?", "Tokens by task, tool and person, from every laptop"],
-    ["list", "Plan our next tasks and suggest owners", "Proposes changes to the board; you approve them"],
+    ["list", "Plan our next tasks with owners and deadlines", "Proposes changes to the board; you approve them"],
     ["sun", "Write today's digest", "Shipped, in progress, blocked, at risk"]];
   const grid = el("div", "suggest");
   for (const [i, text, small] of ideas) {
@@ -856,7 +857,8 @@ function card(t, members, i) {
   if (t.status === "todo") {
     c.classList.add("todo");
     c.append(el("div", "notyet", t.owner ? `Not started · ${t.owner} is on it` : "Not started · nobody assigned yet"));
-    const foot = el("div", "card-foot"); foot.append(el("span", null, `planned ${ago(t.last_activity)}`)); c.append(foot);
+    const foot = el("div", "card-foot"); const due = dueChip(t.due, t.status); if (due) foot.append(due);
+    foot.append(el("span", null, `planned ${ago(t.last_activity)}`)); c.append(foot);
     return c;
   }
   const meter = el("div", "meter"), track = el("div", "track"), fill = el("div", "fill");
@@ -868,6 +870,7 @@ function card(t, members, i) {
   meter.append(track, legend); c.append(meter);
   if (p) { const lists = el("div", "lists"); for (const r of [list("Blocked", p.blockers, "blockers", t.task), list("Done", p.done, "", t.task), list("Doing", p.doing, "", t.task), list("Next", p.next, "", t.task)]) if (r) lists.append(r); if (lists.childElementCount) c.append(lists); }
   const foot = el("div", "card-foot");
+  const due = dueChip(t.due, t.status); if (due) foot.append(due);
   if (t.owner && !t.members.includes(t.owner)) foot.append(el("span", "tag", `owner ${t.owner}`));
   for (const m of t.members) foot.append(el("span", "tag", m));
   for (const tool of t.tools) if (TOOLS[tool]) foot.append(el("span", "tag", TOOLS[tool]));
@@ -895,6 +898,18 @@ function renderBoard() {
     grid.append(e); return;
   }
   b.tasks.forEach((t, i) => grid.append(card(t, b.members, i)));
+}
+
+const fmtDate = d => new Date(`${d}T00:00:00`).toLocaleDateString([], {month: "short", day: "numeric"});
+function dueChip(due, status) {
+  if (!due) return null;
+  const today = new Date(new Date().toDateString());
+  const days = Math.round((new Date(`${due}T00:00:00`) - today) / 86400000);
+  const open = status !== "done";
+  const label = !open ? `Due ${fmtDate(due)}` : days < 0 ? `${-days} day${days === -1 ? "" : "s"} late` : days === 0 ? "Due today"
+    : days === 1 ? "Due tomorrow" : `Due ${fmtDate(due)}`;
+  const t = el("span", "tag due" + (open && days < 0 ? " late" : open && days <= 1 ? " soon" : ""), label); t.title = `Deadline ${due}`;
+  return t;
 }
 
 // ---- the drawer: task timelines, and the agent, skill and connector editors ----------------------------------
@@ -925,6 +940,14 @@ async function openTask(task, highlight) {
     const d = await hub(withTeam(`tasks/${encodeURIComponent(task)}`));
     const nodes = [sparkline(d.history || [])];
     if (d.usage && d.usage.tokens) nodes.push(el("div", "label", `AI usage · ${fmtTok(d.usage.tokens)} tokens over ${d.usage.turns} turns`));
+    const dueRow = el("div", "due-row"); const di = inputEl({type: "date", value: d.due || ""}); di.setAttribute("aria-label", "Deadline");
+    di.onchange = async () => {
+      try { await hub(withTeam(`tasks/${encodeURIComponent(d.task)}`), {method: "PATCH", body: {due: di.value || ""}});
+        toast(di.value ? `${d.task} is due ${fmtDate(di.value)}.` : `${d.task} has no deadline now.`); loadBoard(); }
+      catch (e) { toast(e.message, true); }
+    };
+    dueRow.append(el("span", "label", "Deadline"), di); const chip = dueChip(d.due, d.status); if (chip) dueRow.append(chip);
+    nodes.push(dueRow);
     const p = d.progress || {}; const lists = el("div", "lists");
     for (const r of [list("Blocked", p.blockers, "blockers"), list("Done", p.done), list("Doing", p.doing), list("Next", p.next)]) if (r) lists.append(r);
     if (lists.childElementCount) nodes.push(lists);
@@ -1453,9 +1476,12 @@ let teamTab = "people";
 function showTeamTab(tab) {
   teamTab = tab;
   for (const b of $("teamTabs").children) b.classList.toggle("on", b.dataset.tab === tab);
-  $("team-people").hidden = tab !== "people"; $("team-usage").hidden = tab !== "usage";
+  for (const t of ["people", "sessions", "prompts", "usage"]) $(`team-${t}`).hidden = t !== tab;
   const t = team(); $("teamSub").textContent = t ? `${t.name} · ${t.role === "lead" ? "you lead this team" : "member"}` : "";
-  if (tab === "people") loadTeam(); else loadUsage();
+  if (tab === "people") loadTeam();
+  if (tab === "sessions") loadSessions();
+  if (tab === "prompts") loadPrompts();
+  if (tab === "usage") loadUsage();
 }
 for (const b of $("teamTabs").children) b.onclick = () => showTeamTab(b.dataset.tab);
 
@@ -1547,9 +1573,150 @@ function renderUsage() {
     peopleRows.length ? table([["Name"], ["Coding", 1], ["Agents", 1], ["Sessions", 1]], peopleRows) : el("p", "sub", "Nothing in this range yet."));
   const cols = el("div", "usage-cols"); cols.append(left, right); nodes.push(cols);
   if (u.models.length) { const m = el("div", "models"); for (const x of u.models) m.append(el("span", "tag", `${x.model} · ${fmtTok(x.tokens)}`)); nodes.push(m); }
+  if (u.prompted && u.prompted.length) {
+    const rows = u.prompted.map(x => { const tr = el("tr"); tr.append(el("td", "t", `${x.from} → ${x.to}'s sessions`), el("td", "num", String(x.prompts)), el("td", "num", fmtTok(x.tokens))); return tr; });
+    const sec = el("section", "panel"); sec.style.marginBottom = "14px";
+    sec.append(el("h3", null, "Prompts into teammates' sessions"), table([["Who"], ["Prompts", 1], ["Tokens", 1]], rows)); nodes.push(sec);
+  }
   if (!u.total) nodes.splice(2, 0, el("div", "empty", "No AI usage in this range yet. Each teammate's next Claude Code or Codex turn shows up here once their Super Agents is up to date."));
   nodes.push(el("p", "sub small", "Tokens = fresh input + cache writes + output. Coding agents' tokens are counted on each laptop from the agent's own log; only the numbers leave it. Kept 30 days."));
   box.replaceChildren(...nodes);
+}
+
+// Super Team: prompts into teammates' coding sessions, by each owner's rules, all on record.
+const TOOL_LABEL = {claude_code: "Claude Code", codex: "Codex"};
+const P_STATUS = {pending: "waiting", approved: "allowed", running: "running", done: "answered", failed: "failed",
+  denied: "denied", cancelled: "cancelled", stopped: "stopped"};
+const INBOX = new Set();
+let promptBox = "all", promptTimer = null;
+async function checkInbox() {
+  if (!S.team) return;
+  try {
+    const r = await hub(withTeam("prompts?box=in&limit=30"));
+    const waiting = r.prompts.filter(p => p.yours_to_decide);
+    const b = $("promptBadge"); b.hidden = !waiting.length; b.textContent = String(waiting.length);
+    const fresh = waiting.filter(p => !INBOX.has(p.id)); fresh.forEach(p => INBOX.add(p.id));
+    if (fresh.length) toast(fresh.length === 1 ? `${fresh[0].from.name} wants to prompt your ${TOOL_LABEL[fresh[0].tool]} session. Super Team → Prompts.`
+      : `${fresh.length} prompts are waiting for you. Super Team → Prompts.`);
+  } catch (e) { /* next poll */ }
+}
+async function loadSessions() {
+  const box = $("team-sessions");
+  let d;
+  try { d = await hub(withTeam("sessions")); } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  const theirs = d.sessions.filter(x => !x.mine);
+  const sec = el("section"); sec.append(el("h3", "section-title", "Teammates' sessions"));
+  if (theirs.length) { const rows = el("div", "list"); for (const x of theirs) rows.append(sessionRow(x)); sec.append(rows); }
+  else sec.append(el("p", "sub", "No teammate has a Claude Code or Codex session from the last day. They show up here as teammates work."));
+  box.replaceChildren(rulesCard(d.me), sec);
+}
+function rulesCard(me) {
+  const card = el("section", "panel rules"); const draft = {...me};
+  const save = async () => {
+    try {
+      await hub(withTeam("sessions/access"), {method: "PUT", body: draft});
+      if (Date.now() - (rulesCard.saidAt || 0) > 4000) { rulesCard.saidAt = Date.now(); toast("Saved your rules for teammates' prompts."); }
+    } catch (e) { toast(e.message, true); }
+  };
+  const limit = inputEl({type: "number", min: 1000, step: 1000, value: me.daily_tokens || 200000, className: "mono"});
+  limit.hidden = !me.daily_tokens; limit.setAttribute("aria-label", "Tokens per teammate per day");
+  limit.onchange = () => { draft.daily_tokens = Math.max(1000, Math.round(+limit.value || 1000)); save(); };
+  const limits = el("div", "row gap");
+  limits.append(segEl([["none", "Unlimited"], ["limit", "Set a limit"]], me.daily_tokens ? "limit" : "none", k => {
+    limit.hidden = k !== "limit"; draft.daily_tokens = k === "limit" ? Math.max(1000, Math.round(+limit.value || 200000)) : null; save();
+  }), limit);
+  card.append(el("h3", null, "Your sessions"),
+    el("p", "sub", "Teammates and your lead can send prompts into your Claude Code and Codex sessions. They run on this laptop while Super Agents is open, as a copy of the session, so the session you're in isn't touched. Claude Code runs them restricted: no commands, and files only in that repo. Every prompt is on the team's record."),
+    groupBox("Prompts from teammates", segEl([["off", "Off"], ["ask", "Ask me each time"], ["auto", "Run automatically"]], me.mode, k => { draft.mode = k; save(); })),
+    groupBox("They can", segEl([["read", "Read and answer"], ["edit", "Also edit files"]], me.access, k => { draft.access = k; save(); })),
+    groupBox("Tokens per teammate per day", limits));
+  return card;
+}
+function sessionRow(x) {
+  const it = el("div", "item sess" + (x.mode === "off" ? " off" : ""));
+  const face = el("span", "iic"); face.append(mascot(x.owner.name, x.active ? "idle" : "sleep"));
+  const w = el("div"); const head = el("b", null, `${x.owner.name} · ${TOOL_LABEL[x.tool] || x.tool}`);
+  if (x.active) head.append(el("span", "pill-tag on", "active"));
+  const where = [x.repo, x.branch, x.task].filter(Boolean).join(" · ") || "a repo";
+  const rules = x.mode === "off" ? `${x.owner.name} isn't taking prompts`
+    : `${x.mode === "ask" ? `Asks ${x.owner.name} first` : "Runs automatically"} · ${x.access === "read" ? "read only" : "can edit"}`
+      + (x.daily_tokens ? ` · you've used ${fmtTok(x.used_today)} of ${fmtTok(x.daily_tokens)} today` : "")
+      + (x.app_online ? "" : ` · ${x.owner.name}'s Super Agents is closed, so it waits`);
+  w.append(head, el("small", null, `${where} · ${x.turns} turn${x.turns === 1 ? "" : "s"} · ${x.active ? "now" : ago(x.last)}`), el("small", null, rules));
+  const send = btn("Prompt", "", () => promptComposer(it, x), "send"); send.disabled = x.mode === "off";
+  const ctl = el("div", "ctl"); ctl.append(send); it.append(face, w, ctl); return it;
+}
+function promptComposer(row, x) {
+  const open = row.nextElementSibling;
+  if (open && open.classList.contains("sess-composer")) { open.remove(); return; }
+  const form = el("form", "sess-composer");
+  const ta = textareaEl({rows: 3, maxLength: 4000, placeholder: `Ask ${x.owner.name}'s session… e.g. What's left on ${x.task || "this task"}, and what's in the way?`});
+  const send = btn("Send", "primary", null, "send"); send.type = "submit";
+  const row2 = el("div", "row gap");
+  row2.append(el("span", "sub small", x.mode === "ask" ? `${x.owner.name} sees it and decides. It goes on the team's record under your name.`
+    : `${x.owner.name}'s rules run it right away. It goes on the team's record under your name.`), el("span", "grow"),
+    btn("Cancel", "ghost", () => form.remove()), send);
+  form.append(ta, row2);
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); if (!ta.value.trim()) return; send.disabled = true;
+    try {
+      const p = await hub(withTeam("prompts"), {method: "POST", body: {session: x.session, prompt: ta.value.trim()}});
+      toast(p.status === "pending" ? `Sent. Waiting for ${x.owner.name} to allow it.` : `Sent. It runs on ${x.owner.name}'s laptop.`);
+      showTeamTab("prompts");
+    } catch (err) { toast(err.message, true); send.disabled = false; }
+  });
+  row.after(form); ta.focus();
+}
+async function loadPrompts() {
+  const box = $("team-prompts");
+  let r;
+  try { r = await hub(withTeam(`prompts?box=${promptBox}&limit=80`)); } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  const lead = r.role === "lead";
+  const bar = el("div", "usage-bar");
+  bar.append(segEl([["all", lead ? "Whole team" : "Everything of yours"], ["out", "Sent"], ["in", "Received"]], promptBox, k => { promptBox = k; loadPrompts(); }),
+    el("span", "sub", `Every prompt into a teammate's session is on record: who asked what, who allowed it, what it used.${lead ? " As the lead, you see the whole team's." : " The lead sees the whole team's."}`));
+  const waiting = r.prompts.filter(p => p.yours_to_decide), rest = r.prompts.filter(p => !p.yours_to_decide);
+  const nodes = [bar];
+  if (waiting.length) { const w = el("div", "list"); waiting.forEach(p => w.append(promptCard(p, true))); nodes.push(el("h3", "section-title", "Waiting for you"), w); }
+  const list = el("div", "list"); rest.forEach(p => list.append(promptCard(p, false)));
+  nodes.push(el("h3", "section-title", "Record"), rest.length ? list : el("p", "sub", "No prompts yet. Send one from Sessions."));
+  box.replaceChildren(...nodes);
+  clearTimeout(promptTimer);
+  if (r.prompts.some(p => p.status === "approved" || p.status === "running"))
+    promptTimer = setTimeout(() => { if (S.view === "team" && teamTab === "prompts") loadPrompts(); }, 4000);
+  checkInbox();
+}
+function promptCard(p, decide) {
+  const c = el("article", `pcard ${p.status}`);
+  const head = el("div", "phead");
+  head.append(el("b", null, `${p.from.name} → ${p.to.name}'s ${TOOL_LABEL[p.tool] || p.tool}`), el("span", "sub small", [p.task, p.repo].filter(Boolean).join(" · ")),
+    el("span", "grow"), el("span", "pstatus", P_STATUS[p.status] || p.status));
+  const meta = el("div", "pmeta");
+  meta.append(el("span", null, ago(p.created_at)), el("span", null, p.access === "read" ? "read only" : "can edit"));
+  if (p.decided_by) meta.append(el("span", null, p.decided_by === "auto" ? "ran by their rules" : p.status === "denied" ? `${p.to.name} denied it` : `${p.to.name} allowed it`));
+  if (p.tokens) meta.append(el("span", null, `${fmtTok(p.tokens)} tokens`));
+  c.append(head, el("blockquote", "pprompt", p.prompt), meta);
+  if (p.result) { const ans = el("div", "answer md pans"); renderMd(ans, p.result); c.append(ans); }
+  if (decide) {
+    const row = el("div", "row gap");
+    row.append(el("span", "sub small", p.access === "read" ? "It can read this repo and answer. It can't change anything or run commands."
+      : "It can read and edit files in this repo. It can't run commands."), el("span", "grow"),
+      btn("Deny", "ghost", () => decidePrompt(p, false)), btn("Allow and run", "primary", () => decidePrompt(p, true), "play"));
+    c.append(row);
+  } else if (p.yours && (p.status === "pending" || p.status === "approved")) {
+    const row = el("div", "row gap"); row.append(el("span", "grow"), btn("Cancel", "ghost", async () => {
+      try { await hub(withTeam(`prompts/${p.id}/cancel`), {method: "POST", body: {}}); loadPrompts(); } catch (e) { toast(e.message, true); }
+    }));
+    c.append(row);
+  }
+  return c;
+}
+async function decidePrompt(p, ok) {
+  try {
+    await hub(withTeam(`prompts/${p.id}/decide`), {method: "POST", body: {approve: ok}});
+    if (ok) api("/api/superteam/poke", {method: "POST"}).catch(() => {});
+    toast(ok ? "Allowed. It runs on this laptop now." : "Denied."); loadPrompts();
+  } catch (e) { toast(e.message, true); }
 }
 
 async function loadTeam() {
@@ -1665,6 +1832,7 @@ function renderLaptop() {
   const never = el("section", "panel"); never.append(el("h3", null, "Never leaves this laptop"));
   const nv = el("div", "never");
   for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
+  nv.append(el("p", "sub", "Except what you allow: a prompt a teammate sends into one of your sessions, and its answer, go on the team's record (Super Team → Sessions sets your rules)."));
   nv.append(el("p", "sub", "What goes: a one-line summary per turn, written on this laptop, plus facts such as files changed, tests passed or failed, and token counts."),
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);

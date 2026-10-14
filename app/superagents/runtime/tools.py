@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import laptop
+from . import mcpman
 
 MAX_TEXT = 20_000
 TASK_ID = re.compile(r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
@@ -185,12 +186,23 @@ def read_skill_file(ctx, name: str, file: str) -> str:
 
 
 # ---- team (the hub, with this person's session) ----------------------------------------------------------------
+def due_text(due: str | None) -> str:
+    if not due:
+        return ""
+    import datetime
+
+    days = (datetime.date.fromisoformat(due) - datetime.date.today()).days
+    when = "today" if days == 0 else "tomorrow" if days == 1 else f"in {days} days" if days > 1 else f"{-days} days late"
+    return f"due {due} ({when})"
+
+
 def team_board(ctx) -> str:
     b = ctx.hub("GET", "board")
     lines = []
     for t in b.get("tasks", []):
         p = t.get("progress") or {}
         bits = [f"{t['task']} [{t['status']}] {t.get('title') or ''}", f"owner {t['owner']}" if t.get("owner") else "",
+                due_text(t.get("due")),
                 f"people {', '.join(t.get('members') or [])}" if t.get("members") else "",
                 f"Agent S {p['percent']}%" if p.get("percent") is not None else ""]
         for key in ("blockers", "done", "doing", "next"):
@@ -234,9 +246,130 @@ def team_usage(ctx, days: int = 7) -> str:
     return "\n".join(lines)
 
 
-def create_task(ctx, title: str, owner: str = "", task: str = "") -> str:
-    r = ctx.hub("POST", "tasks", {"title": title, "owner": owner or None, "task": task})
-    return f"Created {r['task']}: {r['title']}" + (f" (owner {r['owner']})" if r.get("owner") else "")
+def create_task(ctx, title: str, owner: str = "", task: str = "", due: str = "") -> str:
+    r = ctx.hub("POST", "tasks", {"title": title, "owner": owner or None, "task": task, "due": due or None})
+    return (f"Created {r['task']}: {r['title']}" + (f" (owner {r['owner']})" if r.get("owner") else "")
+            + (f", {due_text(r['due'])}" if r.get("due") else ""))
+
+
+def set_deadline(ctx, task: str, due: str) -> str:
+    if due and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
+        raise ValueError("Give the deadline as YYYY-MM-DD, or empty to clear it")
+    r = ctx.hub("PATCH", f"tasks/{urllib.parse.quote(task)}", {"due": due})
+    return f"{r['task']} is {due_text(r['due'])}" if r.get("due") else f"{r['task']} has no deadline now"
+
+
+# ---- Super Team: teammates' coding sessions -------------------------------------------------------------------
+TOOL_NAMES = {"claude_code": "Claude Code", "codex": "Codex"}
+
+
+def _ago(t: float) -> str:
+    import time
+
+    m = max(0, int((time.time() - t) // 60))
+    return "just now" if m < 1 else f"{m} min ago" if m < 60 else f"{m // 60} h ago"
+
+
+def team_sessions(ctx) -> str:
+    d = ctx.hub("GET", "sessions")
+    lines = []
+    for x in d["sessions"]:
+        if x["mine"]:
+            continue
+        rules = "off" if x["mode"] == "off" else (("asks them first" if x["mode"] == "ask" else "runs automatically")
+                                                  + (", read only" if x["access"] == "read" else ", can edit"))
+        limit = f", you've used {x['used_today']:,} of {x['daily_tokens']:,} tokens today" if x["daily_tokens"] else ""
+        lines.append(f"{x['session']}: {x['owner']['name']}'s {TOOL_NAMES.get(x['tool'], x['tool'])} session in "
+                     f"{x['repo'] or 'a repo'}{' on ' + x['task'] if x['task'] else ''}, {'active now' if x['active'] else 'last active ' + _ago(x['last'])}"
+                     f", {x['turns']} turns. Prompts: {rules}{limit}. Their Super Agents is {'open' if x['app_online'] else 'closed'}.")
+    return "\n".join(lines) or "No teammate has a coding session from the last day."
+
+
+def prompt_session(ctx, prompt: str, session: str = "", member: str = "") -> str:
+    if not session:
+        d = ctx.hub("GET", "sessions")
+        mine = [x for x in d["sessions"] if not x["mine"] and x["owner"]["name"].lower() == member.strip().lower()]
+        if not mine:
+            raise ValueError(f"No recent session of {member or 'that teammate'}; team_sessions lists who has one")
+        session = mine[0]["session"]
+    p = ctx.hub("POST", "prompts", {"session": session, "prompt": prompt})
+    who, where = p["to"]["name"], p["task"] or p["repo"] or "their repo"
+    rights = "read only" if p["access"] == "read" else "can edit"
+    if p["status"] == "pending":
+        return (f"Sent to {who}'s {TOOL_NAMES.get(p['tool'], p['tool'])} session ({where}); {who} decides first ({rights}). "
+                f"Prompt id {p['id']}: read the answer later with session_prompt.")
+    return f"Sent to {who}'s session ({where}); their rules run it automatically ({rights}). Prompt id {p['id']}."
+
+
+def session_prompt(ctx, id: str, wait: float = 30) -> str:
+    """Waits a little for a prompt that's allowed or running (the owner's rules run it automatically), never for a
+    person's decision."""
+    import time
+
+    if not re.fullmatch(r"[0-9a-f-]{36}", id or ""):
+        raise ValueError("That isn't a prompt id")
+    p, until = ctx.hub("GET", f"prompts/{id}"), time.time() + wait
+    while p["status"] in ("approved", "running") and time.time() < until and not getattr(ctx, "cancelled", False):
+        time.sleep(3)
+        p = ctx.hub("GET", f"prompts/{id}")
+    head = (f"{p['from']['name']} → {p['to']['name']}'s {TOOL_NAMES.get(p['tool'], p['tool'])} session: {p['status']}"
+            + (f", {p['tokens']:,} tokens" if p["tokens"] else ""))
+    return head + (f"\nAnswer:\n{p['result']}" if p.get("result") else "")
+
+
+# ---- code review: diffs to read ------------------------------------------------------------------------------
+def _git(path: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          timeout=30, stdin=subprocess.DEVNULL)
+
+
+def git_diff(ctx, repo: str = "", base: str = "") -> str:
+    rs = roots()
+    path = rs.get(repo) if repo else (next(iter(rs.values())) if len(rs) == 1 else None)
+    if not path:
+        raise ValueError(f"Say which repo: {', '.join(rs) or 'connect one on This laptop first'}")
+    if base and not re.fullmatch(r"[A-Za-z0-9._/~^-]{1,100}", base):
+        raise ValueError("That base doesn't look like a branch or a commit")
+    if _git(path, "rev-parse", "--verify", "HEAD").returncode != 0:
+        return f"{display(path.resolve())} has no commits yet.\n" + _git(path, "status", "--short").stdout
+    span = [f"{base}...HEAD"] if base else ["HEAD"]
+    diff = _git(path, "diff", *span)
+    if diff.returncode != 0:
+        raise RuntimeError(diff.stderr.strip()[:300] or "git diff failed")
+    stat = _git(path, "diff", "--stat", *span).stdout.strip()
+    log = _git(path, "log", "--oneline", "-8", *([f"{base}..HEAD"] if base else [])).stdout.strip()
+    what = f"changes on this branch since {base}" if base else "uncommitted changes"
+    return _clip(f"{display(path.resolve())}: {what}\n{stat or '(none)'}\n\nCommits:\n{log}\n\n{diff.stdout}", 80_000)
+
+
+def _github_token() -> str | None:
+    for c in mcpman.load():
+        if c.get("preset") == "github" and c.get("enabled", True):
+            return (c.get("headers") or {}).get("Authorization")
+    return None
+
+
+def github_pr(ctx, repo: str, number: int) -> str:
+    repo = repo.strip().removeprefix("https://github.com/").strip("/")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repo):
+        raise ValueError("Use owner/repo, for example acme/web")
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "SuperAgents"}
+    if _github_token():
+        headers["Authorization"] = _github_token()
+
+    def get(url: str):
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
+            return json.loads(r.read())
+
+    n = int(number)
+    pr = get(f"https://api.github.com/repos/{repo}/pulls/{n}")
+    files = get(f"https://api.github.com/repos/{repo}/pulls/{n}/files?per_page=100")
+    out = [f"{repo}#{n} {pr['title']} by {pr['user']['login']} ({pr['state']}{', draft' if pr.get('draft') else ''}): "
+           f"{pr['head']['ref']} → {pr['base']['ref']}, {pr.get('changed_files', len(files))} files", (pr.get("body") or "")[:3000], ""]
+    for f in files:
+        out.append(f"--- {f['filename']} ({f['status']}, +{f['additions']} -{f['deletions']})\n{f.get('patch') or '(no text diff)'}")
+    return _clip("\n".join(out), 80_000)
+
 
 
 def assign_task(ctx, task: str, owner: str) -> str:
@@ -271,8 +404,19 @@ BUILTINS = [
     Builtin("team_task", "team", "read", "One task's full timeline from the developers' coding sessions.", {"task": S}, ("task",), team_task),
     Builtin("team_usage", "team", "read", "AI usage: coding agents' and Super Agents' tokens by task, tool, day and person "
             "(the lead sees everyone; a member, themself). days: 1-30, default 7.", {"days": I}, (), team_usage),
-    Builtin("create_task", "team", "change", "Add a task to the board. owner: a member's name or empty. task: an id like T-23, or empty to number it.",
-            {"title": S, "owner": S, "task": S}, ("title",), create_task),
+    Builtin("create_task", "team", "change", "Add a task to the board. owner: a member's name or empty. task: an id like T-23, or empty to "
+            "number it. due: a deadline as YYYY-MM-DD, or empty.", {"title": S, "owner": S, "task": S, "due": S}, ("title",), create_task),
+    Builtin("set_deadline", "team", "change", "Set a task's deadline (YYYY-MM-DD), or clear it with an empty due.",
+            {"task": S, "due": S}, ("task", "due"), set_deadline),
+    Builtin("team_sessions", "team", "read", "Teammates' Claude Code and Codex sessions from the last day: repo, task, how active, "
+            "and each owner's rules for prompts from teammates (off, asks first, automatic; read only or can edit; daily tokens).",
+            {}, (), team_sessions),
+    Builtin("prompt_session", "team", "change", "Send a prompt into a teammate's coding session (by session id, or by member name for "
+            "their latest). Their rules decide: it may wait for them to allow it. It runs as a copy of their session on their "
+            "laptop and the answer comes back; every prompt is on the team's record.", {"prompt": S, "session": S, "member": S},
+            ("prompt",), prompt_session),
+    Builtin("session_prompt", "team", "read", "The status and answer of a prompt sent into a teammate's session.", {"id": S}, ("id",),
+            session_prompt),
     Builtin("assign_task", "team", "change", "Give a task to a member (by name).", {"task": S, "owner": S}, ("task", "owner"), assign_task),
     Builtin("close_task", "team", "change", "Close a task that is done or dropped.", {"task": S}, ("task",), close_task),
     Builtin("start_task", "team", "change", "Make a task the one this laptop's coding sessions report on, in a connected repo.",
@@ -285,9 +429,14 @@ BUILTINS = [
             {"query": S, "path": S}, ("query",), search_files),
     Builtin("write_file", "files", "change", "Create or overwrite a text file in a connected repo with the full new content.",
             {"path": S, "content": S}, ("path", "content"), write_file),
+    Builtin("git_diff", "files", "read", "A connected repo's diff for review: uncommitted changes, or with base (a branch or commit) "
+            "everything on this branch since it, with the commits.", {"repo": S, "base": S}, (), git_diff),
     Builtin("run_command", "terminal", "ask", "Run a shell command on this laptop (PowerShell on Windows) in a connected repo; returns output and exit code.",
             {"command": S, "cwd": S}, ("command",), run_command),
     Builtin("fetch_url", "browser", "read", "Read a web page as text.", {"url": S}, ("url",), fetch_url),
+    Builtin("github_pr", "browser", "read", "A GitHub pull request for review: title, description and each file's diff. Public repos "
+            "need nothing; private ones use the GitHub connector's token if you added it.", {"repo": S, "number": I}, ("repo", "number"),
+            github_pr),
     Builtin("open_in_browser", "browser", "read", "Show a page to the person in the app's browser panel.", {"url": S}, ("url",), open_in_browser),
     Builtin("load_skill", "skills", "read", "Read a skill's full instructions by name.", {"name": S}, ("name",), load_skill),
     Builtin("read_skill_file", "skills", "read", "Read a file that a skill refers to.", {"name": S, "file": S}, ("name", "file"), read_skill_file),
