@@ -392,3 +392,26 @@ def test_agent_turns_plan_and_route_models(app):
     assert yang.post("/v1/agent", params=q, json={"message": "x", "model": "gpt-9"}).status_code == 422
     assert TestClient(app).post("/v1/agent", params=q, json={"message": "x"}).status_code == 401
     assert signin(app, "stranger").post("/v1/agent", params=q, json={"message": "x"}).status_code == 403
+
+
+def test_llm_steps_for_the_app_agent_loop(env):
+    seen = []
+
+    def step(messages, tools, max_tokens):
+        seen.append((llm._pinned.get(), len(messages), [t["function"]["name"] for t in tools], max_tokens))
+        if messages[-1]["content"] == "boom":
+            raise RuntimeError("model down")
+        return {"content": None, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "team_board", "arguments": "{}"}}],
+                "model": "nebius:nvidia/nemotron-3-super-120b-a12b"}
+
+    app = create(chat=fake_chat, chat_step=step)
+    h = app_signin(app, "yang")
+    c = TestClient(app)
+    tools = [{"type": "function", "function": {"name": "team_board", "description": "x", "parameters": {"type": "object", "properties": {}}}}]
+    r = c.post("/v1/llm", headers=h, json={"tier": "ultra", "messages": [{"role": "user", "content": "hi"}], "tools": tools, "max_tokens": 900})
+    assert r.status_code == 200 and r.json()["tool_calls"][0]["function"]["name"] == "team_board"
+    assert seen == [("ultra", 1, ["team_board"], 900)]
+    assert c.post("/v1/llm", json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 401
+    assert c.post("/v1/llm", headers=h, json={"messages": [{"role": "user", "content": "x" * 410_000}]}).status_code == 413
+    assert c.post("/v1/llm", headers=h, json={"messages": [{"role": "user", "content": "boom"}]}).status_code == 503
+    assert c.post("/v1/llm", headers=h, json={"tier": "gpt-9", "messages": [{"role": "user", "content": "hi"}]}).status_code == 422

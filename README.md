@@ -14,6 +14,15 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 
 **Never shared:** prompts, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking.
 
+## In the app
+- **Agents with their own behaviour.** Agent S is built in; add a reviewer, a release manager, anyone: each with its own instructions, default Nemotron model and mode, skills, MCP connectors and tools.
+- **Manual, Plan and Auto modes**, as in Claude Code (Shift+Tab). Manual asks before every change, Plan queues changes until you run the plan, Auto runs them with Undo. Shell commands always ask.
+- **Skills** in Claude Code's format, including importing your own. **Karpathy's coding guidelines** are on by default for every agent.
+- **Connectors**: any MCP server, by URL or command, with presets for GitHub, Context7, Filesystem and Memory.
+- **A side panel** with a file viewer for your connected repos, real terminals, and a browser for your dev server and docs.
+
+Chats with your agents are the one thing that leaves the laptop by design: to answer, a message and what its tools read go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).
+
 ## Install on Windows
 1. Download `SuperAgents-windows-x64.zip` from https://teamloop.vercel.app (or [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest)) and unzip it.
 2. Double-click **Install Super Agents**. It installs for your Windows user (no admin), adds the `teamloop` command to your PATH, makes Start-menu and desktop shortcuts, and opens the app.
@@ -62,5 +71,7 @@ cd connector && python -m pytest -q    # also: app, cloud (needs Postgres; pgser
 - [ccbridge](https://github.com/sourabhnirvani/ccbridge) (MIT, by Sourabh, @sourabhnirvani): relay, rooms, invites and prompt-injection safety. The hub builds on it.
 - TeamLoop neatHack (MIT): Agent S, the Hoodie design and colours, the mascot art (`hub/hub/static/mascot`), and secret redaction.
 - Fonts: Bricolage Grotesque, Figtree, JetBrains Mono (SIL Open Font License), bundled in the app.
+- [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) by forrestchang (MIT): the bundled `karpathy-guidelines` skill.
+- xterm.js (MIT), highlight.js (BSD-3-Clause), marked (MIT) and DOMPurify (Apache-2.0 / MPL-2.0), vendored in `app/superagents/ui/vendor/`.
 
 MIT licensed.

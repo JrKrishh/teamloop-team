@@ -4,7 +4,8 @@ version = "0.3.0"
 description = "Super Agents: your team's AI coding agents, on one page. The desktop app with Agent S and the TeamLoop hub."
 license = "MIT"
 requires-python = ">=3.10"
-dependencies = ["teamloop", "fastapi>=0.110", "uvicorn>=0.29", "pywebview>=5"]
+dependencies = ["teamloop", "fastapi>=0.110", "uvicorn>=0.29", "websockets>=12", "pywebview>=5", "mcp>=1.10,<2",
+                "pywinpty>=2; sys_platform == 'win32'"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.26"]
@@ -20,7 +21,7 @@ build-backend = "setuptools.build_meta"
 include = ["superagents*"]
 
 [tool.setuptools.package-data]
-superagents = ["ui/*", "ui/**/*"]
+superagents = ["ui/*", "ui/**/*", "skills/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

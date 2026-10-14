@@ -1,23 +1,55 @@
 # Super Agents: the desktop app
 
-Super Agents is the product: one Windows app where you sign in, chat with Agent S about your team's work, see the board, manage the team and set up this laptop. The website (teamloop.vercel.app) is the landing page and the download. The connector (hooks, MCP server, CLI) and the cloud hub are the parts underneath; TeamLoop is the name of that team hub.
+Super Agents is the product: one Windows app where you sign in, chat with your agents (Agent S and the ones you make) about your team's work and your code, see the board, manage the team and set up this laptop. The website (teamloop.vercel.app) is the landing page and the download. The connector (hooks, MCP server, CLI) and the cloud hub are the parts underneath; TeamLoop is the name of that team hub.
 
 ```
 SuperAgents.exe ─ window (WebView2) ─ UI (app/superagents/ui) ─┐ same origin, per-launch key
                 └ local server on 127.0.0.1:<random port> ─────┘
+                    ├─ the agent loop (runtime/): tools, skills, MCP connectors, modes, chats in ~/.teamloop/chats
+                    │     └─ each model step: the hub's POST /v1/llm → Nemotron on Nebius Token Factory
                     ├─ Supabase Auth: GitHub (system browser, PKCE) or email/password
                     ├─ the hub (teamloop.vercel.app/v1/*) with the person's session token
-                    └─ this laptop: teamloop init / pause / send, ~/.teamloop/config.json
+                    └─ this laptop: teamloop init / pause / send, ~/.teamloop/config.json, the terminal (ConPTY)
 teamloop.exe ─ hooks and MCP server, run by Claude Code and Codex; sends to the hub with this laptop's tl_ token
 ```
 
-## Agent S: import, modes and models
-The composer works like Claude Code's:
-- **Import (+):** files (specs, task lists, notes; text, Markdown, CSV, JSON, code; up to 5, 200 KB each) or a public repo's open GitHub issues. Agent S reads them next to the team's session timeline.
-- **Mode** (Shift+Tab cycles): Agent S answers, and when you ask it to plan or change the board it proposes changes: create, assign, close or start tasks. **Manual** asks before each change; **Plan** writes numbered steps and changes nothing until you press Run plan; **Auto** applies them and shows each with Undo.
-- **Model:** **Auto** uses Nemotron Super for answers and Nemotron Ultra for plans and imports; or pin **Lightning** (fastest), **Super** or **Ultra**.
+## Agents
+Agent S is built in; add more on **Agents** (a reviewer, a release manager, a researcher). Each agent has its own:
+- **Instructions**: its behaviour (role, tone, what to check, what never to do), added to every message.
+- **Default model and mode**, applied when you pick it in the composer.
+- **Tools**, in groups: **Team board** (read the board and the team's history; create, assign, close, start tasks), **Files** (read, search and write in the repos connected on This laptop), **Terminal** (run shell commands; always asks first), **Browser** (read pages; show a page in the browser panel).
+- **Skills** and **Connectors** (below).
 
-Agent S only proposes; the app applies (`POST /v1/agent` returns the answer, plan and checked actions; the app calls `/v1/tasks` and, for "start", this laptop's `teamloop task`). Proposals are checked in code: tasks must exist or be new, owners must be members, at most 12. Claims about the team's work still need cited events. Planned tasks show on the board as **to do** until a session reports on them; then they show live progress.
+Agents live in `~/.teamloop/agents.json`. Agent S's instructions are editable; it can't be deleted.
+
+## How a turn runs
+The loop runs on this laptop (`runtime/loop.py`), like Claude Code's: the model gets the agent's instructions, its skills and its tools, calls tools, sees the results and answers. Each model step goes through the hub's `POST /v1/llm` (the hub holds the Nebius key; signed-in people only, rate limited), so the app needs no key of its own. The window follows the turn as it happens: tool cards with their state, then the answer in Markdown. Claims about what the team did come from `team_ask`, which answers with cited events (Show evidence).
+
+**Modes** (Shift+Tab cycles them), as in Claude Code:
+- **Manual**: reads run; every change (tasks, file writes, connector actions) waits for Allow or Deny.
+- **Auto**: changes run and show Undo where it can be exact (a created or closed task).
+- **Plan**: reads run; changes are queued as steps, and nothing runs until Run plan. If the model writes its plan in prose without queuing every step, the loop asks it once to queue the missing steps.
+- Shell commands (`run_command`) **always** ask, in every mode. A connector's tool counts as a read only when its server marks it `readOnlyHint`.
+
+**Model:** Auto uses Nemotron Super for chats (Ultra for the digest); or pin Lightning, Super or Ultra.
+
+**Import (+):** files (specs, task lists, notes; up to 5, 200 KB each) or a public repo's open GitHub issues, added to the message.
+
+## Skills
+Skills use Claude Code's format: a folder with `SKILL.md` (frontmatter `name` and `description`, then instructions) and any files it refers to. An agent sees each of its skills' names and descriptions and reads a skill in full (`load_skill`) when the task calls for it; an "always on" skill is in every message.
+
+**Karpathy's guidelines** (`karpathy-guidelines`: think before coding, simplicity first, surgical changes, goal-driven execution) ship with the app and are on for every new agent; switch them off per agent. Source and licence: `app/superagents/skills/karpathy-guidelines/SOURCE.md`.
+
+Make your own on **Agents → Skills**, customise a built-in one (your copy keeps its files; delete it to go back), or import skills you already have for Claude Code (`~/.claude/skills`, copied, never changed). Yours live in `~/.teamloop/skills`.
+
+## Connectors (MCP)
+Connectors are MCP servers, as in Claude Desktop: a URL (streamable HTTP, with an optional `Authorization` header) or a command this laptop runs (stdio). Presets: GitHub (a personal access token), Context7 (library docs, no account), Filesystem and Memory (Node.js). Give a connector to an agent and its tools appear as `mcp__<connector>__<tool>`. Test shows the tools a server offers. Settings, including tokens, stay in `~/.teamloop/connectors.json` and go only to the server they belong to.
+
+## The side panel: files, terminal, browser
+The buttons at the top right open a panel next to the chat (drag its edge to resize):
+- **Files:** a tree of the connected repos and a viewer with syntax highlighting, Markdown preview and images. Read only; agents write through their tools, and an open file reloads when an agent writes it.
+- **Terminal** (Ctrl+`): a real shell (PowerShell 7 if installed, else Windows PowerShell) in a pseudo-console, in your first connected repo. Tabs for more than one.
+- **Browser:** shows a page (a dev server on localhost, docs, a page an agent opens) inside the app. Sites that refuse to be framed open in their own Super Agents window.
 
 ## Signing in
 - **GitHub:** the app opens your normal browser (where you're already signed in to GitHub) on Supabase's authorize page with a PKCE challenge. GitHub sends you back to `http://127.0.0.1:<port>/auth/callback` on this laptop; the app trades the code for a Supabase session, then for the hub's own session (`POST /v1/app/session`), kept in `~/.teamloop/app.json`. Same pattern as `gh auth login` (RFC 8252).
@@ -29,8 +61,14 @@ Agent S only proposes; the app applies (`POST /v1/agent` returns the answer, pla
 - "Connect a repo" runs `teamloop init` on the folder you pick: Claude Code and Codex hooks in personal files kept out of git, the MCP server, the commit-trailer hook.
 - The sharing switch is `teamloop pause` / `resume`.
 
+## What leaves the laptop
+The hooks share summaries and facts only (see the README). Chats with your agents are different: to answer, each message, the agent's instructions and skills, and what its tools read (file contents, command output, pages) go to Nemotron through the hub's `/v1/llm`. The hub passes them on and doesn't store them; chats are kept on this laptop.
+
 ## Security of the local server
 It listens on 127.0.0.1 only, on a new random port each launch. Every `/api` call must carry the key the window got in its URL fragment, and the Host header must be `127.0.0.1:<port>` or `localhost:<port>`. A web page can't send that header without a CORS preflight, which the server never answers, and DNS rebinding fails the Host check. The UI may only reach an allowlist of hub paths.
+- The terminal's WebSocket checks the key (in its query), the Host and the Origin.
+- File tools and the file viewer reach only the repos connected on This laptop (paths are resolved first, so `..` can't climb out).
+- The browser frame is sandboxed without top navigation and can't load the app's own address.
 
 ## One-time setup for GitHub sign-in in the app (Yang)
 Supabase → Authentication → URL Configuration → Redirect URLs: add `http://127.0.0.1:*/**`. The `*` matches the port, which changes every launch.
@@ -43,6 +81,6 @@ python -m superagents --serve         # just the local server; prints the URL (d
 cd app && python -m pytest -q
 pyinstaller packaging/teamloop.spec --distpath dist --workpath build/pyi --noconfirm
 ```
-The bundle holds two programs sharing one folder: `SuperAgents.exe` (no console; the app) and `teamloop.exe` (console; hooks, MCP, CLI). `Install Super Agents.cmd` copies it to `%LOCALAPPDATA%\TeamLoop`, makes the shortcuts and opens the app. Brand assets and the logo animation: `brand/` (`build_icons.py` renders the `.ico`).
+The bundle holds two programs sharing one folder: `SuperAgents.exe` (no console; the app) and `teamloop.exe` (console; hooks, MCP, CLI). `Install Super Agents.cmd` copies it to `%LOCALAPPDATA%\TeamLoop`, makes the shortcuts and opens the app. Brand assets and the logo animation: `brand/` (`build_icons.py` renders the `.ico`). Third-party scripts in the UI are vendored with their licences in `app/superagents/ui/vendor/`.
 
 Known limit: on Windows 10 with "Show accent colour on title bars" switched on, Windows paints the title bar in that colour; otherwise it matches the app.

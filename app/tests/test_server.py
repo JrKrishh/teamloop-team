@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from superagents import server, store, supa
+from superagents.runtime import tools as runtime_tools
 from teamloop import claude, codex, send, spool
 
 PORT = 47123
@@ -37,8 +38,6 @@ class Hub:
             return 200, {"token": "tl_laptop", "team": {"id": TEAM, "name": "Loopers"}, "name": "Yang"}
         if path == "/v1/board":
             return 200, {"room": "Loopers", "tasks": [], "query": query}
-        if path == "/v1/agent":
-            return 200, {"answer": "ok", "citations": [], "plan": [], "actions": [], "echo": body}
         if path == "/v1/tasks/T-3" and method == "PATCH":
             return 200, {"task": "T-3", "state": body.get("state")}
         if path == "/v1/logout":
@@ -172,19 +171,20 @@ def test_someone_else_signing_in_disconnects_the_previous_person(env, monkeypatc
     assert json.loads((spool.home() / "app.json").read_text())["user_id"] == "u-sourabh"
 
 
-def test_agent_turns_and_task_changes_reach_the_hub(env, monkeypatch):
+def test_task_changes_reach_the_hub(env, monkeypatch):
     client, hub, *_ = env
     signed_in(monkeypatch, client)
-    r = client.post("/api/cloud/agent", params={"team": TEAM}, json={"message": "plan it", "mode": "plan", "model": "ultra"})
-    assert r.json()["echo"] == {"message": "plan it", "mode": "plan", "model": "ultra"}
     assert client.patch("/api/cloud/tasks/T-3", params={"team": TEAM}, json={"state": "closed"}).json() == {"task": "T-3", "state": "closed"}
     assert hub.calls[-1][:2] == ("PATCH", "/v1/tasks/T-3")
+    assert client.post("/api/cloud/agent", params={"team": TEAM}, json={}).status_code == 404  # agents run on this laptop now
 
 
 def test_start_task_on_this_laptop(env, monkeypatch, tmp_path):
+    """The agents' start_task tool: this laptop's sessions report on a task, in the repo it names."""
     client, hub, *_ = env
     signed_in(monkeypatch, client)
-    assert client.post("/api/laptop/task", json={"task": "T-23", "title": "OAuth"}).status_code == 409  # no repo yet
+    with pytest.raises(ValueError, match="connect one"):
+        runtime_tools.start_task(None, "T-23", "OAuth")  # no repo yet
     repos = []
     for name in ("web", "api"):
         root = tmp_path / name
@@ -192,15 +192,17 @@ def test_start_task_on_this_laptop(env, monkeypatch, tmp_path):
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
         client.post("/api/laptop/repos", json={"path": str(root)})
         repos.append(root)
-    assert client.post("/api/laptop/task", json={"task": "T-23"}).status_code == 409  # two repos: which one?
-    assert client.post("/api/laptop/task", json={"task": "T-23", "repo": str(tmp_path)}).status_code == 400
-    r = client.post("/api/laptop/task", json={"task": "T-23", "title": "OAuth callback", "repo": str(repos[0])}).json()
-    assert r["task"] == "T-23" and r["name"] == "web"
+    with pytest.raises(ValueError, match="Say which repo: web, api"):
+        runtime_tools.start_task(None, "T-23")  # two repos: which one?
+    with pytest.raises(ValueError, match="isn't connected"):
+        runtime_tools.start_task(None, "T-23", repo="mobile")
+    with pytest.raises(ValueError, match="looks like T-23"):
+        runtime_tools.start_task(None, "not a task", repo="web")
+    assert runtime_tools.start_task(None, "T-23", "OAuth callback", repo="web") == "This laptop's sessions in web now report on T-23"
     got = subprocess.run(["git", "config", "teamloop.task"], cwd=repos[0], capture_output=True, text=True).stdout.strip()
     assert got == "T-23"
     started = [spool.read(p) for p in spool.pending()]
     assert any(e["kind"] == "task_start" and e["task"] == "T-23" and e["facts"] == {"title": "OAuth callback"} for e in started)
-    assert client.post("/api/laptop/task", json={"task": "not a task"}).status_code == 422
 
 
 def test_import_github_issues(env, monkeypatch):
@@ -239,3 +241,5 @@ def test_prefs_merge(env):
     assert client.post("/api/prefs", json={"mode": "plan", "model": "ultra"}).json() == {"theme": "light", "mode": "plan", "model": "ultra"}
     assert client.get("/api/boot").json()["prefs"]["mode"] == "plan"
     assert client.post("/api/prefs", json={"model": "gpt-9"}).status_code == 422
+    assert client.post("/api/prefs", json={"agent": "agent-1a2b3c"}).json()["agent"] == "agent-1a2b3c"
+    assert client.post("/api/prefs", json={"agent": "../x"}).status_code == 422

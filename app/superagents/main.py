@@ -111,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
 
     state.window = webview.create_window("Super Agents", url, width=1280, height=820, min_size=(980, 660),
                                          background_color="#121114", text_select=True)
+    # the browser panel's "open in a window", for sites that won't show inside a frame
+    state.open_window = lambda page: webview.create_window(f"Super Agents · {page.split('/')[2]}", page, width=1100, height=760)
     state.window.events.shown += lambda: _title_bar(state.window, True)
     webview.start(private_mode=False, storage_path=str(spool.home() / "webview"))
     srv.should_exit = True
