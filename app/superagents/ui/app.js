@@ -636,6 +636,10 @@ const TOOL_UI = {
   git_push: ["up", "Push", a => a.repo || "this branch"],
   open_pr: ["github", "Pull request", a => a.title],
   git_pull: ["reload", "Pull", a => a.repo || ""],
+  share_files: ["file", "Share", a => `${(a.paths || []).join(", ")} with ${a.to || "everyone"}`],
+  share_branch: ["branch", "Hand over the branch", a => `to ${a.to || "everyone"}${a.repo ? ` · ${a.repo}` : ""}`],
+  team_files: ["file", "Read what's shared", () => ""],
+  take_share: ["file", "Take a share", a => (a.id || "").slice(0, 8) + (a.repo ? ` into ${a.repo}` : "")],
   fetch_url: ["globe", "Read page", a => a.url],
   browser_open: ["globe", "Open", a => a.url],
   browser_snapshot: ["globe", "Read the page", a => (a.find ? `“${a.find}”` : "")],
@@ -720,6 +724,9 @@ function askBox(c, st) {
   else if ((e.group || "").startsWith("mcp:")) box.append(el("p", null, `${who} wants to use ${toolUi(e)[1]} with:`), el("pre", null, JSON.stringify(a, null, 2)));
   else if (e.name === "browser_open") box.append(el("p", null, `${who} wants to open ${a.url} in the browser you share.`));
   else if (e.name === "browser_eval") box.append(el("p", null, `${who} wants to run this in the page:`), el("pre", null, a.code || ""));
+  else if (e.name === "share_files") box.append(el("p", null, `${who} wants to share these with ${a.to || "the whole team"}. They leave this laptop and are kept 14 days:`), el("pre", null, (a.paths || []).join("\n") + (a.note ? `\n\n${a.note}` : "")));
+  else if (e.name === "share_branch") box.append(el("p", null, `${who} wants to hand the current branch${a.repo ? ` of ${a.repo}` : ""} over to ${a.to || "the whole team"}${a.note ? `: “${a.note}”` : "."}`));
+  else if (e.name === "take_share") box.append(el("p", null, `${who} wants to take share ${(a.id || "").slice(0, 8)}: save its files into ${a.repo || "your repo"}'s inbox, or check out the branch it hands over.`));
   else if (e.name === "dev_server") box.append(el("p", null, `${who} wants to ${a.action === "stop" ? "stop" : "start"} the dev server of ${a.repo || "your repo"} (its launch.json or dev script).`));
   else if (e.name.startsWith("browser_")) box.append(el("p", null, `${who} wants to ${toolUi(e)[1].toLowerCase()} ${toolUi(e)[2](a) || ""} on ${BR.state.url || "this page"}.`));
   else box.append(el("p", null, `${who} wants to make this change.`));
@@ -1670,12 +1677,88 @@ let teamTab = "people";
 function showTeamTab(tab) {
   teamTab = tab;
   for (const b of $("teamTabs").children) b.classList.toggle("on", b.dataset.tab === tab);
-  for (const t of ["people", "sessions", "prompts", "usage"]) $(`team-${t}`).hidden = t !== tab;
+  for (const t of ["people", "sessions", "prompts", "files", "usage"]) $(`team-${t}`).hidden = t !== tab;
   const t = team(); $("teamSub").textContent = t ? `${t.name} · ${t.role === "lead" ? "you lead this team" : "member"}` : "";
   if (tab === "people") loadTeam();
   if (tab === "sessions") loadSessions();
   if (tab === "prompts") loadPrompts();
+  if (tab === "files") loadShares();
   if (tab === "usage") loadUsage();
+}
+
+// ---- Super Team → Files: what teammates share with you, and what you share -------------------------------------
+const fmtBytes = n => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+const SHARE_SEEN = new Set();
+async function loadShares() {
+  const box = $("team-files");
+  let d;
+  try { d = await hub(withTeam("shares")); } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  const head = el("div", "share-head");
+  head.append(btn("Share files", "primary", openShareComposer, "plus"),
+    el("p", "sub", "Specs, logs, screenshots: for one teammate or everyone, kept 14 days. They save them into their project's inbox, out of git. Code goes as a branch: ask Agent S to hand yours over."));
+  const list = el("div", "list");
+  for (const s of d.shares) { SHARE_SEEN.add(s.id); list.append(shareRow(s)); }
+  if (!d.shares.length) list.append(el("p", "sub", "Nothing shared in the last 14 days."));
+  box.replaceChildren(head, list);
+}
+function shareRow(s) {
+  const it = el("div", "item share" + (s.status === "ready" ? "" : " off")), iic = el("span", "iic"), w = el("div"), ctl = el("div", "ctl");
+  iic.append(ic(s.kind === "branch" ? "branch" : "file"));
+  w.append(el("b", null, `${s.mine ? "You" : s.from.name} → ${s.to ? (s.for_me ? "you" : s.to.name) : "everyone"}`));
+  if (s.kind === "branch") w.append(el("small", null, `Branch ${s.branch} of ${s.repo}`));
+  else { const files = el("div", "share-files"); for (const f of s.files) files.append(el("span", "ck", `${f.name} · ${fmtBytes(f.size)}`)); w.append(files); }
+  if (s.note) w.append(el("small", "share-note", s.note));
+  const bits = [ago(s.created_at), s.status === "ready" ? `kept until ${new Date(s.expires_at * 1000).toLocaleDateString([], {month: "short", day: "numeric"})}` : s.status];
+  if (s.saved_by.length) bits.push(`saved by ${s.saved_by.join(", ")}`);
+  if (!s.can_get) bits.push("between two teammates: you see the record, not the files");
+  w.append(el("small", null, bits.join(" · ")));
+  if (s.status === "ready" && s.can_get && !s.mine) {
+    const repos = ((S.laptop || {}).repos || []).filter(r => r.ok);
+    if (s.kind === "branch") ctl.append(btn("Check it out", "primary", () => takeShare(s, "", ctl), "branch"));
+    else if (!repos.length) ctl.append(el("small", null, "Connect a repo on This laptop to save them"));
+    else {
+      const pick = el("select"); pick.setAttribute("aria-label", "Save into which repo"); pick.hidden = repos.length < 2;
+      for (const r of repos) pick.append(Object.assign(el("option", null, r.name), {value: r.name}));
+      const saved = s.saved_by.includes((S.user || {}).name);
+      if (saved) ctl.append(el("span", "ck ok", "saved ✓"));
+      ctl.append(pick, btn(saved ? "Save again" : repos.length > 1 ? "Save" : `Save to ${repos[0].name}`, saved ? "ghost" : "primary", () => takeShare(s, pick.value, ctl), "plus"));
+    }
+  }
+  if (s.status !== "deleted" && (s.mine || (team() || {}).role === "lead")) ctl.append(btn("Delete", "ghost", async () => {
+    try { await hub(withTeam(`shares/${s.id}`), {method: "DELETE"}); } catch (e) { toast(e.message, true); }
+    loadShares();
+  }));
+  it.append(iic, w, ctl);
+  return it;
+}
+async function takeShare(s, repo, ctl) {
+  ctl.querySelectorAll("button, select").forEach(b => { b.disabled = true; });
+  try {
+    const r = await api(`/api/shares/${s.id}/take`, {method: "POST", body: {team: S.team, repo}});
+    if (r.branch) toast(`${r.repo} is on ${r.branch} now.`);
+    else { toast(`Saved into ${r.repo}'s inbox: ${r.saved.map(p => p.split("/").pop()).join(", ")}.`); openPane("files"); openFile(r.saved[0]); }
+  } catch (e) { toast(e.message, true); }
+  loadShares();
+}
+const b64 = buf => { const b = new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+function openShareComposer() {
+  const files = inputEl({type: "file", multiple: true}); files.setAttribute("aria-label", "Files to share");
+  const to = el("select"); to.append(Object.assign(el("option", null, "Everyone in the team"), {value: ""}));
+  for (const m of ((S.board || {}).members || []).filter(m => m.name !== (S.user || {}).name)) to.append(Object.assign(el("option", null, m.name), {value: m.name}));
+  const note = textareaEl({placeholder: "A note: what it is, what to do with it", maxLength: 1000, rows: 3});
+  const send = btn("Share", "primary", async () => {
+    const picked = [...files.files];
+    if (!picked.length) return toast("Pick a file to share.", true);
+    const big = picked.find(f => f.size > 25 * 1048576); if (big) return toast(`${big.name} is over 25 MB.`, true);
+    send.disabled = true; send.textContent = "Sharing…";
+    try {
+      const body = {team: S.team, to: to.value, note: note.value.trim(), files: await Promise.all(picked.map(async f => ({name: f.name, data: b64(await f.arrayBuffer())})))};
+      const s = await api("/api/shares/send", {method: "POST", body});
+      toast(`Shared with ${s.to ? s.to.name : "everyone"}: they have it for 14 days.`); closeDrawer(); if (teamTab === "files") loadShares();
+    } catch (e) { toast(e.message, true); send.disabled = false; send.textContent = "Share"; }
+  }, "send");
+  openDrawer("Super Team · Files", "Share files", [groupBox("Files (up to 10, 25 MB each)", files), groupBox("With", to), groupBox("Note", note),
+    el("p", "sub", "They leave this laptop: they're uploaded to your team's private storage and kept 14 days. Files that look like secrets (.env, keys, text with a token in it) are refused.")], [send]);
 }
 for (const b of $("teamTabs").children) b.onclick = () => showTeamTab(b.dataset.tab);
 
@@ -1792,6 +1875,12 @@ async function checkInbox() {
     const fresh = waiting.filter(p => !INBOX.has(p.id)); fresh.forEach(p => INBOX.add(p.id));
     if (fresh.length) toast(fresh.length === 1 ? `${fresh[0].from.name} wants to prompt your ${TOOL_LABEL[fresh[0].tool]} session. Super Team → Prompts.`
       : `${fresh.length} prompts are waiting for you. Super Team → Prompts.`);
+    const first = !checkInbox.sharesRead;  // what was already there when the app opened isn't news
+    const shared = (await hub(withTeam("shares"))).shares.filter(s => s.for_me && s.status === "ready");
+    checkInbox.sharesRead = true;
+    const news = shared.filter(s => !SHARE_SEEN.has(s.id)); news.forEach(s => SHARE_SEEN.add(s.id));
+    if (news.length && !first) toast(news.length === 1 ? `${news[0].from.name} shared ${news[0].kind === "branch" ? `branch ${news[0].branch}` : `${news[0].files.length} file${news[0].files.length === 1 ? "" : "s"}`} with you. Super Team → Files.`
+      : `${news.length} new shares for you. Super Team → Files.`);
   } catch (e) { /* next poll */ }
 }
 async function loadSessions() {

@@ -592,3 +592,101 @@ def test_the_lead_links_the_teams_github_repos_for_get_the_project(app):
     assert yang.delete(path, params={"url": "https://github.com/acme/web.git"}).json()["repos"][0]["name"] == "acme/api"
     other = signin(app, "zed")
     assert other.get(path).status_code == 403  # not in the team
+
+
+def test_teammates_share_files_and_branches_through_short_lived_links(env, tmp_path):
+    import hashlib
+
+    from cloud import blobs as blobstore
+
+    app = create(chat=fake_chat, blobs=blobstore.LocalBlobs(tmp_path / "blobs"))
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha, ravi = join(app, yang, team, "asha"), join(app, yang, team, "ravi")
+    q = {"team": team}
+    data = b"crash log\nline 2\n"
+    sha = hashlib.sha256(data).hexdigest()
+    s = asha.post("/v1/shares", params=q, json={"to": "Ravi", "note": "the crash",
+                                                "files": [{"name": "..\logs/crash.log", "size": len(data), "sha256": sha}]}).json()
+    assert s["files"] == [{"n": 0, "name": "crash.log", "size": len(data)}] and s["status"] == "uploading" and s["to"]["name"] == "ravi"
+    assert ravi.get("/v1/shares", params=q).json()["shares"] == []  # not until its files are up
+    assert asha.post(f"/v1/shares/{s['id']}/ready", params=q).status_code == 400  # nothing arrived yet
+    up = s["uploads"][0]
+    assert up["method"] == "PUT" and asha.put(up["url"], content=data).status_code == 200
+    assert asha.post(f"/v1/shares/{s['id']}/ready", params=q).json()["status"] == "ready"
+    mine = ravi.get("/v1/shares", params=q).json()["shares"][0]
+    assert mine["for_me"] and mine["can_get"] and not mine["mine"]
+    got = ravi.get(f"/v1/shares/{s['id']}/files/0", params=q).json()
+    assert ravi.get(got["url"]).content == data and got["sha256"] == sha
+    assert ravi.put(got["url"], content=b"x").status_code == 403  # a download link can't upload
+    record = yang.get("/v1/shares", params=q).json()["shares"][0]  # the lead sees the record, not the file
+    assert record["saved_by"] == ["ravi"] and not record["can_get"]
+    assert yang.get(f"/v1/shares/{s['id']}/files/0", params=q).status_code == 403
+
+    b = yang.post("/v1/shares", params=q, json={"repo": "https://github.com/acme/web", "branch": "fix/login", "note": "try it"}).json()
+    assert b["kind"] == "branch" and b["status"] == "ready" and b["to"] is None
+    assert asha.get(f"/v1/shares/{b['id']}", params=q).json()["for_me"]
+
+    one = {"name": "a.txt", "size": 3, "sha256": sha}
+    assert asha.post("/v1/shares", params=q, json={"files": [{**one, "size": 26 * 2**20}]}).status_code == 422
+    assert asha.post("/v1/shares", params=q, json={"to": "zed", "files": [one]}).status_code == 400
+    assert asha.post("/v1/shares", params=q, json={"to": "asha", "files": [one]}).status_code == 400  # not to yourself
+    assert asha.post("/v1/shares", params=q, json={"files": [one, {**one, "name": "A.TXT"}]}).status_code == 400
+    assert asha.post("/v1/shares", params=q, json={"note": "nothing"}).status_code == 400
+
+    assert ravi.delete(f"/v1/shares/{s['id']}", params=q).status_code == 403
+    assert asha.delete(f"/v1/shares/{s['id']}", params=q).json() == {"ok": True}
+    assert ravi.get(got["url"]).status_code == 404  # the file is gone with it
+
+    t = asha.post("/v1/shares", params=q, json={"files": [one]}).json()
+    asha.put(t["uploads"][0]["url"], content=b"abc")
+    asha.post(f"/v1/shares/{t['id']}/ready", params=q)
+    with psycopg.connect(env, autocommit=True) as conn:
+        conn.execute("update shares set expires_at = now() - interval '1 minute' where id = %s", (t["id"],))
+    late = next(x for x in ravi.get("/v1/shares", params=q).json()["shares"] if x["id"] == t["id"])
+    assert late["status"] == "expired" and not any((tmp_path / "blobs").rglob("0-a.txt"))
+    assert ravi.get(f"/v1/shares/{t['id']}/files/0", params=q).status_code == 410
+
+
+def test_supabase_storage_gets_signed_links_and_never_the_bytes(monkeypatch):
+    from cloud import blobs as blobstore
+
+    calls = []
+
+    class Reply:
+        def __init__(self, body):
+            self.body = body
+
+        def read(self):
+            return json.dumps(self.body).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout=0):
+        calls.append((req.get_method(), req.full_url, json.loads(req.data) if req.data else None, req.headers.get("Authorization")))
+        if "/upload/sign/" in req.full_url:
+            return Reply({"url": "/object/upload/sign/shares/t/s/0-a.txt?token=up"})
+        if "/object/sign/" in req.full_url:
+            return Reply({"signedURL": "/object/sign/shares/t/s/0-a.txt?token=down"})
+        if "/object/list/" in req.full_url:
+            return Reply([{"name": "0-a.txt", "metadata": {"size": 12}}])
+        return Reply({})
+
+    monkeypatch.setattr(blobstore.urllib.request, "urlopen", fake)
+    s = blobstore.SupabaseBlobs("https://x.supabase.co/", "sb_secret_k", "shares", "sb_publishable_p")
+    assert s.upload("t/s/0-a.txt", 12) == {"url": "https://x.supabase.co/storage/v1/object/upload/sign/shares/t/s/0-a.txt?token=up",
+                                           "method": "PUT", "headers": {"x-upsert": "false", "apikey": "sb_publishable_p"}}
+    assert s.download("t/s/0-a.txt") == "https://x.supabase.co/storage/v1/object/sign/shares/t/s/0-a.txt?token=down"
+    assert s.size("t/s/0-a.txt") == 12 and s.size("t/s/1-b.txt") is None
+    s.delete(["t/s/0-a.txt"])
+    assert [(m, u.removeprefix("https://x.supabase.co/storage/v1/"), b) for m, u, b, _ in calls] == [
+        ("POST", "object/upload/sign/shares/t/s/0-a.txt", None),
+        ("POST", "object/sign/shares/t/s/0-a.txt", {"expiresIn": 300}),
+        ("POST", "object/list/shares", {"prefix": "t/s", "search": "0-a.txt", "limit": 10}),
+        ("POST", "object/list/shares", {"prefix": "t/s", "search": "1-b.txt", "limit": 10}),
+        ("DELETE", "object/shares", {"prefixes": ["t/s/0-a.txt"]})]
+    assert {a for *_, a in calls} == {"Bearer sb_secret_k"}

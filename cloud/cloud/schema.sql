@@ -173,8 +173,35 @@ create table public.team_repos (
   primary key (team_id, url)
 );
 
+-- v6 (migration teamloop_cloud_v6_shares): Super Team → Files. Files and branches teammates share; the files live in
+-- the private "shares" storage bucket (25 MB each) for 14 days, behind 5-minute links; the record stays 30 days.
+create table public.shares (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  from_user uuid not null,
+  from_name text not null,
+  to_user uuid,
+  to_name text,
+  kind text not null check (kind in ('files', 'branch')),
+  note text not null default '' check (char_length(note) <= 1000),
+  files jsonb not null default '[]',
+  repo text,
+  branch text,
+  status text not null default 'uploading' check (status in ('uploading', 'ready', 'expired', 'deleted')),
+  saved_by jsonb not null default '[]',
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '14 days'
+);
+create index shares_team_idx on public.shares (team_id, created_at desc);
+do $$ begin  -- on Supabase only: the private bucket the files go in
+  if exists (select 1 from information_schema.schemata where schema_name = 'storage') then
+    insert into storage.buckets (id, name, public, file_size_limit) values ('shares', 'shares', false, 26214400) on conflict (id) do nothing;
+  end if;
+end $$;
+
 alter table public.teams enable row level security;
 alter table public.team_repos enable row level security;
+alter table public.shares enable row level security;
 alter table public.session_access enable row level security;
 alter table public.session_prompts enable row level security;
 alter table public.agent_usage enable row level security;

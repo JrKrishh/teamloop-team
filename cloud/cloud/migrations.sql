@@ -81,3 +81,29 @@ create table if not exists public.team_repos (
   primary key (team_id, url)
 );
 alter table public.team_repos enable row level security;
+
+-- teamloop_cloud_v6_shares: Super Team → Files (and, on Supabase, the private bucket the files go in)
+create table if not exists public.shares (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  from_user uuid not null,
+  from_name text not null,
+  to_user uuid,
+  to_name text,
+  kind text not null check (kind in ('files', 'branch')),
+  note text not null default '' check (char_length(note) <= 1000),
+  files jsonb not null default '[]',
+  repo text,
+  branch text,
+  status text not null default 'uploading' check (status in ('uploading', 'ready', 'expired', 'deleted')),
+  saved_by jsonb not null default '[]',
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '14 days'
+);
+create index if not exists shares_team_idx on public.shares (team_id, created_at desc);
+alter table public.shares enable row level security;
+do $$ begin
+  if exists (select 1 from information_schema.schemata where schema_name = 'storage') then
+    insert into storage.buckets (id, name, public, file_size_limit) values ('shares', 'shares', false, 26214400) on conflict (id) do nothing;
+  end if;
+end $$;

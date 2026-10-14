@@ -534,6 +534,13 @@ button.tchip:hover{background:var(--panel2)}
 .never{display:grid;gap:6px;font-size:14px;color:var(--muted)}
 .never b{color:var(--text)}
 
+/* ---- Super Team → Files ---- */
+.share-head{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.share-head .sub{flex:1;min-width:260px;max-width:80ch;font-size:13.5px}
+.share-files{display:flex;flex-wrap:wrap;gap:6px;margin:5px 0 3px}
+.item small.share-note{color:var(--text);font-style:italic}
+.item.share select{height:30px;border-radius:9px;border:1px solid var(--line2);background:var(--bg2);color:var(--text);padding:0 8px}
+
 /* ---- settings ---- */
 .settings{display:grid;gap:16px;max-width:780px}
 .acct{display:flex;align-items:center;gap:14px}
