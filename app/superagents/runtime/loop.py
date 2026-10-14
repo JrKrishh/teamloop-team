@@ -24,8 +24,18 @@ from . import skills as skill_store
 from .mcpman import Manager, Tool
 from .tools import BY_NAME, BUILTINS, Builtin
 
-MAX_STEPS = 24  # browser and desktop tasks take many small steps
+MAX_STEPS = 200  # a runaway guard, not a working limit: like Claude Code, a turn works until the job is done
 TO_MODEL, TO_WINDOW = 12_000, 4_000
+# A long turn stays small and quick, the way Claude Code keeps its context: the newest tool results go to the model
+# whole, older ones shrink to their start, and past FOLD_AT messages the oldest steps fold into a line each (in batches,
+# so the start of the prompt stays put). It also keeps every step inside the hub's 200 messages and 400k characters.
+KEEP_WHOLE, OLD_RESULT, FOLD_AT, FOLD_KEEP = 6, 400, 110, 40
+CUT = "\n… [older output cut to save room; run the tool again if you need it]"
+FOLDED = "(Earlier steps of this answer, folded to save room; run a tool again if you need what it returned.)\n"
+WRAP_UP = ("That's {n} steps on this, the most one answer can take. Don't call any more tools: say what you did, what's "
+           "left, and what the person can do next (they can ask you to continue).")
+REPEAT_NUDGE = ("\nThis exact call has now returned the same thing {n} times: don't repeat it. Try another way, or finish "
+                "with what you have.")
 BASE = """You are {name}, an agent in Super Agents, the app where a software team sees and plans the work their
 developers do with AI coding agents. You work for {person} in the team "{team}" (members: {members}).
 
@@ -62,6 +72,49 @@ UI_FILE = re.compile(r"\.(html?|css|scss|less|[cm]?jsx?|tsx?|vue|svelte|astro)$"
 VERIFY_NUDGE = ("You changed {files}. Before you finish, check it in the browser: start the dev server if it isn't running "
                 "(dev_server), open the page (browser_open) and look for errors (browser_console). Then give your answer, "
                 "saying what you checked.")
+
+
+def compact(messages: list[dict], head: int) -> None:
+    """Shrinks a turn's own steps in place before each model call (messages[:head], the system prompt, earlier chats and
+    the person's message, never change). Tool results and long arguments older than the newest KEEP_WHOLE are cut to
+    their start; past FOLD_AT messages, the oldest steps become one line each in a single note."""
+    for m in [m for m in messages[head:] if m["role"] == "tool"][:-KEEP_WHOLE]:
+        if len(m["content"]) > OLD_RESULT + len(CUT):
+            m["content"] = m["content"][:OLD_RESULT] + CUT
+    for m in [m for m in messages[head:] if m.get("tool_calls")][:-KEEP_WHOLE]:
+        for c in m["tool_calls"]:
+            f = c.get("function") or {}
+            if len(f.get("arguments") or "") > 2 * OLD_RESULT:
+                c["function"] = {**f, "arguments": _short_args(f["arguments"])}
+    if len(messages) - head <= FOLD_AT:
+        return
+    cut = next((i for i in range(len(messages) - FOLD_KEEP, len(messages)) if messages[i].get("tool_calls")), None)
+    if cut is None:
+        return
+    results = {m.get("tool_call_id"): m["content"] for m in messages[head:cut] if m["role"] == "tool"}
+    lines = []
+    for m in messages[head:cut]:
+        text = (m.get("content") or "").strip()
+        if m["role"] == "user" and text.startswith(FOLDED.strip()):
+            lines += text.splitlines()[1:]
+        elif m.get("tool_calls"):
+            for c in m["tool_calls"]:
+                f = c.get("function") or {}
+                said = (results.get(c.get("id")) or "").strip().split("\n", 1)[0][:160]
+                lines.append(f"- {f.get('name')} {(f.get('arguments') or '')[:160]} → {said}")
+        elif m["role"] != "tool" and text:
+            lines.append(f"- ({'you said' if m['role'] == 'assistant' else 'note'}) {text[:200]}")
+    messages[head:cut] = [{"role": "user", "content": FOLDED + "\n".join(lines[-200:])}]
+
+
+def _short_args(raw: str) -> str:
+    try:
+        args = json.loads(raw)
+    except ValueError:
+        return raw[:OLD_RESULT]
+    if not isinstance(args, dict):
+        return raw[:OLD_RESULT]
+    return json.dumps({k: v[:OLD_RESULT] + "…" if isinstance(v, str) and len(v) > OLD_RESULT else v for k, v in args.items()})
 
 
 def chats_dir():
@@ -140,6 +193,7 @@ class Turn:
         self.ui_written: list[str] = []  # UI files this turn wrote, and how many of them a browser step came after
         self.ui_checked = 0
         self.failures: dict[tuple, int] = {}  # failing calls, by tool and arguments
+        self.repeats: dict[tuple, int] = {}  # calls that worked, by tool, arguments and what they returned
         self.waiting: dict[str, str] = {}  # calls waiting for a yes, and their kind ("change" or "ask")
         self.mode_note: str | None = None  # told to the model before its next step, after a mode switch
 
@@ -251,6 +305,7 @@ class Turn:
         content = self.message + "".join(f"\n\n[Imported file: {a['name']}]\n{a['text'][:60_000]}" for a in self.attachments)
         history = self.chat.get("messages", [])[-24:]
         messages = [{"role": "system", "content": self._system(board)}, *history, {"role": "user", "content": content}]
+        head = len(messages)
         used, answer, model, plan_text, kept, verify_asked = [], "", "", "", "", False
         for _ in range(MAX_STEPS):
             if self.cancelled:
@@ -260,11 +315,9 @@ class Turn:
             if self.mode_note:  # the person switched modes since the last step
                 messages.append({"role": "user", "content": self.mode_note})
                 self.mode_note = None
-            step = self.llm(messages, tools, self.model)
+            compact(messages, head)
+            step = self._step(messages, tools)
             model = step.get("model", model)
-            self.spent["calls"] += 1
-            for k in ("in", "out"):
-                self.spent[k] += int((step.get("usage") or {}).get(k) or 0)
             calls = step.get("tool_calls") or []
             if step.get("content") and calls:
                 self.emit("text", text=step["content"])
@@ -294,10 +347,23 @@ class Turn:
                 result = self._one(call)
                 used.append(call["function"]["name"])
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result[:TO_MODEL]})
-        else:
-            answer = answer or "I stopped after many steps. Ask me to continue if you need more."
+        else:  # the runaway guard: one last step that runs nothing, so the answer says what's done and what's left
+            self.emit("thinking")
+            messages.append({"role": "user", "content": WRAP_UP.format(n=MAX_STEPS)})
+            compact(messages, head)
+            step = self._step(messages, tools)
+            model = step.get("model", model)
+            answer = (CITE_MARK.sub("", (step.get("content") or "").strip())
+                      or f"I took {MAX_STEPS} steps on this and stopped there. Ask me to continue.")
         self.emit("answer", text=answer, model=model, usage=dict(self.spent))
         self._remember(content, answer, used)
+
+    def _step(self, messages: list[dict], tools: list[dict]) -> dict:
+        step = self.llm(messages, tools, self.model)
+        self.spent["calls"] += 1
+        for k in ("in", "out"):
+            self.spent[k] += int((step.get("usage") or {}).get(k) or 0)
+        return step
 
     def _one(self, call: dict) -> str:
         cid, name = call.get("id") or secrets.token_hex(4), call["function"]["name"]
@@ -348,12 +414,17 @@ class Turn:
             except ValueError:
                 pass
         self.emit("tool", **card, status="failed" if is_error else "done", result=result[:TO_WINDOW], **extra)
+        key = (name, json.dumps(args, sort_keys=True))
         if is_error:  # models retry the same failing call until they run out of steps; say so once it's happened twice
-            key = (name, json.dumps(args, sort_keys=True))
             self.failures[key] = self.failures.get(key, 0) + 1
             if self.failures[key] >= 2:
                 result += ("\nThis exact call has now failed twice the same way: don't repeat it. Read the current state "
                            "again, try another way, or tell the person what's in the way.")
+        else:  # or call the same thing over and over and get the same answer: a loop, not progress
+            same = (*key, hash(result))
+            self.repeats[same] = self.repeats.get(same, 0) + 1
+            if self.repeats[same] >= 3:
+                result += REPEAT_NUDGE.format(n=self.repeats[same])
         return result
 
     def run_plan(self) -> None:

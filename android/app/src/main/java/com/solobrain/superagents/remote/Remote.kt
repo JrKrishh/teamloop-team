@@ -1,6 +1,8 @@
 package com.solobrain.superagents.remote
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
@@ -46,6 +48,7 @@ class Remote(private val app: Context) {
     @Volatile private var known = Pairings.has(app)
     @Volatile private var relay: Relay? = null
     @Volatile private var connecting = false
+    @Volatile private var watching = false
     private var backoff = 1000L
     private var pinger: Job? = null
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
@@ -58,7 +61,15 @@ class Remote(private val app: Context) {
 
     val paired: Boolean get() = known
 
-    fun start() { if (known && relay == null) connect() }
+    fun start() {
+        if (known && relay == null) connect()
+        if (!watching) {  // back on a network (out of a lift, Wi-Fi again): connect now, not after the wait between tries
+            watching = true
+            app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) { if (known && relay == null) { backoff = 1000; connect() } }
+            })
+        }
+    }
 
     fun pair(l: Pairings.Link) {
         stop()
@@ -146,20 +157,20 @@ class Remote(private val app: Context) {
     /** A request to the laptop, answered by a message that names it. */
     suspend fun request(msg: JSONObject, waitMs: Long = 15_000): JSONObject {
         val p = pairing ?: throw RemoteError("This phone isn't paired.")
-        val r = relay?.takeIf { it.joined } ?: throw RemoteError("Not connected to your laptop yet.")
+        val r = relay?.takeIf { it.joined } ?: throw LineDown("Not connected to your laptop yet.")
         val id = Seal.b64(ByteArray(12).also(random::nextBytes))
         val answer = CompletableDeferred<JSONObject>()
         pending[id] = answer
         msg.put("from", "phone").put("id", id).put("ts", System.currentTimeMillis())
         if (!r.broadcast(Seal.seal(p.key, p.channel, msg))) {
             pending.remove(id)
-            throw RemoteError("Not connected to your laptop yet.")
+            throw LineDown("Not connected to your laptop yet.")
         }
         val reply = withTimeoutOrNull(waitMs) { answer.await() }
         if (reply == null) {
             pending.remove(id)
             link.value = Link.Offline
-            throw RemoteError("Your laptop didn't answer. Is Super Agents open on it?")
+            throw LineDown("Your laptop didn't answer. Is Super Agents open on it?")
         }
         if (reply.optString("t") == "error") throw RemoteError(reply.optString("error"))
         return reply
@@ -212,8 +223,21 @@ class Remote(private val app: Context) {
     }
 
     suspend fun decide(turn: String, call: String, approve: Boolean) {
-        request(JSONObject().put("t", "decide").put("turn", turn).put("call", call).put("approve", approve))
+        again { JSONObject().put("t", "decide").put("turn", turn).put("call", call).put("approve", approve) }
         Notifications.cancelAsk(app, call)
+    }
+
+    /** For what's safe to say twice (a yes said twice is still one yes): when the line died without a word, as it can
+     *  while the phone sleeps, connect again and say it once more instead of leaving the agent waiting. */
+    private suspend fun again(msg: () -> JSONObject): JSONObject = try {
+        request(msg(), 8_000)
+    } catch (e: LineDown) {
+        Log.d(TAG, "no answer on the line: connecting again")
+        stop()
+        backoff = 1000
+        connect()  // and if the phone is offline, again the moment a network is back (start's callback)
+        withTimeoutOrNull(20_000) { while (relay?.joined != true) delay(250) }
+        request(msg(), 10_000)
     }
 
     suspend fun stopTurn(turn: String) { request(JSONObject().put("t", "stop").put("turn", turn)) }
