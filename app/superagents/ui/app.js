@@ -72,6 +72,10 @@ const ICONS = {
   caret: '<path d="m10 7 5 5-5 5"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
   gauge: '<path d="M4.2 16.5a8 8 0 1 1 15.6 0"/><path d="m12 16.5 3.6-4.6"/><circle cx="12" cy="16.5" r="1.2"/>',
+  sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>',
+  prefs: '<path d="M4 7.5h9M18 7.5h2M4 16.5h3M12 16.5h8"/><circle cx="15.5" cy="7.5" r="2.3"/><circle cx="9.5" cy="16.5" r="2.3"/>',
+  expand: '<path d="M14.5 4.5h5v5M9.5 19.5h-5v-5M19.5 4.5 13.5 10.5M4.5 19.5l6-6"/>',
+  shrink: '<path d="M18.5 10.5h-5v-5M5.5 13.5h5v5M13.5 10.5l6-6M10.5 13.5l-6 6"/>',
 };
 // Like Claude Code's modes: Shift+Tab cycles them.
 const MODES = {
@@ -132,6 +136,7 @@ function setTheme(theme, save = true) {
   document.documentElement.dataset.theme = theme;
   $("themeLabel").textContent = theme === "dark" ? "Light theme" : "Dark theme";
   const t = $("themeBtn").querySelector(".ic"); t.dataset.ic = theme === "dark" ? "sunny" : "moon"; t.innerHTML = icon(t.dataset.ic);
+  for (const b of document.querySelectorAll(".theme-seg button")) b.setAttribute("aria-pressed", String(b.textContent.toLowerCase() === theme));
   for (const x of TERMS.list) x.term.options.theme = termTheme();
   api("/api/window/theme", {method: "POST", body: {dark: theme === "dark"}}).catch(() => {});
   if (save) api("/api/prefs", {method: "POST", body: {theme}}).catch(() => {});
@@ -265,11 +270,13 @@ $("joinForm").addEventListener("submit", async ev => {
 
 // ---- the shell ------------------------------------------------------------------------------------------
 let pollTimer = null;
-const VIEWS = ["chat", "board", "team", "agents", "laptop"];
+const VIEWS = ["chat", "board", "team", "agents", "laptop", "settings"];
 function showShell() {
   show("shell");
   $("railMark").replaceChildren(agent());
   $("meName").textContent = S.user.name;
+  $("meBtn").dataset.tip = S.user.name;
+  setRail($("shell").classList.contains("rail-min"), false);
   $("meRole").textContent = team() ? `${team().role === "lead" ? "Lead" : "Member"} · ${team().name}` : "";
   const av = $("meAvatar"); av.replaceChildren();
   if (S.user.avatar) { const i = el("img"); i.src = S.user.avatar; i.alt = ""; av.append(i); } else av.textContent = (S.user.name || "?").slice(0, 1).toUpperCase();
@@ -291,12 +298,14 @@ function showShell() {
 }
 function go(view) {
   S.view = VIEWS.includes(view) ? view : "chat";
+  setSideWide(false);  // a view you pick should show, not sit behind a full-width panel
   for (const b of document.querySelectorAll("#nav button")) b.classList.toggle("on", b.dataset.view === S.view);
   for (const v of VIEWS) $(`view-${v}`).hidden = v !== S.view;
   if (S.view === "board") renderBoard();
   if (S.view === "team") showTeamTab(teamTab);
   if (S.view === "agents") showAgentTab(agentTab);
   if (S.view === "laptop") refreshLaptop(true);
+  if (S.view === "settings") renderSettings();
   if (S.view === "chat") setTimeout(() => $("askIn").focus(), 50);
 }
 for (const b of document.querySelectorAll("#nav button")) b.onclick = () => go(b.dataset.view);
@@ -307,7 +316,21 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") { closeMenus(); if (!$("drawer").hidden) closeDrawer(); }
   if (e.ctrlKey && e.key.toLowerCase() === "n" && !$("shell").hidden) { e.preventDefault(); newChat(); }
   if (e.ctrlKey && e.key === "`" && !$("shell").hidden) { e.preventDefault(); togglePane("terminal"); }
+  // Ctrl+B is the shell's own key inside a terminal, so it's left alone there
+  if (e.ctrlKey && e.key.toLowerCase() === "b" && !$("shell").hidden && !e.target.closest(".terms")) { e.preventDefault(); setRail(!$("shell").classList.contains("rail-min")); }
+  if (e.ctrlKey && e.key === "," && !$("shell").hidden) { e.preventDefault(); closeMenus(); go("settings"); }
 });
+
+// The sidebar folds to icons (its button or Ctrl+B); the names become tooltips. Remembered on this laptop.
+function setRail(min, save = true) {
+  $("shell").classList.toggle("rail-min", min);
+  const t = $("railToggle"), words = min ? "Expand the sidebar" : "Collapse the sidebar";
+  t.setAttribute("aria-label", words); t.title = `${words} (Ctrl+B)`; t.setAttribute("aria-expanded", String(!min));
+  for (const b of document.querySelectorAll(".rail [data-tip]")) b.title = min ? b.dataset.tip : "";
+  if (save) try { localStorage.setItem("sa-rail", min ? "min" : "full"); } catch (e) { /* stays for this run */ }
+}
+$("railToggle").onclick = () => setRail(!$("shell").classList.contains("rail-min"));
+try { setRail(localStorage.getItem("sa-rail") === "min", false); } catch (e) { setRail(false, false); }
 
 function closeMenus() {
   for (const id of ["meMenu", "teamMenu", "importMenu", "modeMenu", "modelMenu", "agentMenu"]) $(id).hidden = true;
@@ -315,6 +338,7 @@ function closeMenus() {
 }
 document.addEventListener("click", e => { if (!e.target.closest(".menu, #meBtn, #teamBtn, .cwrap")) closeMenus(); });
 $("meBtn").onclick = () => { const m = $("meMenu"); const open = m.hidden; closeMenus(); m.hidden = !open; };
+$("settingsBtn").onclick = () => { closeMenus(); go("settings"); };
 $("themeBtn").onclick = () => { setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); closeMenus(); };
 $("signOutBtn").onclick = async () => {
   closeMenus(); clearInterval(pollTimer);
@@ -370,7 +394,7 @@ function renderLive() {
   const live = people.filter(p => p.active);
   for (const p of (live.length ? live : people.slice(0, 4))) {
     const li = el("li"); li.append(mascot(p.name, p.active ? "idle" : "sleep"), el("span", null, p.name));
-    li.title = p.active ? "active in the last 5 minutes" : `last seen ${ago(p.last_activity)}`; ul.append(li);
+    li.title = `${p.name}: ${p.active ? "active in the last 5 minutes" : `last seen ${ago(p.last_activity)}`}`; ul.append(li);
   }
   if (!people.length) ul.append(el("li", "none", "Nobody has reported yet."));
 }
@@ -1316,13 +1340,21 @@ function openPane(name) {
   if (name === "browser" && !BR.url) browserEmpty();
 }
 function closePane() {
-  $("side").hidden = true; SIDE.pane = null;
+  $("side").hidden = true; SIDE.pane = null; setSideWide(false);
   for (const b of document.querySelectorAll("[data-pane]")) b.classList.remove("on");
 }
 function togglePane(name) { if (SIDE.pane === name) closePane(); else openPane(name); }
+// Expanded, the panel takes the whole work area (a terminal or a page at full width); picking a view restores it.
+function setSideWide(wide) {
+  const b = $("sideWide"), words = wide ? "Restore the panel" : "Expand the panel";
+  $("side").classList.toggle("wide", wide);
+  b.setAttribute("aria-pressed", String(wide)); b.setAttribute("aria-label", words); b.title = words;
+  b.querySelector(".ic").innerHTML = icon(wide ? "shrink" : "expand");
+}
 for (const b of document.querySelectorAll(".pane-btns [data-pane]")) b.onclick = () => togglePane(b.dataset.pane);
 for (const b of document.querySelectorAll(".side-head [data-pane]")) b.onclick = () => openPane(b.dataset.pane);
 $("sideClose").onclick = closePane;
+$("sideWide").onclick = () => setSideWide(!$("side").classList.contains("wide"));
 (() => {  // drag (or arrow keys on) the panel's left edge to resize it; the width is remembered on this laptop
   const side = $("side"), handle = $("resizer");
   const set = px => { const w = Math.round(Math.max(340, Math.min(px, window.innerWidth * 0.72))); side.style.setProperty("--side-w", `${w}px`); return w; };
@@ -1913,6 +1945,60 @@ function renderLaptop() {
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);
   grid.append(left, right);
+}
+
+// ---- settings: the account, the look, and what you share (the same switches as This laptop, Agents → Memory and
+// Super Team → Sessions, in one place) -------------------------------------------------------------------------
+function switchEl(title, sub, on, label, onToggle) {
+  const s = el("div", "switch"), words = el("div"); words.append(el("b", null, title), el("small", null, sub));
+  const tg = el("button", "toggle"); tg.type = "button"; tg.setAttribute("role", "switch"); tg.setAttribute("aria-checked", String(on));
+  tg.setAttribute("aria-label", label); tg.onclick = onToggle;
+  s.append(words, tg); return s;
+}
+const SHORTCUTS = [["New chat", "Ctrl N"], ["Collapse or expand the sidebar", "Ctrl B"], ["Settings", "Ctrl ,"], ["Terminal", "Ctrl `"],
+  ["Switch mode: Manual, Auto, Plan (in the message box)", "Shift Tab"], ["Send · new line", "Enter · Shift Enter"],
+  ["Send a follow-up in a Super Team thread", "Ctrl Enter"], ["Close a menu or drawer", "Esc"]];
+function renderSettings() {
+  const box = $("settingsBody"), u = S.user || {}, t = team(), L = S.laptop || {};
+  const acct = el("section", "panel"), who = el("div", "acct"), av = $("meAvatar").cloneNode(true); av.removeAttribute("id");
+  const words = el("div"); words.append(el("b", null, u.name || ""), el("small", null, u.email || ""));
+  if (t) words.append(el("small", null, `${t.role === "lead" ? "Lead" : "Member"} of ${t.name}`));
+  who.append(av, words, btn("Sign out", "", () => $("signOutBtn").click(), "out"));
+  acct.append(el("h3", null, "Account"), who);
+
+  const look = el("section", "panel");
+  const theme = segEl([["dark", "Dark"], ["light", "Light"]], document.documentElement.dataset.theme, k => setTheme(k)); theme.classList.add("theme-seg");
+  look.append(el("h3", null, "Appearance"), groupBox("Theme", theme, "The sidebar folds to icons with its button at the top, or Ctrl+B."));
+
+  const share = el("section", "panel"); share.append(el("h3", null, "Privacy"));
+  if (L.team) share.append(switchEl("Share my coding sessions with the team", L.paused ? "Paused: hooks record nothing until you turn it back on." : "A one-line summary per turn and facts like files changed and tests run. Never prompts, code or tool output.",
+    !L.paused, "Share my coding sessions", async () => {
+      try { S.laptop = await api("/api/laptop/pause", {method: "POST", body: {paused: !L.paused}}); renderLaptopChip(); } catch (e) { toast(e.message, true); }
+      renderSettings();
+    }));
+  else share.append(el("p", "sub", "This laptop isn't connected to a team, so it shares nothing. Connect it on This laptop."));
+  api("/api/memory").then(m => share.append(switchEl("Let agents search my Claude Code and Codex sessions",
+    m.settings.sessions ? "Your prompts and the agents' replies, in every project on this laptop. The index stays here." : "Off: agents search only notes and chats.",
+    m.settings.sessions, "Search my coding sessions", async () => {
+      await api("/api/memory/settings", {method: "PUT", body: {sessions: !m.settings.sessions}}).catch(e => toast(e.message, true));
+      renderSettings();
+    }))).catch(() => {});
+
+  const keys = el("section", "panel"), dl = el("dl", "keys");
+  for (const [what, combo] of SHORTCUTS) {
+    const dd = el("dd"); combo.split(" · ").forEach((c, i) => { if (i) dd.append(" · "); dd.append(el("kbd", null, c)); });
+    dl.append(el("dt", null, what), dd);
+  }
+  keys.append(el("h3", null, "Keyboard shortcuts"), dl);
+
+  const about = el("section", "panel"), links = el("div", "row gap");
+  const page = url => () => api("/api/browser/window", {method: "POST", body: {url}}).catch(e => toast(e.message, true));
+  links.append(btn("Source code", "ghost", page("https://github.com/JrKrishh/teamloop-team"), "github"),
+    btn("Website", "ghost", page("https://teamloop.vercel.app"), "globe"));
+  about.append(el("h3", null, "About"), el("p", "sub", `Super Agents ${S.boot.version}. Open source under the MIT licence. The agents run on NVIDIA Nemotron through Nebius Token Factory.`), links);
+
+  box.replaceChildren(acct, look, share, keys, about);
+  if (S.team) hub(withTeam("sessions")).then(d => { if (share.isConnected) share.after(rulesCard(d.me)); }).catch(() => {});
 }
 
 start();

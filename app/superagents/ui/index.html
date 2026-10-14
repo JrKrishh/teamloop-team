@@ -88,14 +88,15 @@
 <!-- The app -->
 <div class="shell" id="shell" hidden>
   <aside class="rail">
-    <div class="rail-brand"><span class="mark-sm" id="railMark"></span><span>Super Agents</span></div>
-    <button type="button" class="btn new-chat" id="newChat"><span class="ic" data-ic="plus"></span>New chat<kbd>Ctrl N</kbd></button>
+    <div class="rail-brand"><span class="mark-sm" id="railMark"></span><span class="brand-name">Super Agents</span>
+      <button type="button" class="icon-btn small rail-toggle" id="railToggle"><span class="ic" data-ic="sidebar"></span></button></div>
+    <button type="button" class="btn new-chat" id="newChat" data-tip="New chat (Ctrl+N)"><span class="ic" data-ic="plus"></span><span class="lbl">New chat</span><kbd>Ctrl N</kbd></button>
     <nav class="nav" id="nav">
-      <button type="button" data-view="chat" class="on"><span class="ic" data-ic="spark"></span>Chat</button>
-      <button type="button" data-view="board"><span class="ic" data-ic="board"></span>Board</button>
-      <button type="button" data-view="team"><span class="ic" data-ic="team"></span>Super Team<span class="nav-badge" id="promptBadge" hidden></span></button>
-      <button type="button" data-view="agents"><span class="ic" data-ic="bot"></span>Agents</button>
-      <button type="button" data-view="laptop"><span class="ic" data-ic="laptop"></span>This laptop</button>
+      <button type="button" data-view="chat" class="on" data-tip="Chat"><span class="ic" data-ic="spark"></span><span class="lbl">Chat</span></button>
+      <button type="button" data-view="board" data-tip="Board"><span class="ic" data-ic="board"></span><span class="lbl">Board</span></button>
+      <button type="button" data-view="team" data-tip="Super Team"><span class="ic" data-ic="team"></span><span class="lbl">Super Team</span><span class="nav-badge" id="promptBadge" hidden></span></button>
+      <button type="button" data-view="agents" data-tip="Agents"><span class="ic" data-ic="bot"></span><span class="lbl">Agents</span></button>
+      <button type="button" data-view="laptop" data-tip="This laptop"><span class="ic" data-ic="laptop"></span><span class="lbl">This laptop</span></button>
     </nav>
     <div class="rail-section chats-section">
       <div class="rail-label">Chats</div>
@@ -108,6 +109,7 @@
     <div class="rail-foot">
       <button type="button" class="me" id="meBtn" aria-haspopup="menu"><span class="avatar" id="meAvatar"></span><span class="me-text"><b id="meName"></b><small id="meRole"></small></span><span class="ic" data-ic="dots"></span></button>
       <div class="menu" id="meMenu" role="menu" hidden>
+        <button type="button" role="menuitem" id="settingsBtn"><span class="ic" data-ic="prefs"></span>Settings<span class="key">Ctrl ,</span></button>
         <button type="button" role="menuitem" id="themeBtn"><span class="ic" data-ic="moon"></span><span id="themeLabel">Light theme</span></button>
         <button type="button" role="menuitem" id="signOutBtn"><span class="ic" data-ic="out"></span>Sign out</button>
         <div class="menu-foot" id="versionLine"></div>
@@ -220,6 +222,11 @@
       <div class="view-head"><div><h1>This laptop</h1><p class="sub">What this machine shares, and where it goes.</p></div></div>
       <div class="laptop-grid" id="laptopGrid"></div>
     </section>
+
+    <section class="view" id="view-settings" hidden>
+      <div class="view-head"><div><h1>Settings</h1><p class="sub">Your account, how the app looks, and what you share.</p></div></div>
+      <div class="settings" id="settingsBody"></div>
+    </section>
     </div>
 
     <aside class="side" id="side" hidden aria-label="Side panel">
@@ -230,6 +237,7 @@
           <button type="button" role="tab" data-pane="terminal"><span class="ic" data-ic="term"></span>Terminal</button>
           <button type="button" role="tab" data-pane="browser"><span class="ic" data-ic="globe"></span>Browser</button>
         </div>
+        <button type="button" class="icon-btn small" id="sideWide" aria-pressed="false" aria-label="Expand the panel" title="Expand the panel"><span class="ic" data-ic="expand"></span></button>
         <button type="button" class="icon-btn small" id="sideClose" aria-label="Close the panel"><span class="ic" data-ic="x"></span></button>
       </header>
       <section class="pane files" id="pane-files" hidden>
