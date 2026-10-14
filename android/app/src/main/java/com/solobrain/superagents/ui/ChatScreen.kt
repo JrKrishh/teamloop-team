@@ -28,8 +28,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.solobrain.superagents.remote.Agent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -335,14 +349,37 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
                 if (k == usingModel) Box(Modifier.size(8.dp).background(p.brick, CircleShape))
             }
             Label("Effort")
-            val usingEffort = pickedEffort ?: laptop?.effort ?: "medium"
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                EFFORTS.forEachIndexed { i, (k, name) ->
-                    SegmentedButton(selected = usingEffort == k, onClick = { pickedEffort = k }, shape = SegmentedButtonDefaults.itemShape(i, EFFORTS.size),
-                        modifier = Modifier.testTag("effort-$k"), label = { Text(name) })
+            val at = EFFORTS.indexOfFirst { it.first == (pickedEffort ?: laptop?.effort ?: "medium") }.coerceAtLeast(0)
+            EffortTrack(at) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); pickedEffort = EFFORTS[it].first }
+            AnimatedContent(at, Modifier.fillMaxWidth(), transitionSpec = {  // the hint goes the way the thumb went: the old one out first
+                val way = if (targetState > initialState) 1 else -1
+                (slideInHorizontally(tween(220, 70)) { way * it / 5 } + fadeIn(tween(220, 70))) togetherWith
+                    (slideOutHorizontally(tween(120)) { -way * it / 5 } + fadeOut(tween(90)))
+            }, label = "effort hint") { i ->
+                Text(EFFORT_HINT[EFFORTS[i].first].orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+    }
+}
+
+/** Effort is a scale, so it's picked like one: the thumb slides along the track to the level you tap. */
+@Composable
+private fun EffortTrack(at: Int, onPick: (Int) -> Unit) {
+    val p = LocalPalette.current
+    val slide by animateFloatAsState(at.toFloat(), spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow), label = "effort")
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 6.dp).height(44.dp).border(1.dp, p.line2, CircleShape).padding(3.dp)) {
+        val step = maxWidth / EFFORTS.size
+        // the spring overshoots a little: not past either end of the track
+        Box(Modifier.offset { IntOffset((step.toPx() * slide.coerceIn(0f, EFFORTS.size - 1f)).roundToInt(), 0) }.width(step).fillMaxHeight().clip(CircleShape)
+            .background(p.brick.copy(alpha = 0.14f)).border(1.dp, p.brick.copy(alpha = 0.5f), CircleShape))
+        Row(Modifier.fillMaxSize().selectableGroup()) {
+            EFFORTS.forEachIndexed { i, (k, name) ->
+                val color by animateColorAsState(if (i == at) p.brick else p.muted, label = "effort label")
+                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(i == at, role = Role.RadioButton) { if (i != at) onPick(i) }
+                    .testTag("effort-$k"), contentAlignment = Alignment.Center) {
+                    Text(name, style = MaterialTheme.typography.labelLarge, color = color)
                 }
             }
-            Text(EFFORT_HINT[usingEffort].orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }

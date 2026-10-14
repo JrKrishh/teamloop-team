@@ -911,9 +911,38 @@ const EFFORTS = {
   max: {label: "Max", desc: "Thinks the longest; slowest"},
 };
 function setEffort(effort, save = true) {
+  const was = S.effort, keys = Object.keys(EFFORTS);
   S.effort = EFFORTS[effort] ? effort : "medium";
-  $("effortLabel").textContent = EFFORTS[S.effort].label;
+  const l = $("effortLabel");
+  l.textContent = EFFORTS[S.effort].label;
+  if (save && was && was !== S.effort) {  // the new level slides in from the side it lies on
+    l.classList.remove("slide-l", "slide-r"); void l.offsetWidth;
+    l.classList.add(keys.indexOf(S.effort) > keys.indexOf(was) ? "slide-r" : "slide-l");
+  }
   if (save) api("/api/prefs", {method: "POST", body: {effort: S.effort}}).catch(() => {});
+}
+// Effort is a scale, so it's picked like one: the thumb slides along the track to the level you click
+function fillEffort() {
+  const m = $("effortMenu"), keys = Object.keys(EFFORTS);
+  const track = el("div", "levels"), hint = el("p", "hint", EFFORTS[S.effort].desc);
+  track.setAttribute("role", "radiogroup"); track.setAttribute("aria-label", "Effort");
+  track.append(el("i", "thumb"));
+  const place = () => {
+    track.style.setProperty("--at", keys.indexOf(S.effort));
+    for (const b of track.querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.k === S.effort));
+  };
+  for (const k of keys) {
+    const b = el("button", null, EFFORTS[k].label); b.type = "button"; b.dataset.k = k; b.setAttribute("role", "radio");
+    b.onmouseenter = () => { hint.textContent = EFFORTS[k].desc; };
+    b.onclick = () => {
+      setEffort(k); place();
+      clearTimeout(m.closing); m.closing = setTimeout(() => { closeMenus(); $("askIn").focus(); }, 450);  // after the slide
+    };
+    track.append(b);
+  }
+  track.onmouseleave = () => { hint.textContent = EFFORTS[S.effort].desc; };
+  m.replaceChildren(el("b", "title", "Effort"), track, hint);
+  place();
 }
 function setModel(model, save = true) {
   S.model = MODELS[model] ? model : "auto";
@@ -940,8 +969,7 @@ $("modePick").onclick = () => toggleMenu("modePick", "modeMenu", () => fillMenu(
   MODE_ORDER.map((k, i) => [k, MODES[k].label, MODES[k].desc, MODES[k].icon, i === 0 ? "Shift+Tab" : ""]), S.mode, setMode));
 $("modelBtn").onclick = () => toggleMenu("modelBtn", "modelMenu", () => fillMenu("modelMenu",
   Object.keys(MODELS).map(k => [k, MODELS[k].label, MODELS[k].desc, "chip"]), S.model, setModel));
-$("effortBtn").onclick = () => toggleMenu("effortBtn", "effortMenu", () => fillMenu("effortMenu",
-  Object.keys(EFFORTS).map(k => [k, EFFORTS[k].label, EFFORTS[k].desc, "gauge"]), S.effort, setEffort));
+$("effortBtn").onclick = () => toggleMenu("effortBtn", "effortMenu", fillEffort);
 $("importBtn").onclick = () => toggleMenu("importBtn", "importMenu", () => {});
 
 function renderChips() {

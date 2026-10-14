@@ -292,6 +292,20 @@ button.tchip:hover{background:var(--panel2)}
 .menu .agent{width:22px;height:22px;flex:none;margin-top:1px}
 .cbtn.mode.auto{color:var(--ok);background:rgba(76,195,138,.1)}
 .menu.up{bottom:42px;left:0;transform-origin:bottom left}
+/* Effort: a track whose thumb slides to the level you pick */
+.menu.up.effort{left:auto;right:0;min-width:300px;padding:12px 12px 10px;transform-origin:bottom right}
+.menu.effort .title{display:block;margin:0 2px 8px;font:600 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.effort .levels{position:relative;display:grid;grid-template-columns:repeat(4,1fr);padding:3px;border:1px solid var(--line2);border-radius:999px}
+.effort .thumb{position:absolute;top:3px;bottom:3px;left:3px;width:calc((100% - 6px) / 4);border-radius:999px;transform:translateX(calc(var(--at, 1) * 100%));transition:transform .38s var(--ease);
+  background:color-mix(in srgb, var(--brick) 14%, transparent);border:1px solid color-mix(in srgb, var(--brick) 50%, transparent)}
+.menu.effort .levels button{position:relative;justify-content:center;padding:7px 0;border-radius:999px;font-weight:650;color:var(--muted);transition:color .2s}
+.menu.effort .levels button:hover{background:none;color:var(--text)}
+.menu.effort .levels button[aria-checked="true"]{color:var(--brick)}
+.effort .hint{margin:9px 2px 2px;min-height:1.4em;font-size:12.5px;color:var(--muted)}
+#effortLabel.slide-r,#effortLabel.slide-l{display:inline-block;animation:label-r .3s var(--ease)}
+#effortLabel.slide-l{animation-name:label-l}
+@keyframes label-r{from{opacity:0;transform:translateX(9px)}to{opacity:1;transform:none}}
+@keyframes label-l{from{opacity:0;transform:translateX(-9px)}to{opacity:1;transform:none}}
 .menu.wide{min-width:300px}
 .menu button span b{display:block;font-weight:650}
 .menu button span small{display:block;color:var(--faint);font-size:12.5px;font-weight:500;margin-top:1px}
