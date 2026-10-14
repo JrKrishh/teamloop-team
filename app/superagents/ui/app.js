@@ -992,28 +992,37 @@ function list(label, items, cls, task) {
   for (const it of items) { const li = el("li", null, it.text); const c = el("span", "cite", `${it.evidence_ids.length} cited`); li.append(c); ul.append(li); }
   row.append(ul); return row;
 }
+const named = t => (t.title && t.title !== t.task ? t.title : "");  // a task id stored as a title isn't a name
+const STATUS_SAID = {blocked: "blocked", review: "in review", in_progress: "in progress", todo: "to do", done: "done"};
+// Agent S's estimate from the sessions next to what the coding agent claims: the gap is what this board is for.
+function trust(t) {
+  const p = t.progress, says = p ? p.agent_says_percent : null, known = (t.tools || []).filter(x => TOOLS[x]);  // not "mcp"
+  const who = known.length === 1 ? TOOLS[known[0]] : "The coding agent";
+  const box = el("div", "trust"), ours = el("div", "tv"), theirs = el("div", "tv them");
+  ours.append(el("b", null, p ? `${p.percent}%` : "…"), el("span", null, p ? `Agent S · ${p.confidence} confidence` : "Agent S is estimating"));
+  if (says != null) theirs.append(el("b", null, `${says}%`), el("span", null, `${who} says`));
+  else theirs.append(el("span", null, "No claim yet"));
+  const track = el("div", "track"), fill = el("div", "fill");
+  fill.style.width = "0%"; track.append(fill); requestAnimationFrame(() => { fill.style.width = `${p ? p.percent : 0}%`; });
+  if (says != null) { const m = el("div", "claim"); m.style.left = `calc(${says}% - 1px)`; m.title = `${who} says ${says}%`; track.append(m); }
+  box.append(ours, theirs, track);
+  const gap = p && says != null ? says - p.percent : 0;
+  if (gap >= 15) { box.classList.add("gap"); box.append(el("div", "gap-note", `${who} claims ${gap} points more than the evidence shows.`)); }
+  return box;
+}
 function card(t, members, i) {
-  const c = el("article", "card" + (t.status === "blocked" ? " blocked" : "")); c.style.animationDelay = `${Math.min(i, 8) * 40}ms`;
+  const c = el("article", `card ${t.status}`); c.style.animationDelay = `${Math.min(i, 8) * 40}ms`;
   const head = el("div", "card-head"); head.append(mascot(t.members[0] || "team", pose(t, members)));
   const open = el("button", "card-open"); open.type = "button"; open.title = "Open the timeline"; open.onclick = () => openTask(t.task);
-  open.append(el("div", "tid", t.task), el("h3", null, t.title || t.task));
-  head.append(open, el("span", "status " + t.status, t.status === "todo" ? "to do" : t.status.replace("_", " "))); c.append(head);
+  open.append(el("div", "tid", t.task), el("h3", named(t) ? null : "untitled", named(t) || "No title yet"));
+  head.append(open, el("span", "status " + t.status, STATUS_SAID[t.status] || t.status)); c.append(head);
+  c.append(trust(t));
   const p = t.progress;
-  if (t.status === "todo") {
-    c.classList.add("todo");
-    c.append(el("div", "notyet", t.owner ? `Not started · ${t.owner} is on it` : "Not started · nobody assigned yet"));
-    const foot = el("div", "card-foot"); const due = dueChip(t.due, t.status); if (due) foot.append(due);
-    foot.append(el("span", null, `planned ${ago(t.last_activity)}`)); c.append(foot);
-    return c;
+  if (p) {  // at a glance: what blocks it, what's happening, what's next. The drawer has the rest.
+    const lists = el("div", "lists");
+    for (const r of [list("Blocked", p.blockers, "blockers"), list("Now", p.doing), list("Next", (p.next || []).slice(0, 2))]) if (r) lists.append(r);
+    if (lists.childElementCount) c.append(lists);
   }
-  const meter = el("div", "meter"), track = el("div", "track"), fill = el("div", "fill");
-  fill.style.width = "0%"; track.append(fill); requestAnimationFrame(() => { fill.style.width = `${p ? p.percent : 0}%`; });
-  if (p && p.agent_says_percent != null) { const m = el("div", "claim"); m.style.left = `calc(${p.agent_says_percent}% - 1px)`; m.title = "what the coding agent claims"; track.append(m); }
-  const legend = el("div", "legend"); const a = el("span"); a.append("Agent S ", el("b", null, p ? `${p.percent}%` : "estimating…"));
-  if (p) a.append(` · ${p.confidence}`); legend.append(a);
-  if (p && p.agent_says_percent != null) legend.append(el("span", null, `agent says ${p.agent_says_percent}%`));
-  meter.append(track, legend); c.append(meter);
-  if (p) { const lists = el("div", "lists"); for (const r of [list("Blocked", p.blockers, "blockers", t.task), list("Done", p.done, "", t.task), list("Doing", p.doing, "", t.task), list("Next", p.next, "", t.task)]) if (r) lists.append(r); if (lists.childElementCount) c.append(lists); }
   const foot = el("div", "card-foot");
   const due = dueChip(t.due, t.status); if (due) foot.append(due);
   if (t.owner && !t.members.includes(t.owner)) foot.append(el("span", "tag", `owner ${t.owner}`));
@@ -1024,25 +1033,63 @@ function card(t, members, i) {
   foot.append(el("span", null, `${ago(t.last_activity)} · ${t.events} events`));
   c.append(foot); return c;
 }
+// A planned or finished task is one line; it opens the same drawer.
+function taskRow(t) {
+  const r = el("button", `trow ${t.status}`); r.type = "button"; r.onclick = () => openTask(t.task);
+  const meta = el("span", "tmeta"), who = t.owner || t.members[0];
+  meta.append(el("span", "tag" + (who ? "" : " faint"), who || "nobody yet"));
+  const due = dueChip(t.due, t.status); if (due) meta.append(due);
+  if (t.pr) meta.append(el("span", "tag pr", `PR #${t.pr.number} ${t.pr.state}`));
+  meta.append(el("span", "when", t.status === "todo" ? `planned ${ago(t.last_activity)}` : ago(t.last_activity)));
+  r.append(el("span", "tid", t.task), el("span", "ttl" + (named(t) ? "" : " untitled"), named(t) || "No title yet"), meta);
+  return r;
+}
+// The board reads top-down by what needs a lead: active tasks as cards (blocked first, then in review, then in
+// progress); then the plan and what's done as rows, with done folded. The counts at the top filter it.
+const STATUSES = ["blocked", "review", "in_progress", "todo", "done"];
+const SECTIONS = [["active", "Active", ["blocked", "review", "in_progress"]], ["todo", "To do", ["todo"]], ["done", "Done", ["done"]]];
+const BOARD = {only: null, doneOpen: false};
 function renderBoard() {
-  const grid = $("cards"); const b = S.board;
-  if (!b) { grid.replaceChildren(el("div", "skeleton"), el("div", "skeleton"), el("div", "skeleton")); return; }
-  const counts = {todo: 0, in_progress: 0, blocked: 0, review: 0, done: 0};
-  for (const t of b.tasks) counts[t.status] = (counts[t.status] || 0) + 1;
+  const root = $("cards"); const b = S.board;
+  if (!b) { const sk = el("div", "cards"); sk.append(el("div", "skeleton"), el("div", "skeleton"), el("div", "skeleton")); root.replaceChildren(sk); return; }
+  const by = Object.fromEntries(STATUSES.map(k => [k, []]));
+  for (const t of b.tasks) (by[t.status] || by.in_progress).push(t);
+  by.todo.sort((x, y) => (x.due || "~").localeCompare(y.due || "~"));  // nearest deadline first; the rest in plan order
   const tally = $("tally"); tally.replaceChildren();
-  for (const [k, v, cls] of [["tasks", b.tasks.length], ["to do", counts.todo], ["in progress", counts.in_progress], ["blocked", counts.blocked, counts.blocked ? "bad" : ""], ["in review", counts.review], ["done", counts.done]]) {
-    const s = el("span", cls || null); s.append(el("b", null, String(v)), k); tally.append(s);
+  for (const [k, n] of [[null, b.tasks.length], ...STATUSES.map(k => [k, by[k].length])]) {
+    const f = el("button", (k === "blocked" && n ? "bad" : "") + (BOARD.only === k ? " on" : "")); f.type = "button";
+    f.append(el("b", null, String(n)), k ? STATUS_SAID[k] : "tasks"); f.disabled = k !== null && !n;
+    f.setAttribute("aria-pressed", String(BOARD.only === k)); f.title = k ? `Show only ${STATUS_SAID[k]}` : "Show every task";
+    f.onclick = () => { BOARD.only = BOARD.only === k ? null : k; renderBoard(); };
+    tally.append(f);
   }
   $("boardSub").textContent = `${b.room} · Agent S progress from every teammate's sessions`;
-  grid.replaceChildren();
+  root.replaceChildren();
   if (!b.tasks.length) {
-    const e = el("div", "empty"); e.style.gridColumn = "1 / -1";
+    const e = el("div", "empty");
     const go2 = el("button", "btn primary", "Connect a repo"); go2.type = "button"; go2.onclick = () => go("laptop");
     e.append(mascot(S.user.name, "sleep"), el("h3", null, "No task activity yet"),
       el("p", "sub", "Connect a repo on this laptop, then start a Claude Code or Codex session. Tasks show up here as you work."), go2);
-    grid.append(e); return;
+    root.append(e); return;
   }
-  b.tasks.forEach((t, i) => grid.append(card(t, b.members, i)));
+  let i = 0;
+  for (const [key, label, statuses] of SECTIONS) {
+    const tasks = statuses.filter(s => !BOARD.only || BOARD.only === s).flatMap(s => by[s]);
+    if (!tasks.length) continue;
+    const sec = el("section", `group ${key}`), rows = key !== "active", fold = key === "done" && BOARD.only !== "done";
+    const head = el(fold ? "button" : "h2", "group-head"); head.append(label, el("span", null, String(tasks.length)));
+    if (fold) {
+      head.type = "button"; head.prepend(ic("caret")); head.setAttribute("aria-expanded", String(BOARD.doneOpen));
+      head.onclick = () => { BOARD.doneOpen = !BOARD.doneOpen; renderBoard(); };
+    }
+    sec.append(head);
+    if (!fold || BOARD.doneOpen) {
+      const box = el("div", rows ? "rows" : "cards");
+      for (const t of tasks) box.append(rows ? taskRow(t) : card(t, b.members, i++));
+      sec.append(box);
+    }
+    root.append(sec);
+  }
 }
 
 const fmtDate = d => new Date(`${d}T00:00:00`).toLocaleDateString([], {month: "short", day: "numeric"});
@@ -1069,9 +1116,119 @@ function sparkline(history) {
   const y = p => H - pad - (Math.max(0, Math.min(100, p)) / 100) * (H - 2 * pad);
   const s = svg("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Agent S progress over time"});
   for (const g of [0, 50, 100]) s.append(svg("line", {x1: 0, x2: W, y1: y(g), y2: y(g), stroke: "currentColor", "stroke-opacity": .1}));
+  const said = history.some(h => h.agent_says != null);
+  if (said) s.append(svg("polyline", {points: history.map((h, i) => (h.agent_says == null ? "" : `${x(i)},${y(h.agent_says)}`)).filter(Boolean).join(" "),  // what the coding agent claimed
+    fill: "none", stroke: "currentColor", "stroke-opacity": .45, "stroke-width": 2, "stroke-dasharray": "6 5", "stroke-linejoin": "round"}));
   s.append(svg("polyline", {points: history.map((h, i) => `${x(i)},${y(h.percent)}`).join(" "), fill: "none", stroke: "var(--brick)", "stroke-width": 3, "stroke-linejoin": "round", "stroke-linecap": "round"}));
   history.forEach((h, i) => s.append(svg("circle", {cx: x(i), cy: y(h.percent), r: 3.5, fill: "var(--brick)"})));
-  box.append(s, el("div", "label", `${n} estimate${n > 1 ? "s" : ""} · now ${history[n - 1].percent}%`)); return box;
+  box.append(s, el("div", "label", `${n} estimate${n > 1 ? "s" : ""}${said ? " · dashed: the coding agent's claim" : ""}`)); return box;
+}
+// The task's facts. The deadline is a chip with the system date picker behind one button.
+function dueControls(d) {
+  const box = el("div", "due-row");
+  const draw = () => {
+    const di = inputEl({type: "date", value: d.due || ""}); di.className = "date-pick"; di.tabIndex = -1; di.setAttribute("aria-label", "Deadline");
+    const save = async due => {
+      try {
+        await hub(withTeam(`tasks/${encodeURIComponent(d.task)}`), {method: "PATCH", body: {due}});
+        d.due = due || null; toast(due ? `${d.task} is due ${fmtDate(due)}.` : `${d.task} has no deadline now.`); draw(); loadBoard();
+      } catch (e) { toast(e.message, true); }
+    };
+    di.onchange = () => save(di.value);
+    const pick = btn(d.due ? "Change" : "Set a deadline", "ghost", () => { try { di.showPicker(); } catch (e) { di.focus(); } });
+    box.replaceChildren(...[dueChip(d.due, d.status), pick, d.due && btn("Clear", "ghost", () => save("")), di].filter(Boolean));
+  };
+  draw(); return box;
+}
+// The drawer's title renames the task in place: click it, type, Enter (Esc keeps the old name).
+function renamable(d) {
+  const h = $("dTitle");
+  const show = () => {
+    const b = el("button", "title-btn" + (named(d) ? "" : " untitled"), named(d) || "No title yet"); b.type = "button"; b.title = "Rename";
+    b.onclick = () => {
+      const i = inputEl({value: named(d), maxLength: 120, placeholder: "Name this task"}); i.className = "title-in"; i.setAttribute("aria-label", "Task title");
+      let over = false;
+      const finish = async keep => {
+        if (over) return; over = true;
+        const v = i.value.trim();
+        if (keep && v && v !== named(d)) {
+          try { await hub(withTeam(`tasks/${encodeURIComponent(d.task)}`), {method: "PATCH", body: {title: v}}); d.title = v; loadBoard(); }
+          catch (e) { toast(e.message, true); }
+        }
+        show(); if (!$("drawer").hidden) h.querySelector("button").focus();
+      };
+      i.onkeydown = ev => { if (ev.key === "Enter") finish(true); if (ev.key === "Escape") { ev.stopPropagation(); finish(false); } };
+      i.onblur = () => finish(true);
+      h.replaceChildren(i); i.focus(); i.select();
+    };
+    h.replaceChildren(b);
+  };
+  show();
+}
+// What happened, as a story: days, then each person's coding session with what its agent reported and summed up.
+// Routine steps (commands, edits, starts and ends) fold into one line per session, like the chat's steps.
+const ROUTINE = e => ["tool", "session_start", "session_end"].includes(e.kind) || (e.kind === "turn_end" && !e.summary)
+  || (e.kind === "task_start" && e.line === "task started");  // untitled: says nothing the session head doesn't
+function dayName(ts) {
+  const d = new Date(ts); if (isNaN(d)) return "";
+  const days = Math.round((new Date(new Date().toDateString()) - new Date(d.toDateString())) / 86400000);
+  return days === 0 ? "Today" : days === 1 ? "Yesterday" : d.toLocaleDateString([], {weekday: "short", month: "short", day: "numeric"});
+}
+function reportRows(r) {
+  const box = el("div", "lists");
+  for (const [label, items] of [["Done", r.done], ["Now", r.doing ? [r.doing] : []], ["Next", r.next]]) {
+    if (!items || !items.length) continue;
+    const row = el("div", "lrow"), ul = el("ul");
+    for (const it of items) ul.append(el("li", null, it));
+    row.append(el("span", null, label), ul); box.append(row);
+  }
+  return box;
+}
+function tlEvent(e, who, hit) {
+  const li = el("div", "tl-ev" + (hit ? " hit" : "") + (e.kind === "blocked" ? " bad" : "")), body = el("div"), r = e.report || {};
+  if (e.kind === "self_report" && r.percent != null) body.append(el("b", null, `${who} says ${r.percent}% done`), reportRows(r));
+  else if (e.kind === "blocked" && e.report) body.append(el("b", null, `Blocked${r.needs ? `, needs ${r.needs}` : ""}`), r.reason ? el("div", null, r.reason) : "");
+  else if (e.summary) body.append(el("b", null, e.status === "done" ? "Turn done" : e.status === "blocked" ? "Turn blocked" : "Turn summary"), el("div", null, e.summary));
+  else body.append(e.line);
+  li.append(el("time", null, clock(e.ts)), body);
+  return li;
+}
+function stepsFold(steps) {
+  const box = el("div", "tl-steps"), head = el("button", "tl-fold"), ol = el("ol", "timeline");
+  const ran = {}; let edits = 0;
+  for (const e of steps) { const m = /^ran (\w+) command/.exec(e.line || ""); if (m) ran[m[1]] = (ran[m[1]] || 0) + 1; else if (/^edited /.test(e.line || "")) edits++; }
+  const parts = [...Object.entries(ran).map(([k, n]) => `${k} ×${n}`), edits ? `${edits} edit${edits === 1 ? "" : "s"}` : ""].filter(Boolean);
+  const failed = steps.filter(e => /FAILED|failed/.test(e.line || "")).length;
+  head.type = "button"; head.append(ic("caret"), el("span", null, `${steps.length} step${steps.length === 1 ? "" : "s"}`));
+  if (parts.length) head.append(el("span", "tl-parts", parts.join(" · ")));
+  if (failed) head.append(el("span", "sh-bad", `${failed} failed`));
+  for (const e of steps) { const li = el("li"); li.append(el("time", null, clock(e.ts)), el("div", null, e.line)); ol.append(li); }
+  ol.hidden = true; head.setAttribute("aria-expanded", "false");
+  head.onclick = () => { ol.hidden = !ol.hidden; head.setAttribute("aria-expanded", String(!ol.hidden)); };
+  box.append(head, ol); return box;
+}
+function timelineView(evs, hits) {
+  const groups = [];
+  for (const e of evs) {  // newest first. Reports come through MCP with no session: they join the session around them.
+    const g = groups[groups.length - 1], day = dayName(e.ts);
+    if (g && g.day === day && g.member === e.member && (!e.session || !g.session || g.session === e.session)) {
+      g.evs.push(e); g.session = g.session || e.session; g.tool = g.tool || (TOOLS[e.tool] ? e.tool : null);
+    } else groups.push({day, member: e.member, session: e.session, tool: TOOLS[e.tool] ? e.tool : null, evs: [e]});
+  }
+  const box = el("div", "tl");
+  groups.forEach((g, i) => {
+    if (!i || groups[i - 1].day !== g.day) box.append(el("div", "label tl-day", g.day));
+    const s = el("div", "tl-session"), head = el("div", "tl-head"), from = clock(g.evs[g.evs.length - 1].ts), to = clock(g.evs[0].ts);
+    head.append(el("b", null, g.member === "github" ? "GitHub" : g.member), TOOLS[g.tool] ? ` · ${TOOLS[g.tool]}` : "",
+      el("time", null, from === to ? to : `${from}–${to}`));
+    s.append(head);
+    // cited evidence (opened from an answer's Show evidence) is never folded away
+    for (const e of g.evs) if (!ROUTINE(e) || hits.has(e.id)) s.append(tlEvent(e, TOOLS[g.tool] || "The agent", hits.has(e.id)));
+    const steps = g.evs.filter(e => ROUTINE(e) && !hits.has(e.id));
+    if (steps.length) s.append(stepsFold(steps));
+    box.append(s);
+  });
+  return box;
 }
 function openDrawer(kicker, title, nodes, foot) {
   openedFrom = document.activeElement;
@@ -1084,32 +1241,25 @@ function openDrawer(kicker, title, nodes, foot) {
 async function openTask(task, highlight) {
   try {
     const d = await hub(withTeam(`tasks/${encodeURIComponent(task)}`));
-    const nodes = [sparkline(d.history || [])];
-    if (d.usage && d.usage.tokens) nodes.push(el("div", "label", `AI usage · ${fmtTok(d.usage.tokens)} tokens over ${d.usage.turns} turns`));
-    const dueRow = el("div", "due-row"); const di = inputEl({type: "date", value: d.due || ""}); di.setAttribute("aria-label", "Deadline");
-    di.onchange = async () => {
-      try { await hub(withTeam(`tasks/${encodeURIComponent(d.task)}`), {method: "PATCH", body: {due: di.value || ""}});
-        toast(di.value ? `${d.task} is due ${fmtDate(di.value)}.` : `${d.task} has no deadline now.`); loadBoard(); }
-      catch (e) { toast(e.message, true); }
-    };
-    dueRow.append(el("span", "label", "Deadline"), di); const chip = dueChip(d.due, d.status); if (chip) dueRow.append(chip);
-    nodes.push(dueRow);
+    const nodes = d.status === "todo" ? [] : [trust(d), sparkline(d.history || [])];
+    const facts = el("div", "facts"), fact = (label, value) => facts.append(el("span", "label", label), value);
+    fact("Status", el("span", "status " + d.status, STATUS_SAID[d.status] || d.status));
+    fact("People", el("span", null, [d.owner && `${d.owner} (owner)`, ...(d.members || []).filter(m => m !== d.owner)].filter(Boolean).join(", ") || "Nobody yet"));
+    fact("Deadline", dueControls(d));
+    if (d.pr) fact("Pull request", el("span", "tag pr", [`#${d.pr.number}`, d.pr.draft ? "draft" : d.pr.state, d.pr.checks ? `CI ${d.pr.checks}` : ""].filter(Boolean).join(" · ")));
+    if (d.usage && d.usage.tokens) fact("AI usage", el("span", null, `${fmtTok(d.usage.tokens)} tokens over ${d.usage.turns} turns`));
+    nodes.push(facts);
     const p = d.progress || {}; const lists = el("div", "lists");
-    for (const r of [list("Blocked", p.blockers, "blockers"), list("Done", p.done), list("Doing", p.doing), list("Next", p.next)]) if (r) lists.append(r);
+    for (const r of [list("Blocked", p.blockers, "blockers"), list("Now", p.doing), list("Next", p.next), list("Done", p.done)]) if (r) lists.append(r);
     if (lists.childElementCount) nodes.push(lists);
-    nodes.push(el("div", "label", "Timeline, newest first"));
-    if (!d.timeline.length) nodes.push(el("p", "sub", d.owner ? `Planned for ${d.owner}. When a session starts on ${d.task}, it shows up here.`
+    nodes.push(el("div", "label", "What happened, newest first"));
+    const hits = new Set(highlight || []);
+    nodes.push(d.timeline.length ? timelineView(d.timeline, hits) : el("p", "sub", d.owner ? `Planned for ${d.owner}. When a session starts on ${d.task}, it shows up here.`
       : `Planned. When someone starts a session on ${d.task}, it shows up here.`));
-    const ol = el("ol", "timeline"); const hit = new Set(highlight || []);
-    for (const e of d.timeline) {
-      const li = el("li", hit.has(e.id) ? "hit" : null); const t = el("div");
-      t.append(el("b", null, `${e.member}${TOOLS[e.tool] ? " · " + TOOLS[e.tool] : ""}  `), e.line);
-      li.append(el("time", null, clock(e.ts)), t); ol.append(li);
-    }
-    nodes.push(ol);
-    openDrawer(d.task, d.title || d.task, nodes);
+    openDrawer(d.task, "", nodes);
+    renamable(d);
     $("dClose").focus();
-    const first = ol.querySelector(".hit"); if (first) first.scrollIntoView({block: "center"});
+    const first = $("dBody").querySelector(".hit"); if (first) first.scrollIntoView({block: "center"});
   } catch (e) { toast(e.message, true); }
 }
 function closeDrawer() { $("drawer").hidden = true; $("scrim").hidden = true; if (openedFrom && openedFrom.isConnected) openedFrom.focus(); }

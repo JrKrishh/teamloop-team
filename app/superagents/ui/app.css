@@ -21,7 +21,7 @@
 :root[data-theme="light"]{
   --bg:#F6F1E8;--bg2:#EFE8DC;--panel:#FFFCF6;--panel2:#F3ECE1;--line:#E6DDCF;--line2:#D6CBBB;
   --text:#18171B;--muted:#6B655D;--faint:#A39B90;
-  --brick:#A8443D;--brick-strong:#A8443D;--on-brick:#FFF8F2;--focus:#A8443D;
+  --brick:#A8443D;--brick-strong:#A8443D;--on-brick:#FFF8F2;--focus:#A8443D;--warn:#9A6400;
   --glow:0 0 0 1px rgba(24,23,27,.03),0 18px 40px -22px rgba(60,40,20,.35);
   --hl-key:#A8443D;--hl-str:#2C7A4F;--hl-num:#A65F1C;--hl-com:#9C948A;--hl-fn:#6448B4;--hl-type:#7E5F0E;--hl-attr:#2D60A3;
   --term-bg:#FFFCF6;--plan:#3D68B8;
@@ -395,9 +395,20 @@ button.tchip:hover{background:var(--panel2)}
 
 /* ---- board ---- */
 .tally{display:flex;gap:8px;flex-wrap:wrap}
-.tally span{display:inline-flex;align-items:baseline;gap:6px;padding:6px 12px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-size:13px;color:var(--muted)}
+.tally button{display:inline-flex;align-items:baseline;gap:6px;padding:6px 12px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-size:13px;color:var(--muted)}
+.tally button:hover:not(:disabled){border-color:var(--line2);color:var(--text)}
+.tally button.on{border-color:var(--text);color:var(--text)}
+.tally button:disabled{opacity:.45;cursor:default}
 .tally b{color:var(--text);font:700 15px var(--fb)}
-.tally span.bad b{color:var(--bad)}
+.tally button.bad b{color:var(--bad)}
+/* the board: groups by status, the ones that need a lead first */
+.board{display:grid;gap:28px}
+.group{display:grid;gap:12px;min-width:0}
+.group-head{display:flex;align-items:center;gap:8px;margin:0;padding:0;border:0;background:none;font:600 11.5px var(--fm);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);justify-self:start}
+.group-head span{color:var(--muted)}
+button.group-head:hover{color:var(--text)}
+button.group-head .ic,button.group-head .ic svg{width:14px;height:14px;transition:transform .15s var(--ease)}
+button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px;align-items:start}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;display:grid;gap:14px;min-width:0;box-shadow:var(--glow);animation:msgIn .35s var(--ease) both;transition:border-color .2s,transform .2s var(--ease)}
 .card:hover{border-color:var(--line2);transform:translateY(-2px)}
@@ -410,14 +421,30 @@ button.tchip:hover{background:var(--panel2)}
 .card h3{font:700 18px/1.25 var(--ft);letter-spacing:-.01em;margin:0;overflow-wrap:anywhere}
 .status{flex:none;font:700 10.5px var(--fm);letter-spacing:.08em;text-transform:uppercase;padding:5px 8px;border-radius:7px;border:1px solid currentColor;color:var(--muted)}
 .status.blocked{color:var(--bad)}.status.done,.status.review{color:var(--ok)}.status.todo{color:#7FA6F0}
-.card.todo{border-style:dashed}
-.notyet{font:500 12.5px var(--fm);color:var(--faint);padding:4px 0}
-.meter{display:grid;gap:7px}
+.untitled{color:var(--faint);font-style:italic;font-weight:500}
+/* Agent S's estimate next to the coding agent's claim */
+.trust{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:end}
+.trust .tv{display:grid;gap:3px;min-width:0}
+.trust .tv b{font:750 26px/1 var(--ft);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.trust .tv span{font-size:12.5px;color:var(--muted)}
+.trust .them{justify-items:end;text-align:right}
+.trust .them b{font-size:18px;color:var(--muted)}
+.trust.gap .them b{color:var(--warn)}
+.trust .track{grid-column:1 / -1}
+.gap-note{grid-column:1 / -1;font-size:12.5px;color:var(--warn)}
 .track{position:relative;height:8px;border-radius:99px;background:var(--bg2);border:1px solid var(--line)}
 .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brick-strong),var(--brick));transition:width .8s var(--ease)}
 .claim{position:absolute;top:-5px;width:2px;height:16px;border-radius:2px;background:var(--text);opacity:.7}
-.legend{display:flex;justify-content:space-between;gap:8px;font:500 12px var(--fm);color:var(--muted);flex-wrap:wrap}
-.legend b{color:var(--text)}
+.trust.gap .claim{background:var(--warn);opacity:1}
+/* planned and finished tasks: one line each */
+.rows{display:grid;gap:6px}
+.trow{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);transition:border-color .2s}
+.trow:hover{border-color:var(--line2)}
+.trow:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.trow .ttl{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow.done .ttl{color:var(--muted)}
+.tmeta{display:flex;gap:6px;align-items:center;white-space:nowrap;font-size:12.5px;color:var(--faint)}
+.tmeta .when{margin-left:4px}
 .lists{display:grid;gap:7px;font-size:14px}
 .lrow{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px}
 .lrow > span{font:600 10.5px/1.9 var(--fm);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
@@ -427,6 +454,7 @@ button.tchip:hover{background:var(--panel2)}
 .card-foot{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--faint)}
 .tag{font:600 12px var(--fb);padding:4px 9px;border-radius:8px;background:var(--bg2);border:1px solid var(--line);color:var(--muted)}
 .tag.pr{border-color:rgba(76,195,138,.4);color:var(--ok)}
+.tag.faint{color:var(--faint);border-style:dashed}
 .empty{display:grid;justify-items:center;gap:10px;text-align:center;padding:56px 20px;border:1px dashed var(--line2);border-radius:20px;color:var(--muted)}
 .empty img{width:84px;height:110px;object-fit:contain}
 .empty h3{font:750 20px var(--ft);margin:0;color:var(--text)}
@@ -469,8 +497,34 @@ button.tchip:hover{background:var(--panel2)}
 .pcard .row{flex-wrap:wrap}
 .tag.due.soon{color:var(--warn);border-color:rgba(242,179,43,.45)}
 .tag.due.late{color:var(--bad);border-color:rgba(240,122,112,.5)}
-.due-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.due-row input{height:34px;padding:0 10px;border-radius:9px;font:500 13px var(--fm)}
+.due-row{position:relative;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.date-pick{position:absolute;left:0;bottom:0;width:1px;height:1px;padding:0;border:0;opacity:0;pointer-events:none}
+/* the task drawer: facts, a title that renames in place, and the timeline as days and sessions */
+.facts{display:grid;grid-template-columns:104px minmax(0,1fr);gap:10px 14px;align-items:center;font-size:14px}
+.facts .status{justify-self:start}
+.drawer-body > .lists .lrow{grid-template-columns:104px minmax(0,1fr);gap:14px}
+.title-btn{all:unset;cursor:text;border-radius:8px;padding:0 4px;margin:0 -4px;overflow-wrap:anywhere}
+.title-btn:hover{background:var(--panel)}
+.title-btn:focus-visible{outline:2px solid var(--focus)}
+.title-in{box-sizing:border-box;width:100%;font:inherit;letter-spacing:inherit;padding:2px 8px;border-radius:8px;border:1px solid var(--line2);background:var(--panel);color:var(--text)}
+.tl{display:grid;gap:10px}
+.tl-day{margin-top:4px}
+.tl-session{display:grid;gap:2px;padding:6px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.tl-head{display:flex;align-items:baseline;gap:6px;padding:6px 8px 4px;font-size:13px;color:var(--muted)}
+.tl-head b{color:var(--text)}
+.tl-head time{margin-left:auto;font:500 12px var(--fm);color:var(--faint)}
+.tl-ev{display:grid;grid-template-columns:48px minmax(0,1fr);gap:10px;padding:8px;border-radius:10px;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.tl-ev time{font:500 12px/1.7 var(--fm);color:var(--faint)}
+.tl-ev .lists{margin-top:6px;font-size:13.5px}
+.tl-ev.hit{background:var(--panel2);box-shadow:inset 3px 0 0 var(--brick)}
+.tl-ev.bad b{color:var(--bad)}
+.tl-fold{display:flex;align-items:center;gap:8px;width:100%;padding:7px 8px;border:0;border-radius:10px;background:none;color:var(--muted);font-size:13px;text-align:left}
+.tl-fold:hover{background:var(--panel2)}
+.tl-fold .ic,.tl-fold .ic svg{width:14px;height:14px;color:var(--faint);transition:transform .15s var(--ease)}
+.tl-fold[aria-expanded="true"] .ic{transform:rotate(90deg)}
+.tl-parts{font:500 12px var(--fm);color:var(--faint)}
+.tl-fold .sh-bad{font:600 11.5px var(--fm);color:var(--bad)}
+.tl-steps .timeline{padding:0 0 4px}
 
 /* ---- memory; Super Team threads ---- */
 .mem-stats{font:500 12.5px var(--fm);color:var(--faint)}

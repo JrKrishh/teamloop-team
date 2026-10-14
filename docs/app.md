@@ -92,6 +92,18 @@ Click your name at the bottom of the sidebar → **Settings** (or **Ctrl+,**). O
 - **Privacy:** sharing from this laptop, letting agents search your coding sessions (Memory), and your rules for teammates' prompts into your sessions (Super Team). These are the same switches as on This laptop, Agents → Memory and Super Team → Sessions.
 - **Keyboard shortcuts**, and **About** (version, licence, source code).
 
+## The board
+
+Nobody updates it by hand: status and progress come from the teammates' coding sessions.
+- **Read top-down by what needs a lead.** Active tasks are cards, blocked first, then in review, then in progress. The plan (to do, nearest deadline first) and what's done are one line each, with Done folded. The counts at the top filter the board.
+- **Each card puts Agent S's estimate from the sessions next to what the coding agent claims** ("95% · Claude Code says 100%"). When the claim runs 15 points or more ahead of the evidence, the card says so. Below that: what blocks the task, what's happening now, and what's next.
+- **A task's drawer** has:
+  - both lines over time;
+  - the facts: status, people, deadline, pull request, AI usage;
+  - what happened, by day and coding session. The agent's reports read as Done, Now and Next rows, turn summaries as text, and routine steps (commands, edits, starts and ends) fold into one line per session.
+- **The title renames in place:** click it. A task with no name says "No title yet" rather than showing its ID twice.
+- **The same title can't be planned twice** while the first task is open. The hub answers with the existing task, so asking an agent twice doesn't double the board.
+
 ## Super Team
 Teammates connected through Super Agents are a **Super Team**. Anyone in it, lead or member, can send a prompt into a teammate's live Claude Code or Codex session: ask the agent that has the context ("what's left on T-22?", "explain your diff"). Agents can do it too (`team_sessions`, `prompt_session`, `session_prompt`).
 - **The owner's rules** (Super Team → Sessions → Your sessions): prompts from teammates are **off**, **ask me each time** (the default: a badge and a toast, then Allow or Deny), or **run automatically**. Runs are **read only** (the default) or **can edit files**. A **daily token limit per teammate**, or unlimited.
