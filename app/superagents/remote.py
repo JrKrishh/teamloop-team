@@ -290,7 +290,7 @@ class Remote:
         t = msg.get("t")
         try:
             turn = str(msg.get("turn") or "")
-            if t in ("watch", "decide", "stop", "run_plan") and not TURN_ID.fullmatch(turn):
+            if t in ("watch", "decide", "stop", "run_plan", "mode") and not TURN_ID.fullmatch(turn):
                 raise ValueError("That turn isn't on this laptop")
             if t == "hello":
                 out = {"t": "state", **self.state()}
@@ -321,6 +321,9 @@ class Remote:
                 out = {"t": "ok"}
             elif t == "stop":
                 self.api("POST", f"/api/turns/{turn}/cancel")
+                out = {"t": "ok"}
+            elif t == "mode":  # switched on the phone while the answer runs
+                self.api("POST", f"/api/turns/{turn}/mode", {"mode": str(msg.get("mode") or "")})
                 out = {"t": "ok"}
             elif t == "run_plan":
                 r = self.api("POST", f"/api/turns/{turn}/run-plan")

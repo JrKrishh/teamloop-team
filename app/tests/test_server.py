@@ -7,12 +7,13 @@ import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
 
-from superagents import main, server, store, supa
+from superagents import laptop, main, server, store, supa
 from superagents.runtime import tools as runtime_tools
 from teamloop import claude, codex, send, spool
 
@@ -273,6 +274,38 @@ def test_a_second_launch_shows_the_open_window(env):
     one = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
     assert one.post("/api/window/show").status_code == 403  # only with this copy's key
     assert one.post("/api/window/show", headers={"X-App-Key": "the-key"}).json() == {"ok": True} and shown == [True]
+
+
+def test_connect_from_github_lists_repos_through_this_laptops_sign_in(env, monkeypatch):
+    def repo(i, **more):
+        return {"full_name": f"yang/r{i}", "html_url": f"https://github.com/yang/r{i}", "pushed_at": "2026-10-14T10:00:00Z", **more}
+    monkeypatch.setattr(laptop.shutil, "which", lambda n: "gh" if n == "gh" else None)  # the GitHub CLI, signed in
+
+    def gh(cmd, **kw):
+        assert cmd[:2] == ["gh", "api"] and "affiliation=owner,collaborator,organization_member" in cmd[2]
+        page = int(cmd[2].rsplit("page=", 1)[1])
+        return SimpleNamespace(returncode=0, stdout=json.dumps([repo(i, private=i == 0) for i in range(100 if page == 1 else 3)]))
+    r = laptop.github_repos(run=gh)
+    assert r["via"] == "gh" and len(r["repos"]) == 103  # every page
+    assert r["repos"][0] == {"name": "yang/r0", "url": "https://github.com/yang/r0", "private": True, "description": "", "pushed": "2026-10-14T10:00:00Z"}
+
+    monkeypatch.setattr(laptop.shutil, "which", lambda n: None)  # no CLI: Git Credential Manager's token, for GitHub's API only
+    asked = []
+
+    def gcm(cmd, **kw):
+        assert cmd == ["git", "credential", "fill"] and "host=github.com" in kw["input"] and kw["env"]["GCM_INTERACTIVE"] == "never"
+        return SimpleNamespace(returncode=0, stdout="protocol=https\nhost=github.com\nusername=yang\npassword=gho_token\n")
+    r = laptop.github_repos(run=gcm, fetch=lambda url, token: asked.append((url, token)) or [repo(7)])
+    assert r == {"via": "git", "repos": [{"name": "yang/r7", "url": "https://github.com/yang/r7", "private": False, "description": "",
+                                          "pushed": "2026-10-14T10:00:00Z"}]}
+    assert asked == [("https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member&page=1", "gho_token")]
+
+    with pytest.raises(LookupError):  # neither signed in
+        laptop.github_repos(run=lambda cmd, **kw: SimpleNamespace(returncode=1, stdout=""))
+    client, *_ = env
+    monkeypatch.setattr(laptop, "github_repos", lambda: (_ for _ in ()).throw(LookupError("Sign in to GitHub on this laptop first")))
+    got = client.get("/api/github/repos")
+    assert got.status_code == 409 and got.json()["detail"].startswith("Sign in to GitHub")
 
 
 def test_the_apps_own_title_bar(env):

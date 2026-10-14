@@ -233,6 +233,10 @@ class DecideBody(BaseModel):
     approve: bool
 
 
+class ModeBody(BaseModel):
+    mode: str = Field(pattern="^(manual|auto|plan)$")
+
+
 class NoteBody(BaseModel):
     text: str = Field(min_length=1, max_length=600)
     scope: str = Field(default="all", pattern="^[a-z0-9-]{3,40}$")
@@ -441,6 +445,15 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     @app.get("/api/laptop/git")
     def laptop_git() -> dict:
         return laptop.git_info(laptop.status()["repos"])
+
+    @app.get("/api/github/repos")
+    def github_repos() -> dict:  # Connect from GitHub: this laptop's GitHub sign-in lists them; Get clones one
+        try:
+            return laptop.github_repos()
+        except LookupError as e:
+            raise HTTPException(409, str(e)) from None
+        except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+            raise HTTPException(502, f"Couldn't list your GitHub repos: {e}"[:300]) from None
 
     @app.post("/api/laptop/clone")
     def laptop_clone(body: CloneIn) -> dict:
@@ -691,6 +704,11 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     @app.post("/api/turns/{tid}/cancel")
     def turn_cancel(tid: str) -> dict:
         the_turn(tid).cancel()
+        return {"ok": True}
+
+    @app.post("/api/turns/{tid}/mode")
+    def turn_mode(tid: str, body: ModeBody) -> dict:  # switched while the answer runs: it carries on in the new mode
+        the_turn(tid).set_mode(body.mode)
         return {"ok": True}
 
     def step_of(t, call: Optional[str] = None, status: Optional[str] = None) -> Optional[dict]:

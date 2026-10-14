@@ -147,6 +147,8 @@ def test_a_phone_starts_a_turn_watches_it_and_answers_its_question(home):
     assert [e["i"] for m in got if m["t"] == "events" for e in m["events"]] == [0, 1, 2, 3]
     relay.on_message(phone(key, pid, {"t": "decide", "turn": "turn-0001", "call": "c1", "approve": True}, id="m3"))
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/decide", {"call": "c1", "approve": True}) in api.calls)
+    relay.on_message(phone(key, pid, {"t": "mode", "turn": "turn-0001", "mode": "auto"}, id="m5"))  # switched while it ran
+    assert wait_for(lambda: ("POST", "/api/turns/turn-0001/mode", {"mode": "auto"}) in api.calls)
     relay.on_message(phone(key, pid, {"t": "stop", "turn": "turn-0001"}, id="m4"))
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/cancel", None) in api.calls)
 

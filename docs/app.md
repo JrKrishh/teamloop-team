@@ -30,6 +30,7 @@ The loop runs on this laptop (`runtime/loop.py`), like Claude Code's: the model 
 - **Auto**: changes run and show Undo where it can be exact (a created or closed task).
 - **Plan**: reads run; changes are queued as steps, and nothing runs until Run plan. If the model writes its plan in prose without queuing every step, the loop asks it once to queue the missing steps.
 - Shell commands (`run_command`) **always** ask, in every mode. A connector's tool counts as a read only when its server marks it `readOnlyHint`.
+- **Switching while an answer runs** (desktop or phone) changes that answer too (`POST /api/turns/{id}/mode`): its next steps work the new way and the model is told. What waits for a yes moves on: a change runs at once in Auto (shell commands still ask), and anything is queued in Plan.
 
 **Model:** Auto uses Nemotron Super for chats (Ultra for the digest); or pin Lightning, Super or Ultra.
 
@@ -171,7 +172,8 @@ A counter for the team's AI. The chip at the top shows today's tokens; **Team â†
 
 ## This laptop
 - Picking a team connects the laptop: the hub makes a `tl_` connector token for you and that team (`POST /v1/teams/{team}/connector`), saved where the hooks and the MCP server read it.
-- "Connect a repo" runs `teamloop init` on the folder you pick: Claude Code and Codex hooks in personal files kept out of git, the MCP server, the commit-trailer hook.
+- **Connect from GitHub** lists the repos this laptop's GitHub sign-in can open (the GitHub CLI when it's signed in, else the token Git Credential Manager keeps for github.com, used only to ask GitHub's API), newest first; **Get** clones one into a folder you pick and connects it.
+- "Connect a folder" runs `teamloop init` on the folder you pick: Claude Code and Codex hooks in personal files kept out of git, the MCP server, the commit-trailer hook.
 - The sharing switch is `teamloop pause` / `resume`.
 
 ## What leaves the laptop
