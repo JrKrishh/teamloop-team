@@ -19,7 +19,7 @@ import uvicorn
 from teamloop import spool
 
 from . import laptop, server, store
-from .runtime import memory, superteam
+from .runtime import browser, memory, superteam
 
 CLOUD = os.environ.get("TEAMLOOP_HUB", "https://teamloop.vercel.app")
 BG_DARK, BG_LIGHT = 0x00141112, 0x00E8F1F6  # COLORREF (0x00BBGGRR) of #121114 and #F6F1E8
@@ -123,4 +123,5 @@ def main(argv: list[str] | None = None) -> int:
     state.window.events.shown += lambda: _title_bar(state.window, True)
     webview.start(private_mode=False, storage_path=str(spool.home() / "webview"))
     srv.should_exit = True
+    browser.host().close()  # the agent browser goes with the app
     return 0

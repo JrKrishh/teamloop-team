@@ -16,8 +16,10 @@ datas = [
     (str(ROOT / "app" / "superagents" / "skills"), "superagents/skills"),
     (str(ROOT / "LICENSE"), "."),
 ] + collect_data_files("winpty", includes=["*.exe"])  # the terminal's ConPTY helpers (OpenConsole.exe, winpty-agent.exe)
+datas += collect_data_files("playwright")  # the agent browser's driver (node + Playwright, ~100 MB); it drives the installed Edge
 binaries = collect_dynamic_libs("winpty")             # conpty.dll, winpty.dll: no PyInstaller hook ships for pywinpty
 hidden = (collect_submodules("uvicorn") + collect_submodules("anyio") + collect_submodules("websockets")  # the terminal's socket
+          + collect_submodules("playwright", filter=lambda m: not m.startswith("playwright.sync_api"))
           + collect_submodules("mcp", filter=lambda m: not m.startswith("mcp.cli"))  # mcp.cli needs typer and exits
           + collect_submodules("teamloop") + collect_submodules("hub") + collect_submodules("agent_s")
           + collect_submodules("superagents"))

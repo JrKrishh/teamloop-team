@@ -62,9 +62,18 @@ Agents carry what they learn across chats, sessions and projects (`runtime/memor
 The buttons at the top right open a panel next to the chat (drag its edge to resize):
 - **Files:** a tree of the connected repos and a viewer with syntax highlighting, Markdown preview and images. Read only; agents write through their tools, and an open file reloads when an agent writes it.
 - **Terminal** (Ctrl+`): a real shell (PowerShell 7 if installed, else Windows PowerShell) in a pseudo-console, in your first connected repo. Tabs for more than one.
-- **Browser:** shows a page (a dev server on localhost, docs, a page an agent opens) inside the app. Sites that refuse to be framed open in their own Super Agents window.
+- **Browser:** the browser you share with your agents (below), live and sized to the panel. Click, scroll and type in it to use it yourself or to take over from an agent; "Open in its own window" shows a page in a plain Super Agents window.
 
 **Expand** (the arrows next to the panel's close button) gives the panel the whole work area, for a terminal or a page at full width; picking a view in the sidebar puts it back. The sidebar on the left folds to icons with the button at its top or **Ctrl+B** (names show as tooltips) and stays folded next time.
+
+## The agent browser
+Agents use a real browser (`runtime/browser.py`): the installed Microsoft Edge (or Chrome), driven with Playwright, with its own profile in `~/.teamloop/browser`, apart from your own browser and its sign-ins. You watch it in the Browser panel as it works ("Agent S is using the browser", a ring where it clicks), and it's yours too: what you click and type there goes to the same page.
+- **What agents read is text:** each step returns the page as numbered elements (`ref_12 button "Sign in" (submits a form)`, with values and states), its text, and its console errors and failed requests. Nemotron reads text, so screenshots (`browser_screenshot`) are proof for you, shown in the chat. Steps wait for the page to settle (500 ms without changes, at most 3 s on the network), so pages that render late are read whole.
+- **Tools:** `browser_open` (a URL, or back, forward, reload), `browser_snapshot` (with `find` to search), `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_scroll`, `browser_wait`, `browser_screenshot`, `browser_console`, `browser_eval` (always asks), `browser_batch` (several steps in one model call), and `dev_server`.
+- **Dev servers:** `dev_server` starts a repo's dev command from `.superagents/launch.json` (`{"configurations": [{"name": "web", "command": "npm run dev", "port": 5173}]}`) or its `dev`/`start` script, waits for the port and gives the URL; servers stop with the app.
+- **Checking its own work:** if a turn changed UI files and never looked at them in the browser, the loop asks once (start the dev server, open the page, read the console) before the agent may finish, as Claude Code's auto-verify does.
+- **What asks you:** localhost, 127.0.0.1 and `*.localhost`/`*.test` are free. Other sites ask first: allow once (for this run of the app), or always for that site (Settings → Privacy lists them). On those sites, steps that submit or look risky (delete, pay, send, publish, sign out…) follow the mode. Passwords (except on localhost), card numbers and anything that looks like a secret are never typed by an agent: you take over. Downloads are blocked, and the app's own address can't be opened.
+- Limits: copying text out of the live view and uploading files through it aren't supported yet.
 
 ## Settings
 Click your name at the bottom of the sidebar → **Settings** (or **Ctrl+,**). One page for:

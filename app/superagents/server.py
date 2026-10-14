@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__, laptop, store, supa
 from .runtime import agents as agent_store
+from .runtime import browser
 from .runtime import loop as runtime_loop
 from .runtime import mcpman
 from .runtime import memory
@@ -235,6 +236,11 @@ class UrlBody(BaseModel):
     url: str = Field(min_length=8, max_length=2000)
 
 
+class SiteIn(BaseModel):
+    site: str = Field(min_length=1, max_length=253)
+    allowed: bool = True
+
+
 IMAGES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
           ".svg": "image/svg+xml", ".ico": "image/x-icon", ".bmp": "image/bmp"}
 ISSUES_MAX = 50
@@ -266,6 +272,7 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
            pick_folder: Optional[Callable[[], Optional[str]]] = None,
            set_title_theme: Optional[Callable[[bool], None]] = None) -> FastAPI:
     app = FastAPI(title="Super Agents", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
+    browser.APP_PORT = state.port
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
@@ -735,6 +742,83 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
             raise HTTPException(400, "Only http and https pages")
         (state.open_window or open_url)(body.url)
         return {"ok": True}
+
+    # ---- the agent browser: the person's live view of the browser they share with their agents ---------------------
+    @app.get("/api/browser/state")
+    def browser_state() -> dict:
+        return {**browser.host().state(), "sites": browser.sites()}
+
+    @app.post("/api/browser/open")
+    def browser_open(body: UrlBody) -> dict:
+        h = browser.host()
+        try:
+            h.run(h.person_open, browser._url(body.url))
+        except (ValueError, RuntimeError) as e:
+            raise HTTPException(400, str(e)[:300]) from None
+        except Exception as e:  # noqa: BLE001 - Playwright's errors (a bad address, a page that never answers)
+            raise HTTPException(400, str(e).splitlines()[0][:300]) from None
+        return h.state()
+
+    @app.get("/api/browser/shot/{sid}")
+    def browser_shot(sid: str) -> FileResponse:
+        f = browser.host().home / "shots" / f"{sid}.jpg"
+        if not re.fullmatch(r"sh_[0-9a-f]{10}", sid) or not f.exists():
+            raise HTTPException(404, "No such screenshot")
+        return FileResponse(f, media_type="image/jpeg")
+
+    @app.post("/api/browser/sites")
+    def browser_site(body: SiteIn) -> dict:
+        try:
+            return {"sites": browser.set_site(body.site, body.allowed)}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.websocket("/api/browser/live")
+    async def browser_live(ws: WebSocket, k: str = ""):
+        ours = (f"127.0.0.1:{state.port}", f"localhost:{state.port}")
+        if (ws.headers.get("host") not in ours or not secrets.compare_digest(k, state.key)
+                or ws.headers.get("origin", "") not in [f"http://{h}" for h in ours]):
+            await ws.close(code=4403)
+            return
+        await ws.accept()
+        h = browser.host()
+        try:
+            await run_in_threadpool(h.run, h.watch, True)
+        except Exception as e:  # noqa: BLE001 - no Edge or Chrome here: say so in the panel
+            await ws.send_json({"error": str(e)[:400]})
+            await ws.close()
+            return
+
+        async def take_input() -> None:
+            while True:
+                msg = await ws.receive_json()
+                try:
+                    if msg.get("type") == "size":
+                        await run_in_threadpool(h.run, h.resize, int(msg["w"]), int(msg["h"]))
+                    else:
+                        await run_in_threadpool(h.run, h.person, msg, timeout=20)
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    raise
+                except Exception:  # noqa: BLE001 - a click on a page that's navigating away: drop it
+                    pass
+
+        inbox, frame_no, last = asyncio.create_task(take_input()), -1, {}
+        try:
+            while not inbox.done():
+                now = h.state()
+                now["pointer"] = list(h.pointer) if h.pointer else None
+                if now != last:
+                    await ws.send_json(now)
+                    last = now
+                if h.frame_no != frame_no and h.frame:
+                    frame_no = h.frame_no
+                    await ws.send_bytes(h.frame)
+                await asyncio.sleep(0.05)
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            inbox.cancel()
+            await run_in_threadpool(h.run, h.watch, False)
 
     @app.websocket("/api/terminal")
     async def terminal(ws: WebSocket, k: str = "", cwd: str = "", cols: int = 100, rows: int = 30):

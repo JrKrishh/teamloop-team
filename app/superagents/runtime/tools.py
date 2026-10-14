@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import laptop
-from . import mcpman, memory
+from . import browser, devserver, mcpman, memory
 
 MAX_TEXT = 20_000
 TASK_ID = re.compile(r"^[A-Z][A-Z0-9]{0,15}-\d{1,8}$")
@@ -35,6 +35,7 @@ class Builtin:
     params: dict = field(default_factory=dict)
     required: tuple = ()
     run: Callable | None = None
+    kind_of: Callable[[dict], str] | None = None  # when what it needs depends on the call (the browser: which site, which button)
 
     def schema(self) -> dict:
         return {"type": "function", "function": {"name": self.name, "description": self.description,
@@ -162,11 +163,17 @@ def fetch_url(ctx, url: str) -> str:
     return _clip(f"{url}\n\n" + (page_text(text) if "html" in kind or text.lstrip().startswith("<") else text))
 
 
-def open_in_browser(ctx, url: str) -> str:
-    if not url.startswith(("http://", "https://")):
-        raise ValueError("Only http and https pages")
-    ctx.emit("browser", url=url)
-    return f"Opened {url} in the browser panel."
+def dev_server(ctx, repo: str = "", action: str = "start", name: str = "") -> str:
+    root = _repo(repo)
+    if action == "stop":
+        gone = devserver.stop(root, name)
+        return f"Stopped {', '.join(gone)}." if gone else "No dev server of that repo was running."
+    if action == "logs":
+        keys = [k for k in devserver.SERVERS if k == f"{root.name}-{name}" or (not name and k.startswith(f"{root.name}-"))]
+        return "\n\n".join(f"{k}:\n{devserver.tail(k, 60)}" for k in keys) or "No dev server of that repo is running."
+    s = devserver.start(root, name)
+    return (f"{'Already running' if s['already'] else 'Started'}: `{s['command']}` at {s['url']}. Open it with browser_open."
+            + (f"\nOutput so far:\n{devserver.tail(s['key'], 15)}" if not s["already"] else ""))
 
 
 # ---- memory: notes, and recall over earlier chats and coding sessions ------------------------------------------
@@ -606,7 +613,40 @@ BUILTINS = [
     Builtin("github_pr", "browser", "read", "A GitHub pull request for review: title, description and each file's diff. Public repos "
             "need nothing; private ones use the GitHub connector's token if you added it.", {"repo": S, "number": I}, ("repo", "number"),
             github_pr),
-    Builtin("open_in_browser", "browser", "read", "Show a page to the person in the app's browser panel.", {"url": S}, ("url",), open_in_browser),
+    Builtin("browser_open", "browser", "read", "Open a page in the browser you share with the person (they watch it live in the "
+            "browser panel): a URL, or back, forward or reload. localhost needs no permission; other sites ask the person first. "
+            "Returns the page: numbered elements (ref_N) to act on, its text, and console and network errors.",
+            {"url": S}, ("url",), browser.browser_open, browser.kind_open),
+    Builtin("browser_snapshot", "browser", "read", "The current page again: numbered elements, text and errors. With find, only "
+            "the elements and text lines that match.", {"find": S}, (), browser.browser_snapshot),
+    Builtin("browser_click", "browser", "read", "Click an element by its ref from the latest page; returns the page after.",
+            {"ref": S, "double": {"type": "boolean"}}, ("ref",), browser.browser_click, browser.kind_click),
+    Builtin("browser_type", "browser", "read", "Type into a field by ref, replacing what's there; submit presses Enter after. "
+            "Never passwords, card numbers or secrets: the person types those.",
+            {"ref": S, "text": S, "submit": {"type": "boolean"}}, ("ref", "text"), browser.browser_type, browser.kind_type),
+    Builtin("browser_select", "browser", "read", "Pick an option in a dropdown by ref (the option's label or value).",
+            {"ref": S, "option": S}, ("ref", "option"), browser.browser_select, browser.kind_page),
+    Builtin("browser_press", "browser", "read", "Press a key on the focused element: Enter, Escape, Tab, ArrowDown, PageDown, "
+            "Control+A…", {"key": S}, ("key",), browser.browser_press, browser.kind_press),
+    Builtin("browser_scroll", "browser", "read", "Scroll the page down or up, or bring an element (ref) into view.",
+            {"direction": S, "ref": S}, (), browser.browser_scroll, browser.kind_page),
+    Builtin("browser_wait", "browser", "read", "Wait until some text appears on the page (or a few seconds) when it loads slowly.",
+            {"text": S, "seconds": {"type": "number"}}, (), browser.browser_wait, browser.kind_page),
+    Builtin("browser_screenshot", "browser", "read", "Show the person a screenshot of the page in the chat, as proof of what you "
+            "checked (you can't see it yourself).", {}, (), browser.browser_screenshot),
+    Builtin("browser_console", "browser", "read", "The page's console errors and warnings and its failed requests since it opened.",
+            {}, (), browser.browser_console),
+    Builtin("browser_eval", "browser", "ask", "Run JavaScript in the page and get the result back, to check state the page doesn't "
+            "show. Always asks the person.", {"code": S}, ("code",), browser.browser_eval),
+    Builtin("browser_batch", "browser", "read", "Several steps on the same page in one go (type the email, type the password, "
+            "click Sign in): a list of {tool, args} with browser_open, browser_click, browser_type, browser_select, "
+            "browser_press, browser_scroll or browser_wait. Stops at the first failure; returns the page after the last step.",
+            {"steps": {"type": "array", "items": {"type": "object", "properties": {"tool": S, "args": {"type": "object"}}}}},
+            ("steps",), browser.browser_batch, browser.kind_batch),
+    Builtin("dev_server", "browser", "change", "Start a connected repo's dev server (its .superagents/launch.json, or the dev or "
+            "start script in package.json) and get its URL to open; action stop stops it, logs shows its output.",
+            {"repo": S, "action": S, "name": S}, (), dev_server,
+            lambda a: "read" if a.get("action") == "logs" else "change"),
     Builtin("remember", "memory", "read", "Save a short, lasting fact for later chats: a preference, a decision, how a project works. "
             "Call it whenever the person asks you to remember something; saying you will doesn't save it. Shared with every "
             "agent unless only_this_agent. Never secrets.", {"note": S, "only_this_agent": {"type": "boolean"}},
