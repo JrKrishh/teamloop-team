@@ -36,6 +36,9 @@ WRAP_UP = ("That's {n} steps on this, the most one answer can take. Don't call a
            "left, and what the person can do next (they can ask you to continue).")
 REPEAT_NUDGE = ("\nThis exact call has now returned the same thing {n} times: don't repeat it. Try another way, or finish "
                 "with what you have.")
+# Typed while the turn works, as into Claude Code: read before the next step, nothing stops or starts over.
+STEER = ("{who} adds, while you work: {text}\n(Take this into account from your next step on; keep what's already done unless "
+         "it says otherwise.)")
 BASE = """You are {name}, an agent in Super Agents, the app where a software team sees and plans the work their
 developers do with AI coding agents. You work for {person} in the team "{team}" (members: {members}).
 
@@ -196,6 +199,8 @@ class Turn:
         self.repeats: dict[tuple, int] = {}  # calls that worked, by tool, arguments and what they returned
         self.waiting: dict[str, str] = {}  # calls waiting for a yes, and their kind ("change" or "ask")
         self.mode_note: str | None = None  # told to the model before its next step, after a mode switch
+        self.steers: list[tuple[str, str]] = []  # notes typed while it works (text, from where), read before its next step
+        self.looping = False
 
     # ---- events for the window -----------------------------------------------------------------------------
     def emit(self, kind: str, **data) -> None:
@@ -231,6 +236,23 @@ class Turn:
             if mode == "plan" or (mode == "auto" and kind == "change"):
                 self.answers[cid] = True
                 self.decisions[cid].set()
+
+    def steer(self, text: str, via: str = "desk") -> bool:
+        """A note typed while this turn works, at the desk or on the phone: the model reads it before its next step and
+        nothing stops. One that arrives as it writes its answer still gets answered; once it's done, False."""
+        with self.cond:
+            if not self.looping:
+                return False
+            self.steers.append((text, via))
+        self.emit("steer", text=text, via=via)
+        return True
+
+    def _steered(self, messages: list[dict]) -> None:
+        with self.cond:
+            notes, self.steers = self.steers, []
+        for text, via in notes:
+            who = self.person + (" (from their phone)" if via == "phone" else "")
+            messages.append({"role": "user", "content": STEER.format(who=who, text=text)})
 
     # ---- the loop --------------------------------------------------------------------------------------------
     def _system(self, board: dict) -> str:
@@ -288,11 +310,13 @@ class Turn:
         return str(tool.run(self, **args)), False
 
     def run(self) -> None:
+        self.looping = True  # a note typed now is read before its next step (not while Run plan applies changes)
         try:
             self._run()
         except Exception as e:  # noqa: BLE001 - shown in the chat
             self.emit("error", text=f"{e}"[:500] or type(e).__name__)
         finally:
+            self.looping = False
             self.done = True
             self.emit("end", planned=len(self.planned))
 
@@ -315,6 +339,7 @@ class Turn:
             if self.mode_note:  # the person switched modes since the last step
                 messages.append({"role": "user", "content": self.mode_note})
                 self.mode_note = None
+            self._steered(messages)
             compact(messages, head)
             step = self._step(messages, tools)
             model = step.get("model", model)
@@ -339,6 +364,11 @@ class Turn:
                     files = ", ".join(dict.fromkeys(self.ui_written[self.ui_checked:]))
                     messages += [{"role": "assistant", "content": text or "Done."},
                                  {"role": "user", "content": VERIFY_NUDGE.format(files=files)}]
+                    continue
+                with self.cond:  # finished, unless a note came in while it wrote this: then it answers that too
+                    self.looping = bool(self.steers)
+                if self.looping:
+                    messages.append({"role": "assistant", "content": text or "Done."})
                     continue
                 answer = CITE_MARK.sub("", plan_text or kept or text) or "Done."
                 break
@@ -452,7 +482,7 @@ class Turn:
             {"role": "assistant", "content": answer + (f"\n\n(tools used: {', '.join(sorted(set(used)))})" if used else "")}])
         chat.setdefault("view", []).append({"user": self.message, "files": [a["name"] for a in self.attachments],
                                             "answer": answer, "agent": self.agent["id"], "mode": self.mode, "usage": dict(self.spent),
-                                            "events": [e for e in self.events if e["kind"] in ("tool", "text")][-60:]})
+                                            "events": [e for e in self.events if e["kind"] in ("tool", "text", "steer")][-60:]})
         chat["title"] = chat.get("title") or self.message[:60]
         chat["agent"] = self.agent["id"]
         chat["updated"] = time.time()

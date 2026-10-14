@@ -242,6 +242,45 @@ def test_the_same_call_with_the_same_result_is_named_a_loop(home):
     assert not results[1].endswith(loop.REPEAT_NUDGE.format(n=2)) and results[2].endswith(loop.REPEAT_NUDGE.format(n=3))
 
 
+def steered_turn(llm_steps, mode="auto"):
+    """A turn whose fake model is handed the turn itself, so a step can stand for a note typed while it worked."""
+    sent, holder = [], {}
+
+    def llm(messages, tools, tier):
+        sent.append(json.loads(json.dumps(messages)))
+        return llm_steps[len(sent) - 1](holder["t"])
+
+    holder["t"] = t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="how's T-3?", attachments=[],
+                                mode=mode, model="auto", hub=fake_hub([]), llm=llm, mcp=NoMcp(), person="Yang")
+    return t, sent
+
+
+def test_a_note_typed_while_it_works_is_read_before_its_next_step(home):
+    def first(t):
+        assert t.steer("Use the Q3 numbers, not Q2")  # typed at the desk while step 1 ran
+        return call("team_board", {}, "s1")
+
+    t, sent = steered_turn([first, lambda t: answer("Done, with Q3.")])
+    t.run()
+    assert sent[1][-1] == {"role": "user", "content": loop.STEER.format(who="Yang", text="Use the Q3 numbers, not Q2")}
+    assert sent[1][-2]["role"] == "tool"  # after the step it was on, not instead of it
+    assert {"kind": "steer", "text": "Use the Q3 numbers, not Q2", "via": "desk"}.items() <= next(e for e in t.events if e["kind"] == "steer").items()
+    assert t.events[-2]["text"] == "Done, with Q3." and not t.steer("too late")  # once it's done, a note is a new message
+
+
+def test_a_note_that_arrives_as_it_answers_gets_answered_too(home):
+    def first(t):
+        t.steer("Also say who owns it", "phone")  # sent from the phone while it wrote its answer
+        return answer("T-3 is blocked.")
+
+    t, sent = steered_turn([first, lambda t: answer("T-3 is blocked; Asha owns it.")])
+    t.run()
+    assert len(sent) == 2 and sent[1][-2] == {"role": "assistant", "content": "T-3 is blocked."}
+    assert sent[1][-1]["content"] == loop.STEER.format(who="Yang (from their phone)", text="Also say who owns it")
+    assert t.events[-2]["text"] == "T-3 is blocked; Asha owns it."
+    assert any(e["kind"] == "steer" for e in loop.load_chat(t.chat["id"])["view"][0]["events"])  # kept with the chat
+
+
 def test_auto_runs_changes_but_shell_commands_still_ask(home):
     hub_calls = []
     llm, _ = script(call("create_task", {"title": "x"}, "a1"), call("run_command", {"command": "echo hi"}, "a2"), answer("ok"))
@@ -324,6 +363,19 @@ def test_a_real_mcp_server(home):
     broken = mcpman.custom({"name": "Broken", "command": sys.executable, "args": ["-c", "raise SystemExit(3)"]})
     mcpman.save_all([c, broken])
     assert m.tools([broken["id"]], timeout=30) == [] and broken["id"] in m.errors
+
+
+def test_a_note_for_a_finished_answer_is_refused(client, monkeypatch):
+    hub = server.cloud
+    monkeypatch.setattr(server, "cloud", lambda state, method, path, body=None, query=None, token=None:
+                        (200, {"content": "Done.", "tool_calls": [], "model": "m"}) if path == "/v1/llm" else hub(state, method, path, body, query, token))
+    tid = client.post("/api/turns", json={"message": "hi", "team": TEAM}).json()["turn"]
+    deadline = time.time() + 10
+    while not client.get(f"/api/turns/{tid}").json()["done"] and time.time() < deadline:
+        time.sleep(0.05)
+    r = client.post(f"/api/turns/{tid}/steer", json={"text": "and use the Q3 numbers"})
+    assert r.status_code == 409 and "new message" in r.json()["detail"]  # the window sends it as the next message instead
+    assert client.post(f"/api/turns/{tid}/steer", json={"text": "x", "via": "fax"}).status_code == 422
 
 
 def test_effort_reaches_the_model_with_room_to_think(client, monkeypatch):

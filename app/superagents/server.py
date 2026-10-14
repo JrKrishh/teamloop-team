@@ -237,6 +237,11 @@ class ModeBody(BaseModel):
     mode: str = Field(pattern="^(manual|auto|plan)$")
 
 
+class SteerBody(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    via: str = Field(default="desk", pattern="^(desk|phone)$")
+
+
 class NoteBody(BaseModel):
     text: str = Field(min_length=1, max_length=600)
     scope: str = Field(default="all", pattern="^[a-z0-9-]{3,40}$")
@@ -714,6 +719,12 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     @app.post("/api/turns/{tid}/mode")
     def turn_mode(tid: str, body: ModeBody) -> dict:  # switched while the answer runs: it carries on in the new mode
         the_turn(tid).set_mode(body.mode)
+        return {"ok": True}
+
+    @app.post("/api/turns/{tid}/steer")
+    def turn_steer(tid: str, body: SteerBody) -> dict:  # typed while the answer runs: read before its next step
+        if not body.text.strip() or not the_turn(tid).steer(body.text.strip(), body.via):
+            raise HTTPException(409, "That answer has finished; send it as a new message")
         return {"ok": True}
 
     def step_of(t, call: Optional[str] = None, status: Optional[str] = None) -> Optional[dict]:

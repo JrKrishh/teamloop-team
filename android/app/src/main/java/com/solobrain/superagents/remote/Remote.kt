@@ -241,6 +241,8 @@ class Remote(private val app: Context) {
     }
 
     suspend fun stopTurn(turn: String) { request(JSONObject().put("t", "stop").put("turn", turn)) }
+    /** Typed while the answer runs: a note it reads before its next step. */
+    suspend fun steer(turn: String, text: String) { request(JSONObject().put("t", "steer").put("turn", turn).put("text", text)) }
     /** Switched while the answer runs: it carries on in the new mode. */
     suspend fun setMode(turn: String, mode: String) { request(JSONObject().put("t", "mode").put("turn", turn).put("mode", mode)) }
 

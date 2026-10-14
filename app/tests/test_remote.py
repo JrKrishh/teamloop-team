@@ -149,6 +149,8 @@ def test_a_phone_starts_a_turn_watches_it_and_answers_its_question(home):
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/decide", {"call": "c1", "approve": True}) in api.calls)
     relay.on_message(phone(key, pid, {"t": "mode", "turn": "turn-0001", "mode": "auto"}, id="m5"))  # switched while it ran
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/mode", {"mode": "auto"}) in api.calls)
+    relay.on_message(phone(key, pid, {"t": "steer", "turn": "turn-0001", "text": "Use the Q3 numbers"}, id="m6"))  # typed while it ran
+    assert wait_for(lambda: ("POST", "/api/turns/turn-0001/steer", {"text": "Use the Q3 numbers", "via": "phone"}) in api.calls)
     relay.on_message(phone(key, pid, {"t": "stop", "turn": "turn-0001"}, id="m4"))
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/cancel", None) in api.calls)
 
