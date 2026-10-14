@@ -112,18 +112,10 @@ class Remote(private val app: Context) {
         }
     }
 
-    /** Where phone and laptop meet: Supabase Realtime when the hub has it, else the hub's own socket. */
-    private fun relayUrl(hub: String): String {
+    private fun relayUrl(hub: String): String =
         http.newCall(Request.Builder().url("$hub/v1/config").build()).execute().use { res ->
-            val cfg = JSONObject(res.body.string())
-            return when (cfg.optString("relay")) {
-                "supabase" -> cfg.getString("supabase_url").trimEnd('/').replaceFirst("https://", "wss://") +
-                    "/realtime/v1/websocket?apikey=" + URLEncoder.encode(cfg.getString("supabase_key"), "UTF-8") + "&vsn=1.0.0"
-                "hub" -> hub.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") + "/v1/relay?vsn=1.0.0"
-                else -> throw RemoteError("This server can't reach your laptop yet.")
-            }
+            relayUrlFrom(hub, JSONObject(res.body.string())) ?: throw RemoteError("This server can't reach your laptop yet.")
         }
-    }
 
     private fun receive(env: JSONObject) {
         val p = pairing ?: return
@@ -227,4 +219,16 @@ class Remote(private val app: Context) {
     suspend fun chat(id: String): JSONObject = request(JSONObject().put("t", "chat").put("chat", id)).getJSONObject("chat")
 
     suspend fun loadBoard() { board.value = parseBoard(request(JSONObject().put("t", "board"), 25_000)) }
+}
+
+/** Where phone and laptop meet: Supabase Realtime when the hub has it, else the hub's own socket. A hub from before the
+ *  "relay" field (T-32 and older) still names its Supabase project, and that project is the relay. */
+internal fun relayUrlFrom(hub: String, cfg: JSONObject): String? {
+    val relay = if (cfg.has("relay")) cfg.optString("relay") else if (!cfg.isNull("supabase_url") && !cfg.isNull("supabase_key")) "supabase" else ""
+    return when (relay) {
+        "supabase" -> cfg.getString("supabase_url").trimEnd('/').replaceFirst("https://", "wss://") +
+            "/realtime/v1/websocket?apikey=" + URLEncoder.encode(cfg.getString("supabase_key"), "UTF-8") + "&vsn=1.0.0"
+        "hub" -> hub.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") + "/v1/relay?vsn=1.0.0"
+        else -> null
+    }
 }

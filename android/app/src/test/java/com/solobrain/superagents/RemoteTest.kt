@@ -3,6 +3,7 @@ package com.solobrain.superagents
 import com.solobrain.superagents.remote.Labels
 import com.solobrain.superagents.remote.Pairings
 import com.solobrain.superagents.remote.Seal
+import com.solobrain.superagents.remote.relayUrlFrom
 import com.solobrain.superagents.ui.ChatModel
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -45,6 +46,17 @@ class RemoteTest {
         assertNull(Pairings.parse("https://hub/remote/#p=nothex&k=$k"))
         assertNull(Pairings.parse("https://hub/remote/#p=$channel&k=" + Seal.b64(ByteArray(16))))  // a short key
         assertNull(Pairings.parse("https://hub/remote/"))
+    }
+
+    @Test fun findsWhereThePhoneAndTheLaptopMeet() {
+        val supa = JSONObject().put("relay", "supabase").put("supabase_url", "https://ab.supabase.co").put("supabase_key", "sb_publishable_x")
+        val wss = "wss://ab.supabase.co/realtime/v1/websocket?apikey=sb_publishable_x&vsn=1.0.0"
+        assertEquals(wss, relayUrlFrom("https://hub", supa))
+        assertEquals("ws://127.0.0.1:8811/v1/relay?vsn=1.0.0", relayUrlFrom("http://127.0.0.1:8811", JSONObject().put("relay", "hub")))
+        supa.remove("relay")
+        assertEquals(wss, relayUrlFrom("https://hub", supa))  // a hub from before the relay field: its Supabase project is the relay
+        assertNull(relayUrlFrom("https://hub", supa.put("relay", JSONObject.NULL)))  // a hub that says it has none
+        assertNull(relayUrlFrom("https://hub", JSONObject()))
     }
 
     @Test fun showsEventsInOrderAndAsksForGaps() {
