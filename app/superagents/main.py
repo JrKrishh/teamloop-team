@@ -18,7 +18,7 @@ import uvicorn
 
 from teamloop import spool
 
-from . import laptop, server, store
+from . import laptop, remote, server, store
 from .runtime import browser, memory, superteam
 
 CLOUD = os.environ.get("TEAMLOOP_HUB", "https://teamloop.vercel.app")
@@ -76,6 +76,20 @@ def _pick_folder(state: server.State):
     return pick
 
 
+def _relay(state: server.State):
+    """Where the phone and this laptop meet, from the hub's /v1/config (asked once it answers)."""
+    known: dict = {}
+
+    def url():
+        if "url" not in known:
+            code, cfg = server.cloud(state, "GET", "/v1/config", token="")
+            if code != 200:
+                return None
+            known["url"] = remote.relay_url(state.cloud, cfg)
+        return known["url"]
+    return url
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="superagents", description="Super Agents: your team's AI agents, on one page.")
     ap.add_argument("--browser", action="store_true", help="open the UI in your browser instead of the app window")
@@ -102,6 +116,10 @@ def main(argv: list[str] | None = None) -> int:
                                     team=lambda: (laptop.status().get("team") or {}).get("id") if store.load().get("session") else None,
                                     repos=lambda: laptop.status()["repos"])
     state.runner.start()
+    # remote control from a phone, while remote control is on and a phone is paired (Settings → Phone)
+    state.remote = remote.Remote(remote.local_api(state.port, state.key), relay=_relay(state),
+                                 team=lambda: store.load().get("team") if store.load().get("session") else None)
+    state.remote.start()
     memory.start_indexer()  # agents' recall over earlier chats and this laptop's coding sessions
 
     if args.browser or args.serve:

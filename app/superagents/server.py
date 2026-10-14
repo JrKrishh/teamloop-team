@@ -26,10 +26,11 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+import segno
 from pydantic import BaseModel, Field
 from teamloop import spool
 
-from . import __version__, laptop, shares, store, supa
+from . import __version__, laptop, remote, shares, store, supa
 from .runtime import agents as agent_store
 from .runtime import browser, desktop
 from .runtime import loop as runtime_loop
@@ -61,6 +62,7 @@ class State:
         self._mcp: Optional[mcpman.Manager] = None
         self.open_window: Optional[Callable[[str], None]] = None  # a second app window for the browser panel
         self.runner = None  # Super Team: runs teammates' prompts in this laptop's sessions (main.py starts it)
+        self.remote: Optional[remote.Remote] = None  # remote control from a phone (main.py starts it)
 
     @property
     def mcp(self) -> mcpman.Manager:
@@ -652,6 +654,43 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     def turn_cancel(tid: str) -> dict:
         the_turn(tid).cancel()
         return {"ok": True}
+
+    @app.get("/api/turns")
+    def turns_live() -> dict:
+        """Turns still running, and whether one waits for a yes or no: the phone can watch and answer them."""
+        return {"turns": [{"turn": t.id, "chat": t.chat.get("id"), "agent": t.agent.get("id"), "message": t.message[:200],
+                           "asking": any(not e.is_set() for e in t.decisions.values())}
+                          for t in list(state.turns.values()) if not t.done]}
+
+    # ---- remote control from a phone (runtime of it in remote.py) ------------------------------------------
+    def remote_status() -> dict:
+        return state.remote.status() if state.remote else remote.status({})
+
+    @app.get("/api/remote")
+    def remote_get() -> dict:
+        return remote_status()
+
+    @app.put("/api/remote")
+    def remote_switch(body: EnabledBody) -> dict:
+        store.save_remote({**store.remote(), "on": body.enabled})
+        if state.remote:
+            state.remote.sync()
+        return remote_status()
+
+    @app.post("/api/remote/pair")
+    def remote_pair() -> dict:
+        """A QR code for one phone. It holds the key, so it's shown on this screen only, once."""
+        p = remote.pair(state.cloud)
+        if state.remote:
+            state.remote.sync()
+        return {**p, "qr": segno.make(p["url"], error="m").svg_inline(border=2, dark="#111", light="#fff", omitsize=True)}
+
+    @app.delete("/api/remote/phones/{pid}")
+    def remote_unpair(pid: str) -> dict:
+        remote.unpair(pid)
+        if state.remote:
+            state.remote.sync()
+        return remote_status()
 
     @app.get("/api/chats")
     def chats_list() -> dict:

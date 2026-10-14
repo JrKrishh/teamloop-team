@@ -616,6 +616,33 @@ def test_the_lead_links_the_teams_github_repos_for_get_the_project(app):
     assert other.get(path).status_code == 403  # not in the team
 
 
+def test_the_phone_remote_relay_and_its_page(app, monkeypatch):
+    c = TestClient(app)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
+    assert c.get("/v1/config").json()["relay"] == "hub"  # no Supabase here: this hub relays itself
+    assert "Pair this phone" in c.get("/remote/").text and c.get("/remote/manifest.webmanifest").json()["start_url"] == "/remote/"
+    broadcast = {"type": "broadcast", "event": "m", "payload": {"iv": "i", "c": "sealed"}}
+    with c.websocket_connect("/v1/relay?vsn=1.0.0") as a, c.websocket_connect("/v1/relay?vsn=1.0.0") as b, \
+            c.websocket_connect("/v1/relay?vsn=1.0.0") as other:
+        for ws, topic in ((a, "realtime:sa-x"), (b, "realtime:sa-x"), (other, "realtime:sa-y")):
+            ws.send_json({"topic": topic, "event": "phx_join", "payload": {}, "ref": "1"})
+            assert ws.receive_json()["payload"]["status"] == "ok"
+        a.send_json({"topic": "realtime:sa-x", "event": "broadcast", "payload": broadcast, "ref": "2"})
+        assert b.receive_json() == {"topic": "realtime:sa-x", "event": "broadcast", "payload": broadcast}
+        a.send_json({"topic": "phoenix", "event": "heartbeat", "payload": {}, "ref": "3"})
+        assert a.receive_json()["ref"] == "3"  # its own broadcast didn't come back to it
+        b.send_json({"topic": "realtime:sa-y", "event": "broadcast", "payload": broadcast, "ref": "4"})  # not joined there
+        other.send_json({"topic": "phoenix", "event": "heartbeat", "payload": {}, "ref": "5"})
+        assert other.receive_json()["ref"] == "5"  # nothing from channel x, nor from someone outside y
+    monkeypatch.setenv("SUPABASE_URL", "https://ab.supabase.co")
+    monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_x")
+    assert c.get("/v1/config").json()["relay"] == "supabase"
+    monkeypatch.delenv("SUPABASE_URL")
+    monkeypatch.setenv("VERCEL", "1")
+    assert c.get("/v1/config").json()["relay"] is None  # Vercel's instances don't share rooms
+
+
 def test_teammates_share_files_and_branches_through_short_lived_links(env, tmp_path):
     import hashlib
 

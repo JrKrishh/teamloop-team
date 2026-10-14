@@ -90,7 +90,31 @@ Click your name at the bottom of the sidebar → **Settings** (or **Ctrl+,**). O
 - **Account:** who you're signed in as, your role in the current team, and Sign out.
 - **Appearance:** dark or light.
 - **Privacy:** sharing from this laptop, letting agents search your coding sessions (Memory), and your rules for teammates' prompts into your sessions (Super Team). These are the same switches as on This laptop, Agents → Memory and Super Team → Sessions.
+- **Phone:** remote control from your phone (below).
 - **Keyboard shortcuts**, and **About** (version, licence, source code).
+
+## Phone remote
+
+Your agents keep running on the laptop; the phone drives them, like Claude Code's Remote Control (`app/superagents/remote.py`; the phone app is `cloud/cloud/site/remote/`).
+- **What the phone does:**
+  - sees your chats;
+  - starts one, or continues one, with any agent and mode;
+  - watches a turn live, with the steps folded as on the laptop;
+  - approves or denies a step; runs or discards a plan; stops a turn.
+  - A turn started at the desk shows on the phone too ("Agent S needs you"), so you can walk away and answer from the phone.
+- **Pairing:** Settings → Phone. Turn it on (it's off by default), press **Pair a phone** and scan the code with the phone's camera. The phone opens Super Agents Remote, a web app you can add to the home screen; no app store. A code nobody scans expires in 10 minutes.
+- **End-to-end encrypted:**
+  - **The key:** the code carries a channel id and a 256-bit key in the link's fragment, which browsers never send to a server.
+  - **The seal:** every message is sealed with AES-256-GCM under that key, with the channel bound in. The relay sees only noise: Supabase Realtime in production, the hub's own socket in development.
+  - **Replays and reflections:** messages older than two minutes, or seen before, are dropped, and neither side accepts its own messages back.
+  - **On the phone:** the key is kept in IndexedDB as a WebCrypto key that can't be exported, so the page can use it but no script can read it back.
+- **What the phone can't do:** anything the chat window can't. It goes through the same local API and the same modes and approvals. It can't browse files or open a terminal.
+- **Unpair** deletes the key on the laptop, and the phone is cut off at once. On the phone, "Forget this laptop" deletes its copy.
+- **Reliability:**
+  - The laptop never skips an event it couldn't send.
+  - The phone shows events in order, asks again for any gap, and catches up on a running turn after it lost the connection.
+  - Turning the switch off, or closing the app, ends remote control.
+- **Not yet:** push notifications when an agent needs you (Web Push; on iPhone only for a home-screen app). Until then, the phone shows it when you open it.
 
 ## The board
 

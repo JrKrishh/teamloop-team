@@ -45,6 +45,16 @@ def clear() -> None:
     _path("app.json").unlink(missing_ok=True)
 
 
+def remote() -> dict:
+    """Remote control from a phone: on or off, and the paired phones with their keys (this file is 0600)."""
+    d = _read("remote.json", {})
+    return {"on": bool(d.get("on")), "phones": [p for p in d.get("phones", []) if isinstance(p, dict) and p.get("id")]}
+
+
+def save_remote(d: dict) -> None:
+    _write("remote.json", d)
+
+
 def repos() -> list[str]:
     return [r for r in _read("repos.json", []) if isinstance(r, str)]
 

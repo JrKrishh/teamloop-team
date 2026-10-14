@@ -612,6 +612,16 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 
 /* ---- settings ---- */
 .settings{display:grid;gap:16px;max-width:780px}
+/* Settings → Phone: paired phones, and the pairing code */
+.phone-row{display:flex;align-items:center;gap:12px}
+.phone-row > div{display:grid;min-width:0}
+.phone-row small{color:var(--muted);font-size:12.5px}
+.phone-row .btn{margin-left:auto}
+.pair-qr{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.pair-qr > div:last-child{display:grid;gap:8px;justify-items:start;flex:1;min-width:220px}
+.pair-qr .sub{margin:0}
+.qr{flex:none;width:196px;height:196px;padding:8px;border-radius:14px;background:#fff;line-height:0}
+.qr svg{width:100%;height:100%}
 .acct{display:flex;align-items:center;gap:14px}
 .acct .avatar{width:48px;height:48px;font-size:18px}
 .acct > div{flex:1;min-width:0;display:grid}
