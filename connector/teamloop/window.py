@@ -37,8 +37,29 @@ def open_app(url: str) -> None:
     webbrowser.open(url)
 
 
+def super_agents() -> bool:
+    """Start the Super Agents app without waiting for it: SuperAgents.exe next to this exe, or the superagents
+    package when installed with pip. False when neither is here."""
+    flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    exe = Path(sys.executable).with_name("SuperAgents.exe")
+    if getattr(sys, "frozen", False) and exe.is_file():
+        cmd = [str(exe)]
+    else:
+        try:
+            import superagents  # noqa: F401
+        except ImportError:
+            return False
+        cmd = [sys.executable, "-m", "superagents"]
+    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     creationflags=flags, close_fds=True)
+    return True
+
+
 def run(url: str | None = None) -> int:
-    """`teamloop app`: the board for the team this laptop is connected to, else the cloud hub's sign-in."""
+    """`teamloop app`: the Super Agents app; without it, the board in a browser window."""
+    if not url and super_agents():
+        print("Opening Super Agents.")
+        return 0
     from teamloop import send
 
     cfg = send.config() or {}

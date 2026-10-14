@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Agents</title>
+<link rel="icon" href="/ui/icon.png">
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+
+<!-- Startup: the team rises, tucks in behind the lead, the lead opens its eyes, the name lifts in. -->
+<div class="splash" id="splash" role="img" aria-label="Super Agents">
+  <svg class="splash-mark" viewBox="0 0 100 100" aria-hidden="true">
+    <g class="mate l"><path class="hood" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/><ellipse class="face" cx="50" cy="61" rx="30" ry="27"/><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/></g>
+    <g class="mate r"><path class="hood" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/><ellipse class="face" cx="50" cy="61" rx="30" ry="27"/><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/></g>
+    <g class="lead"><path class="hood" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/><ellipse class="face" cx="50" cy="61" rx="30" ry="27"/><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/><circle class="glint" cx="40.9" cy="58.6" r="2.1"/><circle class="glint" cx="63.9" cy="58.6" r="2.1"/></g>
+  </svg>
+  <div class="splash-word" aria-hidden="true"><span>S</span><span>u</span><span>p</span><span>e</span><span>r</span><span class="sp"></span><span>A</span><span>g</span><span>e</span><span>n</span><span>t</span><span>s</span></div>
+  <div class="splash-tag">Your team's AI agents, on one page</div>
+</div>
+
+<!-- Sign in -->
+<section class="screen login" id="login" hidden>
+  <div class="login-brand">
+    <div class="login-cast" id="loginCast" aria-hidden="true"></div>
+    <h1 class="login-head">Your team's AI agents,<br>on one page.</h1>
+    <ul class="login-points">
+      <li><b>Live progress</b> from every teammate's Claude Code and Codex sessions.</li>
+      <li><b>Agent S answers</b> with the evidence. No evidence, no answer.</li>
+      <li><b>Summaries only.</b> Code, prompts and diffs stay on each laptop.</li>
+    </ul>
+    <div class="login-foot">Open source · Built on NVIDIA Nemotron</div>
+  </div>
+  <div class="login-panel">
+    <div class="login-card" id="loginForm">
+      <h2>Sign in to Super Agents</h2>
+      <p class="sub">First time? Continuing with GitHub creates your account in one step.</p>
+      <button type="button" class="btn github" id="githubBtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Continue with GitHub</button>
+      <div class="or"><span>or with email</span></div>
+      <form id="emailForm" class="stack" autocomplete="on">
+        <label class="field" id="nameField" hidden><span>Your name</span><input id="nameIn" autocomplete="name" maxlength="64" placeholder="How teammates will see you"></label>
+        <label class="field"><span>Email</span><input id="emailIn" type="email" autocomplete="email" required placeholder="you@company.com"></label>
+        <label class="field"><span>Password</span><input id="pwIn" type="password" autocomplete="current-password" minlength="8" required placeholder="8 or more characters"></label>
+        <button class="btn primary" id="emailBtn">Sign in</button>
+        <button type="button" class="link" id="modeBtn">New here? Create an account</button>
+        <div class="err" id="loginErr" role="alert"></div>
+      </form>
+    </div>
+    <div class="login-card waiting" id="loginWait" hidden>
+      <div class="wait-art" aria-hidden="true"></div>
+      <h2>Finish in your browser</h2>
+      <p class="sub">We opened GitHub in your browser. Approve Super Agents there, then come back here. This window updates by itself.</p>
+      <div class="row gap">
+        <button type="button" class="btn ghost" id="reopenBtn">Open the link again</button>
+        <button type="button" class="btn ghost" id="cancelBtn">Cancel</button>
+      </div>
+      <div class="err" id="waitErr" role="alert"></div>
+    </div>
+  </div>
+</section>
+
+<!-- First run: a team, then this laptop -->
+<section class="screen onboard" id="onboard" hidden>
+  <div class="onboard-inner">
+    <div class="onboard-head" id="onboardHead"></div>
+    <div class="choice-grid" id="onboardChoices">
+      <form class="choice" id="createForm">
+        <div class="choice-art" data-art="create"></div>
+        <h3>Start a team</h3>
+        <p>You'll lead it. Invite teammates with a link afterwards.</p>
+        <input id="teamNameIn" maxlength="80" placeholder="Team name, e.g. Payments squad" required>
+        <button class="btn primary">Create team</button>
+      </form>
+      <form class="choice" id="joinForm">
+        <div class="choice-art" data-art="join"></div>
+        <h3>Join a team</h3>
+        <p>Paste the invite link your lead sent you.</p>
+        <input id="inviteIn" placeholder="https://teamloop.vercel.app/join/inv_…" required>
+        <button class="btn">Join</button>
+      </form>
+    </div>
+    <div class="err center" id="onboardErr" role="alert"></div>
+  </div>
+</section>
+
+<!-- The app -->
+<div class="shell" id="shell" hidden>
+  <aside class="rail">
+    <div class="rail-brand"><span class="mark-sm" id="railMark"></span><span>Super Agents</span></div>
+    <button type="button" class="btn new-chat" id="newChat"><span class="ic" data-ic="plus"></span>New chat<kbd>Ctrl N</kbd></button>
+    <nav class="nav" id="nav">
+      <button type="button" data-view="chat" class="on"><span class="ic" data-ic="spark"></span>Agent S</button>
+      <button type="button" data-view="board"><span class="ic" data-ic="board"></span>Board</button>
+      <button type="button" data-view="team"><span class="ic" data-ic="team"></span>Team</button>
+      <button type="button" data-view="laptop"><span class="ic" data-ic="laptop"></span>This laptop</button>
+    </nav>
+    <div class="rail-section">
+      <div class="rail-label">Live now</div>
+      <ul class="live" id="liveList"></ul>
+    </div>
+    <div class="rail-foot">
+      <button type="button" class="me" id="meBtn" aria-haspopup="menu"><span class="avatar" id="meAvatar"></span><span class="me-text"><b id="meName"></b><small id="meRole"></small></span><span class="ic" data-ic="dots"></span></button>
+      <div class="menu" id="meMenu" role="menu" hidden>
+        <button type="button" role="menuitem" id="themeBtn"><span class="ic" data-ic="moon"></span><span id="themeLabel">Light theme</span></button>
+        <button type="button" role="menuitem" id="signOutBtn"><span class="ic" data-ic="out"></span>Sign out</button>
+        <div class="menu-foot" id="versionLine"></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div class="team-switch">
+        <button type="button" class="pill" id="teamBtn" aria-haspopup="menu"><span class="dot"></span><span id="teamName"></span><span class="ic" data-ic="chev"></span></button>
+        <div class="menu" id="teamMenu" role="menu" hidden></div>
+      </div>
+      <button type="button" class="status-chip" id="laptopChip"></button>
+    </header>
+
+    <section class="view chat" id="view-chat">
+      <div class="thread" id="thread"></div>
+      <div class="composer-wrap">
+        <form class="composer" id="askForm">
+          <textarea id="askIn" rows="1" maxlength="500" placeholder="Ask about your team's work…" aria-label="Ask Agent S"></textarea>
+          <button class="send" id="askBtn" aria-label="Send"><span class="ic" data-ic="up"></span></button>
+        </form>
+        <div class="composer-foot"><button type="button" class="chip-btn" id="digestBtn"><span class="ic" data-ic="sun"></span>Today's digest</button><span>Agent S answers only from your team's session events.</span></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-board" hidden>
+      <div class="view-head"><div><h1>Board</h1><p class="sub" id="boardSub"></p></div><div class="tally" id="tally"></div></div>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <section class="view" id="view-team" hidden>
+      <div class="view-head"><div><h1>Team</h1><p class="sub" id="teamSub"></p></div></div>
+      <div class="invite-card" id="inviteCard" hidden>
+        <div><h3>Invite a teammate</h3><p class="sub">A link that works for 7 days and up to 20 people. They sign in with GitHub or email.</p></div>
+        <div class="invite-row"><input id="inviteOut" readonly placeholder="Make a link to share"><button type="button" class="btn primary" id="inviteBtn">Make link</button></div>
+      </div>
+      <div class="people" id="people"></div>
+    </section>
+
+    <section class="view" id="view-laptop" hidden>
+      <div class="view-head"><div><h1>This laptop</h1><p class="sub">What this machine shares, and where it goes.</p></div></div>
+      <div class="laptop-grid" id="laptopGrid"></div>
+    </section>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dTitle">
+  <div class="drawer-head"><div><div class="tid" id="dId"></div><h2 id="dTitle"></h2></div><button type="button" class="icon-btn" id="dClose" aria-label="Close"><span class="ic" data-ic="x"></span></button></div>
+  <div class="drawer-body" id="dBody"></div>
+</aside>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="/ui/app.js"></script>
+</body>
+</html>

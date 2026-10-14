@@ -1,5 +1,7 @@
 # TeamLoop cloud: accounts, teams, invite links
 
+> Since 0.3 the product is the **Super Agents** desktop app ([docs/app.md](app.md)); this hub is what it talks to. The website at `/` is the landing page and `/join/<link>` the invite page; `/auth` and `/device` remain for `teamloop login` from a terminal. The app's GitHub sign-in also needs the redirect URL `http://127.0.0.1:*/**` in Supabase.
+
 The hosted board at https://teamloop.vercel.app. People sign in with **GitHub or email and password**, create a team, and invite teammates with a link. Each laptop connects with `teamloop login`, which works like `gh auth login`: the terminal shows a code, the browser asks you to approve it, done.
 
 The self-hosted hub (`teamloop hub`, room token and lead key) still works and is unchanged. The board page detects which one it is talking to (`GET /v1/config`).

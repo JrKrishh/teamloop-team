@@ -87,7 +87,10 @@ def test_signed_out_visitors_get_the_demo(app):
     assert c.get("/v1/team").json()["members"]
     assert c.post("/v1/teams", json={"name": "x"}).status_code == 401
     assert c.get("/v1/board", params={"team": "00000000-0000-0000-0000-000000000000"}).status_code == 401
-    for page in ("/", "/auth", "/device", "/join/abc"):
+    landing = c.get("/")
+    assert landing.status_code == 200 and "Download for Windows" in landing.text  # the website is the landing page
+    assert "Join a team" in c.get("/join/inv_abc").text and c.get("/site/app-board.webp").status_code == 200
+    for page in ("/auth", "/device"):  # `teamloop login` from a terminal still signs in on the web
         assert c.get(page).status_code == 200
 
 
@@ -290,3 +293,44 @@ def test_the_demo_needs_no_database(app, monkeypatch):
     board = c.get("/v1/board").json()
     assert board["demo"] and board["tasks"]
     assert c.get("/v1/team").json()["members"] and c.get("/v1/config").json()["mode"] == "cloud"
+
+
+def app_signin(app, name):
+    r = TestClient(app).post("/v1/app/session", json={"access_token": f"access-token-{name}"})
+    assert r.status_code == 200, r.text
+    assert r.json()["token"].startswith("s_") and "set-cookie" not in r.headers  # the app holds it, not a browser
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def test_the_desktop_app_signs_in_and_connects_its_laptop(app):
+    h = app_signin(app, "yang")
+    c = TestClient(app)
+    assert c.get("/v1/me", headers=h).json()["user"]["name"] == "yang"
+    team = c.post("/v1/teams", json={"name": "Loopers"}, headers=h).json()["id"]
+    link = c.post(f"/v1/teams/{team}/connector", json={"label": "yang-laptop"}, headers=h).json()
+    assert link["token"].startswith("tl_") and link["team"] == {"id": team, "name": "Loopers"}
+    assert link["name"] == "yang" and link["url"] == "http://testserver"
+    agent = {"Authorization": f"Bearer {link['token']}"}
+    events = golden("real_fix_add_done.json")
+    assert c.post("/v1/events", json={"events": events}, headers=agent).json()["accepted"] == len(events)
+    assert c.get("/v1/board", params={"team": team}, headers=h).json()["tasks"][0]["task"] == "T-3"
+    assert c.post(f"/v1/teams/{team}/connector", json={}, headers=agent).status_code == 401  # tokens don't mint tokens
+    assert c.post(f"/v1/teams/{team}/connector", json={}, headers=app_signin(app, "stranger")).status_code == 403
+    assert c.post("/v1/logout", headers=h).json() == {"ok": True}
+    assert c.get("/v1/me", headers=h).json()["user"] is None
+
+
+def test_citations_expand_to_their_events(app):
+    h = app_signin(app, "yang")
+    c = TestClient(app)
+    team = c.post("/v1/teams", json={"name": "Loopers"}, headers=h).json()["id"]
+    events = golden("real_fix_add_done.json")
+    link = c.post(f"/v1/teams/{team}/connector", json={}, headers=h).json()
+    c.post("/v1/events", json={"events": events}, headers={"Authorization": f"Bearer {link['token']}"})
+    wanted = [events[i]["id"] for i in (0, 3, 4)]  # events with a description line, as Agent S cites them
+    got = c.get("/v1/events", params={"team": team, "ids": ",".join(wanted + ["not-an-id"])}, headers=h).json()["events"]
+    assert {e["id"] for e in got} == set(wanted) and [e["ts"] for e in got] == sorted(e["ts"] for e in got)
+    assert all(e["line"] and e["task"] in ("T-3", None) for e in got)
+    assert c.get("/v1/events", params={"team": team, "ids": ",".join(wanted)}).status_code == 401
+    demo_ids = [r["id"] for r in c.get("/v1/board").json()["tasks"][0]["recent"][:2]]
+    assert [e["id"] for e in c.get("/v1/events", params={"ids": ",".join(demo_ids)}).json()["events"]] == demo_ids

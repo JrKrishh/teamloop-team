@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Super Agents splash</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{--bg:#121114;--cream:#F3ECE0;--brick:#C2554C;--face:#F4E6D8;--ink:#18171B;--muted:#8F877C}
+html,body{height:100%;margin:0}
+body{background:var(--bg);display:grid;place-items:center;overflow:hidden}
+.stage{display:flex;flex-direction:column;align-items:center;gap:22px}
+.mark{width:132px;height:132px;overflow:visible}
+.mark *{transform-box:fill-box}
+.face{fill:var(--face)}
+.eye{fill:var(--ink)}
+.glint{fill:#fff}
+/* the team: two teammates rise behind, then tuck in behind the lead */
+.mate{opacity:0;transform-origin:50% 100%}
+.mate.l{animation:mateL 1150ms cubic-bezier(.3,.7,.2,1) 100ms forwards}
+.mate.r{animation:mateR 1150ms cubic-bezier(.3,.7,.2,1) 180ms forwards}
+.hood{fill:var(--hood,#18171B)}.mate.l{--hood:#3E9B6B}.mate.r{--hood:#8E6BD8}
+@keyframes mateL{0%{opacity:0;transform:translate(-4px,30px) scale(.6)}30%{opacity:1;transform:translate(-34px,8px) scale(.74) rotate(-9deg)}68%{opacity:1;transform:translate(-34px,8px) scale(.74) rotate(-9deg)}100%{opacity:0;transform:translate(0,12px) scale(.66)}}
+@keyframes mateR{0%{opacity:0;transform:translate(4px,30px) scale(.6)}30%{opacity:1;transform:translate(34px,8px) scale(.74) rotate(9deg)}68%{opacity:1;transform:translate(34px,8px) scale(.74) rotate(9deg)}100%{opacity:0;transform:translate(0,12px) scale(.66)}}
+/* the lead hood pops up with a little overshoot */
+.lead{transform-origin:50% 100%;opacity:0;animation:pop 640ms cubic-bezier(.2,1.4,.3,1) 380ms forwards}
+@keyframes pop{0%{opacity:0;transform:translateY(34px) scale(.55)}60%{opacity:1}100%{opacity:1;transform:none}}
+.lead{--hood:var(--brick)}
+.lead .eye{transform-origin:50% 50%;transform:scaleY(.08);animation:open 260ms cubic-bezier(.3,1.6,.4,1) 820ms forwards,blink 180ms ease-in-out 1500ms}
+@keyframes open{to{transform:scaleY(1)}}
+@keyframes blink{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.1)}}
+.lead .glint{opacity:0;animation:fade 200ms ease-out 1000ms forwards}
+@keyframes fade{to{opacity:1}}
+/* wordmark: letters rise out of a mask, one after another */
+.word{font:800 44px/1 "Bricolage Grotesque",system-ui,sans-serif;letter-spacing:-.03em;color:var(--cream);display:flex;overflow:hidden;padding-bottom:4px}
+.word span{display:inline-block;transform:translateY(105%);animation:rise 520ms cubic-bezier(.2,.9,.2,1) forwards}
+.word .sp{width:.26em}
+@keyframes rise{to{transform:none}}
+.tag{font:500 12px/1 "JetBrains Mono",monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);opacity:0;animation:fade 500ms ease-out 1700ms forwards}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;animation-delay:0ms!important}.mate{display:none}}
+</style>
+</head>
+<body>
+<div class="stage" role="img" aria-label="Super Agents">
+  <svg class="mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <g id="agent">
+        <path class="hood" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/>
+        <ellipse class="face" cx="50" cy="61" rx="30" ry="27"/>
+      </g>
+    </defs>
+    <g class="mate l"><use href="#agent"/><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/></g>
+    <g class="mate r"><use href="#agent"/><ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/></g>
+    <g class="lead">
+      <use href="#agent"/>
+      <ellipse class="eye" cx="38.5" cy="62" rx="6.2" ry="7.8"/>
+      <ellipse class="eye" cx="61.5" cy="62" rx="6.2" ry="7.8"/>
+      <circle class="glint" cx="40.9" cy="58.6" r="2.1"/>
+      <circle class="glint" cx="63.9" cy="58.6" r="2.1"/>
+    </g>
+  </svg>
+  <div class="word" aria-hidden="true" id="word"></div>
+  <div class="tag">Your team's AI agents, on one page</div>
+</div>
+<script>
+const w = document.getElementById("word");
+[..."Super Agents"].forEach((ch, i) => {
+  const s = document.createElement("span");
+  if (ch === " ") s.className = "sp"; else s.textContent = ch;
+  s.style.animationDelay = `${1050 + i * 34}ms`;
+  w.append(s);
+});
+</script>
+</body>
+</html>
