@@ -450,6 +450,9 @@ def test_a_note_for_a_finished_answer_is_refused(client, monkeypatch):
     r = client.post(f"/api/turns/{tid}/steer", json={"text": "and use the Q3 numbers"})
     assert r.status_code == 409 and "new message" in r.json()["detail"]  # the window sends it as the next message instead
     assert client.post(f"/api/turns/{tid}/steer", json={"text": "x", "via": "fax"}).status_code == 422
+    client.sa_state.turns[tid].ended -= 3601  # an hour on, the app lets go of a finished turn with no plan waiting
+    client.post("/api/turns", json={"message": "again", "team": TEAM})
+    assert client.get(f"/api/turns/{tid}").status_code == 404
 
 
 def test_effort_reaches_the_model_with_room_to_think(client, monkeypatch):
@@ -509,6 +512,7 @@ def client(home, monkeypatch):
     state = server.State("https://hub.example", port=PORT, key="the-key")
     c = TestClient(server.create(state, open_url=lambda u: None), base_url=f"http://127.0.0.1:{PORT}")
     c.headers["X-App-Key"] = "the-key"
+    c.sa_state = state
     signed_in(monkeypatch, c)
     return c
 

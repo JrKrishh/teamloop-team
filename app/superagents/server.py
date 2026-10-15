@@ -686,6 +686,9 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
                                  mode=body.mode, model=body.model, hub=team_hub(body.team), mcp=state.mcp,
                                  llm=lambda messages, tools, tier: llm_step(messages, tools, tier, body.team, body.effort),
                                  person=(store.load().get("profile") or {}).get("name") or "you", effort=body.effort)
+        for tid, t in list(state.turns.items()):  # finished over an hour ago with no plan waiting: nothing will ask for it
+            if t.done and not t.planned and time.time() - t.ended > 3600:
+                state.turns.pop(tid, None)
         state.turns[turn.id] = turn
         threading.Thread(target=turn.run, daemon=True).start()
         return {"turn": turn.id, "chat": chat["id"]}

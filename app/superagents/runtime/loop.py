@@ -223,6 +223,7 @@ class Turn:
         self.mode_note: str | None = None  # told to the model before its next step, after a mode switch
         self.steers: list[tuple[str, str]] = []  # notes typed while it works (text, from where), read before its next step
         self.looping = False
+        self.ended = 0.0  # when it last finished (its answer, or Run plan)
         self.lead_rules: set[str] = set()  # for a member: the rules whose steps wait for a lead's yes (from the board)
 
     # ---- events for the window -----------------------------------------------------------------------------
@@ -349,7 +350,7 @@ class Turn:
             self.emit("error", text=f"{e}"[:500] or type(e).__name__)
         finally:
             self.looping = False
-            self.done = True
+            self.done, self.ended = True, time.time()
             self.emit("end", planned=len(self.planned))
 
     def _run(self) -> None:
@@ -442,9 +443,8 @@ class Turn:
         if not tool:
             self.emit("tool", id=cid, name=name, args=args, status="failed", result="No such tool")
             return f"Error: there is no tool called {name}."
-        kind = self._kind(tool, args)
-        group = tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"
-        card = {"id": cid, "name": name, "args": args, "access": kind, "group": group}
+        card = self._card(cid, tool, args)
+        kind = card["access"]
         if kind != "read" and self.mode == "plan":
             self.planned.append((cid, tool, args))
             self.emit("tool", **card, status="planned")
@@ -471,6 +471,27 @@ class Turn:
                 self.planned.append((cid, tool, args))
                 self.emit("tool", **card, status="planned")
                 return "Not run: the person switched to plan mode. This change is part of the plan they will review and run."
+        result, is_error = self._apply(tool, args, card)
+        key = (name, json.dumps(args, sort_keys=True))
+        if is_error:  # models retry the same failing call until they run out of steps; say so once it's happened twice
+            self.failures[key] = self.failures.get(key, 0) + 1
+            if self.failures[key] >= 2:
+                result += ("\nThis exact call has now failed twice the same way: don't repeat it. Read the current state "
+                           "again, try another way, or tell the person what's in the way.")
+        else:  # or call the same thing over and over and get the same answer: a loop, not progress
+            same = (*key, hash(result))
+            self.repeats[same] = self.repeats.get(same, 0) + 1
+            if self.repeats[same] >= 3:
+                result += REPEAT_NUDGE.format(n=self.repeats[same])
+        return result
+
+    def _card(self, cid: str, tool, args: dict) -> dict:
+        return {"id": cid, "name": tool.name if isinstance(tool, Builtin) else tool.full, "args": args,
+                "access": self._kind(tool, args), "group": tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"}
+
+    def _apply(self, tool, args: dict, card: dict) -> tuple[str, bool]:
+        """Run a step that's been let through, in an answer or by Run plan: its card goes running, then done or failed."""
+        name = card["name"]
         self.emit("tool", **card, status="running")
         try:
             result, is_error = self._execute(tool, args)
@@ -487,18 +508,7 @@ class Turn:
             except ValueError:
                 pass
         self.emit("tool", **card, status="failed" if is_error else "done", result=result[:TO_WINDOW], **extra)
-        key = (name, json.dumps(args, sort_keys=True))
-        if is_error:  # models retry the same failing call until they run out of steps; say so once it's happened twice
-            self.failures[key] = self.failures.get(key, 0) + 1
-            if self.failures[key] >= 2:
-                result += ("\nThis exact call has now failed twice the same way: don't repeat it. Read the current state "
-                           "again, try another way, or tell the person what's in the way.")
-        else:  # or call the same thing over and over and get the same answer: a loop, not progress
-            same = (*key, hash(result))
-            self.repeats[same] = self.repeats.get(same, 0) + 1
-            if self.repeats[same] >= 3:
-                result += REPEAT_NUDGE.format(n=self.repeats[same])
-        return result
+        return result, is_error
 
     def _ask_lead(self, cid: str, card: dict, name: str, args: dict) -> tuple[bool, str]:
         """A step the team's rules give to a lead: it waits for a lead's yes, on their desk or their phone, instead of the
@@ -536,21 +546,15 @@ class Turn:
         self.done = False
         try:
             for cid, tool, args in planned:
-                card = {"id": cid, "name": tool.name if isinstance(tool, Builtin) else tool.full, "args": args,
-                        "access": self._kind(tool, args), "group": tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"}
+                card = self._card(cid, tool, args)
                 if card["access"] != "read" and LEAD_RULE.get(card["name"]) in self.lead_rules:
                     ok, why = self._ask_lead(cid, card, card["name"], args)
                     if not ok:
                         self.emit("tool", **card, status="declined", result=why)
                         continue
-                self.emit("tool", **card, status="running")
-                try:
-                    result, is_error = self._execute(tool, args)
-                except Exception as e:  # noqa: BLE001
-                    result, is_error = f"Error: {e}", True
-                self.emit("tool", **card, status="failed" if is_error else "done", result=result[:TO_WINDOW])
+                self._apply(tool, args, card)
         finally:
-            self.done = True
+            self.done, self.ended = True, time.time()
             self.emit("end", planned=0)
 
     def _remember(self, content: str, answer: str, used: list[str]) -> None:
