@@ -205,7 +205,7 @@ private fun AskCard(t: LiveTurn, agent: String, color: String?, onOpen: () -> Un
         val yes = offset.value >= 0
         Row(Modifier.matchParentSize().clip(shape).background(if (yes) p.ok.copy(alpha = 0.22f) else p.bad.copy(alpha = 0.22f)).padding(horizontal = 24.dp),
             horizontalArrangement = if (yes) Arrangement.Start else Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            Text(if (yes) (if (ask.name == "run_command") "Run it" else "Approve") else "Deny", style = MaterialTheme.typography.titleMedium,
+            Text(if (yes) (if (ask.name == "run_command") "Run it" else "Allow") else "Deny", style = MaterialTheme.typography.titleMedium,
                 color = if (yes) p.ok else p.bad)
         }
         Column(Modifier.offset { IntOffset(offset.value.roundToInt(), 0) }

@@ -77,13 +77,13 @@ object Notifications {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
             .setContentIntent(open(ctx, id, t.chat, t.turn)).setAutoCancel(true)
             .addAction(NotificationCompat.Action.Builder(0, "Deny", decide(false)).build())
-            .addAction(NotificationCompat.Action.Builder(0, if (ask.name == "run_command") "Run it" else "Approve", decide(true))
+            .addAction(NotificationCompat.Action.Builder(0, if (ask.name == "run_command") "Run it" else "Allow", decide(true))
                 .setAuthenticationRequired(true).build())
             .build()
         runCatching { NotificationManagerCompat.from(ctx).notify("ask", id, n) }
     }
 
-    /** A lead's: a member's agent waits for their yes, by the team's rules. Deny or Approve right here. */
+    /** A lead's: a member's agent waits for their yes, by the team's rules. Deny or Allow right here. */
     fun teamAsk(ctx: Context, a: TeamAsk) {
         if (!may(ctx)) return
         val id = a.id.hashCode()
@@ -99,7 +99,7 @@ object Notifications {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
             .setContentIntent(open(ctx, id)).setAutoCancel(true)
             .addAction(NotificationCompat.Action.Builder(0, "Deny", decide(false)).build())
-            .addAction(NotificationCompat.Action.Builder(0, "Approve", decide(true)).setAuthenticationRequired(true).build())
+            .addAction(NotificationCompat.Action.Builder(0, "Allow", decide(true)).setAuthenticationRequired(true).build())
             .build()
         runCatching { NotificationManagerCompat.from(ctx).notify("ask", id, n) }
     }
