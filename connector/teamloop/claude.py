@@ -19,9 +19,12 @@ def python() -> str:
 
 
 def launcher() -> list[str]:
-    """How to start teamloop: the exe itself when frozen (teamloop.exe), else this Python with -m teamloop."""
+    """How to start teamloop: teamloop.exe when frozen (also from SuperAgents.exe, which can't run `mcp` or `send`),
+    else this Python with -m teamloop."""
     if getattr(sys, "frozen", False):
-        return [Path(sys.executable).as_posix()]
+        exe = Path(sys.executable)
+        cli = exe.with_name("teamloop.exe")
+        return [(cli if cli.is_file() else exe).as_posix()]
     return [python(), "-m", "teamloop"]
 
 
