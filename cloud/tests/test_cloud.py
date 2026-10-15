@@ -18,8 +18,6 @@ from tests.conftest import person
 
 GOLDEN = Path(__file__).parents[2] / "agent_s" / "golden"
 calls: list[str] = []
-AGENT_SEEN: list = []
-AGENT_REPLY: dict = {}
 
 
 def golden(name):
@@ -30,9 +28,6 @@ def fake_chat(job, messages, schema):
     calls.append(job)
     if job == "qa":
         return {"answerable": True, "answer": "T-3 is done (e1).", "citations": ["e1"], "unknowns": []}
-    if job == "agent":
-        AGENT_SEEN.append(llm._pinned.get())
-        return AGENT_REPLY
     if job == "digest":
         return {"headline": "One fix shipped.", "shipped": [{"text": "T-3 add() fixed", "evidence": ["e1"]}],
                 "in_progress": [], "blocked": [], "at_risk": []}
@@ -410,30 +405,6 @@ def test_the_same_task_isnt_planned_twice_and_a_rename_shows(app):
     report = next(e for e in d["timeline"] if e["kind"] == "self_report")  # reports come through MCP: no session of their own
     assert report["report"]["percent"] in (80, 100) and report["report"]["done"]
     assert {e["session"] for e in d["timeline"] if e["tool"] == "claude_code"} == {"133b0bcd-9489-43ad-be84-e045a9f47238"}
-
-
-def test_agent_turns_plan_and_route_models(app):
-    global AGENT_REPLY
-    yang = signin(app, "yang")
-    team = new_team(yang)
-    join(app, yang, team, "asha")
-    q = {"team": team}
-    AGENT_REPLY = {"kind": "plan", "answer": "Two tasks from your spec.", "citations": [], "plan": ["Create", "Assign"],
-                   "actions": [{"type": "create_task", "task": "", "title": "OAuth callback", "owner": "asha", "why": "item 1"},
-                               {"type": "assign_task", "task": "T-404", "title": "", "owner": "asha", "why": "not on the board"}]}
-    AGENT_SEEN.clear()
-    spec = [{"name": "spec.md", "text": "- OAuth callback"}]
-    resp = yang.post("/v1/agent", params=q, json={"message": "plan this", "mode": "plan", "attachments": spec})
-    assert resp.status_code == 200, resp.text
-    r = resp.json()
-    assert r["plan"] == ["Create", "Assign"] and r["mode"] == "plan"
-    assert [(a["type"], a["task"], a["owner"]) for a in r["actions"]] == [("create_task", "T-1", "asha")]
-    yang.post("/v1/agent", params=q, json={"message": "what's up", "mode": "manual"})
-    yang.post("/v1/agent", params=q, json={"message": "what's up", "mode": "auto", "model": "lightning"})
-    assert AGENT_SEEN == ["ultra", None, "lightning"]  # Auto: Ultra for plans and imports; the picker pins a tier
-    assert yang.post("/v1/agent", params=q, json={"message": "x", "model": "gpt-9"}).status_code == 422
-    assert TestClient(app).post("/v1/agent", params=q, json={"message": "x"}).status_code == 401
-    assert signin(app, "stranger").post("/v1/agent", params=q, json={"message": "x"}).status_code == 403
 
 
 def test_llm_steps_for_the_app_agent_loop(env):

@@ -303,24 +303,12 @@ class FinishIn(BaseModel):
     run_session: Optional[str] = Field(default=None, max_length=80)
 
 
-class Attachment(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    text: str = Field(max_length=60_000)
-
-
 class LlmIn(BaseModel):
     tier: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
     effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")  # None: the provider's own (low)
     messages: list[dict] = Field(min_length=1, max_length=200)
     tools: list[dict] = Field(default_factory=list, max_length=80)
     max_tokens: int = Field(default=2000, ge=16, le=8192)  # thinking counts against it: high effort needs room
-
-
-class AgentIn(BaseModel):
-    message: str = Field(min_length=1, max_length=2000)
-    mode: str = Field(default="manual", pattern="^(plan|manual|auto)$")
-    model: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
-    attachments: list[Attachment] = Field(default_factory=list, max_length=5)
 
 
 # ---- the app --------------------------------------------------------------------------------------
@@ -1147,29 +1135,6 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if not conn.execute("delete from tasks where team_id = %s and task = %s", (team_id, task)).rowcount:
             raise HTTPException(404, "No planned task with that id")
         return {"ok": True}
-
-    @app.post("/v1/agent")
-    def agent_turn(body: AgentIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        """One turn of the Super Agents chat: an answer with citations, a plan (plan mode) and proposed board changes,
-        which the app applies by mode. The model picker pins a Nemotron tier; Auto uses Ultra for plans and imports."""
-        if c.kind != "session":
-            raise HTTPException(401, "Sign in first")
-        if not asks.allow(c.person.id, time.time()):
-            raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
-        team_id, name, _ = team_scope(c, team, conn)
-        board = [{k: t.get(k) for k in ("task", "title", "status", "owner")} for t in build_board(conn, team_id, name)["tasks"]]
-        members = [r["name"] for r in conn.execute("select name from memberships where team_id = %s and removed_at is null"
-                                                   " order by created_at", (team_id,))]
-        tier = body.model if body.model != "auto" else ("ultra" if body.mode == "plan" or body.attachments else None)
-        try:
-            with llm.pinned(tier), llm.meter() as used:
-                out = agent.turn(body.message, task_events(conn, team_id), board, members,
-                                 [a.model_dump() for a in body.attachments], body.mode, chat=chat)
-        except Exception:  # noqa: BLE001
-            log.exception("agent turn failed")
-            raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
-        record_usage(conn, team_id, c.person, "agent", used)
-        return {**out, "mode": body.mode}
 
     @app.post("/v1/llm")
     def llm_step(body: LlmIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
