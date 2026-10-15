@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent_s import llm
+from cloud import app as cloud_app
 from cloud import auth
 from cloud.app import create
 from tests.conftest import person
@@ -198,7 +199,24 @@ def test_ask_and_digest(app):
     first = yang.get("/v1/digest", params={"team": team}).json()
     assert first["shipped"][0]["text"] == "T-3 add() fixed"
     assert yang.get("/v1/digest", params={"team": team}).json() == first and calls.count("digest") == 1
-    assert TestClient(app).post("/v1/ask", json={"question": "what's happening?"}).json()["answer"]  # the demo
+    assert yang.get("/v1/digest", params={"team": team, "model": "1"}).status_code == 422  # no cache-busting tiers
+    for anon in (TestClient(app).post("/v1/ask", json={"question": "what's happening?"}), TestClient(app).get("/v1/digest")):
+        assert anon.status_code == 401  # the signed-out demo never spends the model key
+
+
+def test_malformed_events_are_refused_so_the_board_keeps_working(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    h = connect(app, yang, team)
+    good = golden("real_fix_add_done.json")
+    base = {"v": 1, "ts": good[0]["ts"], "tool": "mcp", "task": "T-3"}
+    bad = [{"kind": "self_report", "report": {"done": [1]}}, {"kind": "self_report", "report": "90%"}, {"kind": "self_report"},
+           {"kind": "tool", "facts": "x"}, {"kind": "blocked", "ts": None}, {"kind": "pr"}, {"kind": "tool", "facts": {"cmd": "pytest"}},
+           {"kind": "turn_end", "facts": {"usage": {"in": "x"}}}, {"kind": "turn_end", "facts": {"usage": {"out": True}}}]
+    for n, e in enumerate(bad):
+        assert TestClient(app).post("/v1/events", json={"events": [{**base, "id": f"{n:032x}", **e}]}, headers=h).status_code == 422, e
+    assert TestClient(app).post("/v1/events", json={"events": good}, headers=h).json()["accepted"] == len(good)
+    assert yang.get("/v1/board", params={"team": team}).status_code == 200
 
 
 def test_teams_dont_see_each_other(app):
@@ -430,19 +448,21 @@ def test_llm_steps_for_the_app_agent_loop(env):
 
     app = create(chat=fake_chat, chat_step=step)
     h = app_signin(app, "yang")
-    c = TestClient(app)
+    c = TestClient(app, headers=h)
+    q = {"team": c.post("/v1/teams", json={"name": "Loopers"}).json()["id"]}
     tools = [{"type": "function", "function": {"name": "team_board", "description": "x", "parameters": {"type": "object", "properties": {}}}}]
-    r = c.post("/v1/llm", headers=h, json={"tier": "ultra", "messages": [{"role": "user", "content": "hi"}], "tools": tools, "max_tokens": 900})
+    r = c.post("/v1/llm", params=q, json={"tier": "ultra", "messages": [{"role": "user", "content": "hi"}], "tools": tools, "max_tokens": 900})
     assert r.status_code == 200 and r.json()["tool_calls"][0]["function"]["name"] == "team_board"
     assert seen == [("ultra", None, 1, ["team_board"], 900)]  # no effort named: the provider's own
-    r = c.post("/v1/llm", headers=h, json={"tier": "super", "effort": "high", "messages": [{"role": "user", "content": "hi"}], "tools": tools,
-                                           "max_tokens": 6000})
+    r = c.post("/v1/llm", params=q, json={"tier": "super", "effort": "high", "messages": [{"role": "user", "content": "hi"}], "tools": tools,
+                                          "max_tokens": 6000})
     assert r.status_code == 200 and seen[-1] == ("super", "high", 1, ["team_board"], 6000)
-    assert c.post("/v1/llm", headers=h, json={"effort": "turbo", "messages": [{"role": "user", "content": "hi"}]}).status_code == 422
-    assert c.post("/v1/llm", json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 401
-    assert c.post("/v1/llm", headers=h, json={"messages": [{"role": "user", "content": "x" * 410_000}]}).status_code == 413
-    assert c.post("/v1/llm", headers=h, json={"messages": [{"role": "user", "content": "boom"}]}).status_code == 503
-    assert c.post("/v1/llm", headers=h, json={"tier": "gpt-9", "messages": [{"role": "user", "content": "hi"}]}).status_code == 422
+    assert c.post("/v1/llm", params=q, json={"effort": "turbo", "messages": [{"role": "user", "content": "hi"}]}).status_code == 422
+    assert TestClient(app).post("/v1/llm", params=q, json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 401
+    assert c.post("/v1/llm", params=q, json={"messages": [{"role": "user", "content": "x" * 410_000}]}).status_code == 413
+    assert c.post("/v1/llm", params=q, json={"messages": [{"role": "user", "content": "boom"}]}).status_code == 503
+    assert c.post("/v1/llm", params=q, json={"tier": "gpt-9", "messages": [{"role": "user", "content": "hi"}]}).status_code == 422
+    assert c.post("/v1/llm", json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 400  # every step counts for a team
 
 
 def turn(n, task, usage, tool="claude_code", session="s1", at=None):
@@ -451,7 +471,7 @@ def turn(n, task, usage, tool="claude_code", session="s1", at=None):
             "facts": {"usage": usage}}
 
 
-def test_usage_counts_tokens_by_task_tool_day_and_person(env):
+def test_usage_counts_tokens_by_task_tool_day_and_person(env, monkeypatch):
     def step(messages, tools, max_tokens):
         return {"content": "ok", "tool_calls": [], "model": "nebius:nvidia/nemotron-3-super-120b-a12b", "usage": {"in": 1000, "out": 200}}
 
@@ -473,7 +493,6 @@ def test_usage_counts_tokens_by_task_tool_day_and_person(env):
                          headers=connect(app, asha, team))
     msg = {"messages": [{"role": "user", "content": "hi"}]}
     assert yang.post("/v1/llm", params={"team": team}, json=msg).status_code == 200  # counts for the team
-    assert yang.post("/v1/llm", json=msg).status_code == 200  # no team named: not counted anywhere
     assert asha.post("/v1/ask", params={"team": team}, json={"question": "what's done?"}).status_code == 200
 
     lead = yang.get("/v1/usage", params={"team": team, "days": 7, "tz": 330}).json()
@@ -491,6 +510,9 @@ def test_usage_counts_tokens_by_task_tool_day_and_person(env):
     assert cards["T-3"]["usage"] == {"tokens": 3020, "turns": 2} and cards["T-4"]["usage"]["tokens"] == 2300
     assert yang.get("/v1/tasks/T-3", params={"team": team}).json()["usage"]["turns"] == 2
     assert signin(app, "other").get("/v1/usage", params={"team": team}).status_code == 403
+    monkeypatch.setattr(cloud_app, "DAILY_TOKENS", 1200)  # yang's step used 1000 + 200: today's allowance is gone
+    assert yang.post("/v1/llm", params={"team": team}, json=msg).status_code == 403
+    assert asha.post("/v1/llm", params={"team": team}, json=msg).status_code == 200  # 350 so far: asha still has room
 
 
 def a_session(n, session, tool="claude_code", task="T-22", repo="acme-web"):

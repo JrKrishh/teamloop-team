@@ -21,7 +21,7 @@ from typing import Callable, Optional
 
 import hub
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
@@ -33,7 +33,7 @@ from agent_s import digest as agent_digest
 from hub import cards
 from hub import usage as usage_sum
 from hub.relay import _Window
-from hub.team import ID_RE, KIND_RE, MAX_EVENT_BYTES, TASK_RE, clean
+from hub.team import ID_RE, MAX_EVENT_BYTES, TASK_RE, bad_shape, clean
 
 from . import __version__, auth
 from . import blobs as blobstore
@@ -44,6 +44,7 @@ DEMO_FILE = Path(hub.__file__).parent / "demo" / "demo.json"
 ACTIVE_SECONDS = 300
 DEBOUNCE_SECONDS = 30
 RETENTION_DAYS = 30
+DAILY_TOKENS = 10_000_000  # each person's model use on the hub's key per 24 h (a busy development day was 2.9M)
 CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ23456789"  # no vowels: device codes never spell words
 
 
@@ -915,8 +916,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         for e in body.events:
             if "local" in e:
                 raise HTTPException(400, "Events must not carry 'local': that text never leaves the laptop")
-            if not ID_RE.match(str(e.get("id", ""))) or not KIND_RE.match(str(e.get("kind", ""))):
-                raise HTTPException(422, "Each event needs a 32-hex id and a lowercase kind")
+            if bad_shape(e):
+                raise HTTPException(422, bad_shape(e))
             task = e.get("task") if TASK_RE.match(str(e.get("task") or "")) else None
             e = {**clean(e), "member": c.person.name, "task": task}
             if len(json.dumps(e, ensure_ascii=False).encode()) > MAX_EVENT_BYTES:
@@ -942,6 +943,10 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         return {"accepted": new, "duplicates": len(rows) - new}
 
     # ---- usage: Super Agents' own model calls, per team and person ------------------------------------
+    def spent_today(conn, user_id: str) -> int:
+        return int(conn.execute("select coalesce(sum(tokens_in + tokens_out), 0) as n from agent_usage where user_id = %s"
+                                " and at > now() - interval '1 day'", (user_id,)).fetchone()["n"])
+
     def record_usage(conn, team_id: str, person: Optional[auth.Person], source: str, used: dict) -> None:
         if used.get("calls"):
             conn.execute("insert into agent_usage (team_id, user_id, member, source, model, calls, tokens_in, tokens_out)"
@@ -1157,14 +1162,16 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     @app.post("/v1/llm")
     def llm_step(body: LlmIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        """One step of an agent's tool loop for the Super Agents app, on the hub's Nemotron key: signed-in people
-        only, rate limited, size capped. The loop and the tools run on the person's laptop. With a team, the step's
-        tokens count toward that team's usage."""
+        """One step of an agent's tool loop for the Super Agents app, on the hub's Nemotron key: signed-in team
+        members only, rate limited, size capped, and within each person's daily tokens. The loop and the tools run
+        on the person's laptop. The step's tokens count toward the team's usage."""
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
-        team_id = team_scope(c, team, conn)[0] if team else None
+        team_id = team_scope(c, team, conn)[0]
         if not llm_steps.allow(c.person.id, time.time()):
             raise HTTPException(429, "Agents are busy; give it a minute")
+        if spent_today(conn, c.person.id) >= DAILY_TOKENS:  # 403, not 429: waiting a minute won't help
+            raise HTTPException(403, "You've used today's model allowance; it frees up over the next 24 hours")
         if len(json.dumps(body.messages)) + len(json.dumps(body.tools)) > 400_000:
             raise HTTPException(413, "That conversation is too long; start a new chat")
         try:
@@ -1174,7 +1181,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             raise HTTPException(502, f"The model refused the request ({e.code})") from None
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "The model didn't answer; try again in a moment") from None
-        if team_id and out.get("usage"):
+        if out.get("usage"):
             record_usage(conn, team_id, c.person, "app", {"calls": 1, "model": out.get("model"), **out["usage"]})
         return out
 
@@ -1221,41 +1228,36 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     @app.post("/v1/ask")
     def ask(body: AskIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        who = c.person.id if c.person else "anon"
-        if not asks.allow(who, time.time()):
+        """Agent S answers from the team's events. Model calls are for team members only: the demo has none."""
+        team_id = team_scope(c, team, conn)[0]
+        if not asks.allow(c.person.id, time.time()):
             raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
-        team_id = None if (team == "demo" or (c.kind == "anon" and not team)) else team_scope(c, team, conn)[0]
-        evs = task_events(conn, team_id) if team_id else demo.events()
         try:
             with llm.meter() as used:
-                out = qa.answer(body.question, evs, chat=chat)
+                out = qa.answer(body.question, task_events(conn, team_id), chat=chat)
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
-        if team_id:
-            record_usage(conn, team_id, c.person, "ask", used)
+        record_usage(conn, team_id, c.person, "ask", used)
         return out
 
     @app.get("/v1/digest")
-    def get_digest(team: Optional[str] = None, model: str = "auto", c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        is_demo = team == "demo" or (c.kind == "anon" and not team)
-        team_key = "demo" if is_demo else team_scope(c, team, conn)[0]
-        key = f"{team_key}:{model}"
+    def get_digest(team: Optional[str] = None, model: str = Query("auto", pattern="^(auto|lightning|super|ultra)$"),
+                   c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id = team_scope(c, team, conn)[0]
+        key = f"{team_id}:{model}"
         hit = digests.get(key)
         if hit and time.time() - hit[0] < 600:
             return hit[1]
-        if is_demo:
-            evs = demo.events()
-        else:
-            rows = conn.execute("select body from events where team_id = %s and received_at > now() - interval '1 day'"
-                                " order by ts limit 400", (team_key,)).fetchall()
-            evs = [r["body"] for r in rows]
+        if not asks.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
+        rows = conn.execute("select body from events where team_id = %s and received_at > now() - interval '1 day'"
+                            " order by ts limit 400", (team_id,)).fetchall()
         try:
             with llm.pinned(model), llm.meter() as used:
-                out = {**agent_digest.digest(evs, chat=chat), "generated_at": time.time()}
+                out = {**agent_digest.digest([r["body"] for r in rows], chat=chat), "generated_at": time.time()}
         except Exception:  # noqa: BLE001
             raise HTTPException(503, "Agent S couldn't write the digest right now; try again in a minute") from None
-        if not is_demo:
-            record_usage(conn, team_key, None, "digest", used)
+        record_usage(conn, team_id, c.person, "digest", used)
         digests[key] = (time.time(), out)
         return out
 
