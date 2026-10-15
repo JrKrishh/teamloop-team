@@ -145,3 +145,15 @@ create index if not exists approvals_team_idx on public.approvals (team_id, stat
 alter table public.decisions enable row level security;
 alter table public.team_rules enable row level security;
 alter table public.approvals enable row level security;
+
+-- teamloop_cloud_v8_waitlist: the website's waitlist (an email once; name, team size and a note are optional)
+create table if not exists public.waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique check (char_length(email) between 3 and 254),
+  name text check (name is null or char_length(name) <= 120),
+  team_size text check (team_size is null or team_size in ('1', '2-5', '6-20', '21+')),
+  note text check (note is null or char_length(note) <= 1000),
+  source text check (source is null or char_length(source) <= 40),
+  created_at timestamptz not null default now()
+);
+alter table public.waitlist enable row level security;
