@@ -34,6 +34,7 @@ from agent_s import digest as agent_digest
 from hub import cards
 from hub import usage as usage_sum
 from hub.relay import _Window
+from hub.safety import sanitize
 from hub.team import ID_RE, MAX_EVENT_BYTES, TASK_RE, bad_shape, clean
 
 from . import __version__, auth
@@ -129,6 +130,12 @@ def _uuid_or_400(value: str) -> str:
         return str(uuid.UUID(value))
     except (ValueError, TypeError):
         raise HTTPException(400, "Not a team id") from None
+
+
+def peer_text(text: str) -> str:
+    """Text one person writes that teammates' agents read (decisions, task titles, share notes): cleaned the way
+    event summaries are, so it can't pose as the agent's own instructions."""
+    return sanitize(text.strip())[0]
 
 
 def team_scope(c: Caller, team: Optional[str], conn) -> tuple[str, str, str]:
@@ -609,7 +616,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if conn.execute("select count(*) as n from decisions where team_id = %s", (team_id,)).fetchone()["n"] >= 40:
             raise HTTPException(400, "A team can pin up to 40 decisions: remove one first")
         conn.execute("insert into decisions (team_id, text, by_user, by_name, by_role) values (%s, %s, %s, %s, %s)",
-                     (team_id, body.text.strip(), c.person.id, my_name(c), role))
+                     (team_id, peer_text(body.text), c.person.id, my_name(c), role))
         return {**rules_of(conn, team_id), "role": role}
 
     @app.delete("/v1/decisions/{did}")
@@ -750,7 +757,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         r = conn.execute("insert into shares (id, team_id, from_user, from_name, to_user, to_name, kind, note, files, repo,"
                          " branch, status, expires_at) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now() + make_interval(days => %s))"
                          " returning *", (sid, team_id, c.person.id, c.person.name, to["user_id"] if to else None,
-                                          to["name"] if to else None, "files" if body.files else "branch", body.note.strip(),
+                                          to["name"] if to else None, "files" if body.files else "branch", peer_text(body.note),
                                           Jsonb(files), body.repo, body.branch, "uploading" if body.files else "ready",
                                           SHARE_DAYS)).fetchone()
         uploads = [{"name": f["name"], **store.upload(f["path"], f["size"], base_url(request))} for f in files] if files else []
@@ -1092,7 +1099,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
         team_id, name, _ = team_scope(c, team, conn)
-        title = " ".join(body.title.split())
+        title = peer_text(" ".join(body.title.split()))
         same = next((t["task"] for t in build_board(conn, team_id, name)["tasks"]
                      if t["status"] != "done" and " ".join((t["title"] or "").split()).lower() == title.lower()), None)
         if same:  # asking an agent twice shouldn't put the same work on the board twice
@@ -1103,8 +1110,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             task = agent.next_id(have)
         owner_id, owner = member_named(conn, team_id, body.owner)
         conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, created_by, due)"
-                     " values (%s, %s, %s, %s, %s, %s, %s)", (team_id, task, body.title.strip(), owner_id, owner, c.person.id, body.due))
-        return {"task": task, "title": body.title.strip(), "owner": owner, "state": "open", "due": body.due}
+                     " values (%s, %s, %s, %s, %s, %s, %s)", (team_id, task, title, owner_id, owner, c.person.id, body.due))
+        return {"task": task, "title": title, "owner": owner, "state": "open", "due": body.due}
 
     @app.patch("/v1/tasks/{task}")
     def update_task(task: str, body: TaskPatch, team: Optional[str] = None, c: Caller = Depends(caller),
@@ -1116,7 +1123,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if task not in task_ids(conn, team_id):
             raise HTTPException(404, "No such task")
         row = planned(conn, team_id).get(task)
-        title = body.title or (row["title"] if row else None) or next(
+        title = (peer_text(body.title) if body.title else None) or (row["title"] if row else None) or next(
             (t["title"] for t in build_board(conn, team_id, name)["tasks"] if t["task"] == task), "") or task
         owner_id, owner = member_named(conn, team_id, body.owner) if body.owner is not None else (None, None)
         state = body.state or (row["state"] if row else "open")
