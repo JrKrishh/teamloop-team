@@ -1,6 +1,6 @@
 # Super Agents: the desktop app
 
-Super Agents is the product: one Windows app where you sign in, chat with your agents (Agent S and the ones you make) about your team's work and your code, see the board, manage the team and set up this laptop. The website (teamloop.vercel.app) is the landing page and the download. The connector (hooks, MCP server, CLI) and the cloud hub are the parts underneath; TeamLoop is the name of that team hub.
+Super Agents is the product: one Windows app where you sign in, chat with your agents (Agent S and the ones you make) about your team's work and your code, see the board, manage the team and set up this laptop. The website (teamloop.vercel.app) is the landing page with the waitlist; invited people download the app from their invite link. The connector (hooks, MCP server, CLI) and the cloud hub are the parts underneath; TeamLoop is the name of that team hub.
 
 ```
 SuperAgents.exe ─ window (WebView2) ─ UI (app/superagents/ui) ─┐ same origin, per-launch key

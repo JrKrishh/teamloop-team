@@ -1,6 +1,6 @@
-# TeamLoop cloud: accounts, teams, invite links
+# The hosted hub: accounts, teams, invite links
 
-> Since 0.3 the product is the **Super Agents** desktop app ([docs/app.md](app.md)); this hub is what it talks to. The website at `/` is the landing page and `/join/<link>` the invite page; `/auth` and `/device` remain for `teamloop login` from a terminal. The app's GitHub sign-in also needs the redirect URL `http://127.0.0.1:*/**` in Supabase.
+> Since 0.3 the product is the **Super Agents** desktop app ([docs/app.md](app.md)); this hub is what it talks to. The website at `/` is the landing page with the waitlist, and `/join/<link>` the invite page (with the download); `/auth` and `/device` remain for `teamloop login` from a terminal. The app's GitHub sign-in also needs the redirect URL `http://127.0.0.1:*/**` in Supabase.
 
 The hosted board at https://teamloop.vercel.app. People sign in with **GitHub or email and password**, create a team, and invite teammates with a link. Each laptop connects with `teamloop login`, which works like `gh auth login`: the terminal shows a code, the browser asks you to approve it, done.
 
@@ -16,7 +16,10 @@ browser / app window           --session cookie---->       (same function)      
 - **Teams:** whoever creates a team is its lead. Leads make invite links (7 days, up to 20 people), remove members (their laptop tokens stop working at once) and restore them.
 - **`teamloop login`:** `POST /v1/device/start` gives a code; the person approves it on `/device?code=…` and picks a team; the CLI's poll gets a `tl_` token once. Only the token's hash is stored.
 - **Agent S:** Vercel has no background workers, so the open board calls `POST /v1/refresh` after it renders. That re-estimates at most 2 stale tasks (quiet for 30 s), one refresh per team at a time. Reading the board never waits for the model.
-- **The app's agents:** `POST /v1/llm?team=` runs one step of an agent's tool loop on the hub's Nemotron key (signed-in people, 150 steps per 10 minutes each, 400 KB per request). The loop and its tools run on the laptop.
+- **The app's agents:** `POST /v1/llm?team=` runs one step of an agent's tool loop on the hub's Nemotron key (team members only; 150 steps per 10 minutes and 10M tokens per 24 hours for each person, then 403; 400 KB per request). The loop and its tools run on the laptop.
+- **Model calls are for team members:** Ask (`POST /v1/ask`) and the digest (`GET /v1/digest`, `model` one of auto, lightning, super, ultra) need a team and share Ask's limit of 30 per 10 minutes; the signed-out demo board makes no model calls. A failed model call is logged.
+- **Events are checked on the way in** (`hub.team.bad_shape`, shared with the self-hosted hub): `ts` is text, `facts` and `report` are objects, `facts.usage` counts are whole numbers, and so on, so one malformed event can't break a team's board. Decisions, task titles and share notes are cleaned like summaries (`hub.safety.sanitize`), since teammates' agents read them.
+- **Waitlist:** `POST /v1/waitlist` (`{email, name?, team_size?, note?, source?}`; 5 per 10 minutes per visitor) is the landing page's form; one row per email in `waitlist`.
 - **Usage:** each coding turn's token counts arrive on its `turn_end` event (`facts.usage`, counted on the laptop). Super Agents' own Nemotron calls (agent steps, answers, plans, progress, digests) go to `agent_usage`. `GET /v1/usage?team=&days=&tz=` sums both by day, tool, task, model and person; leads see everyone, members see themselves.
 - **Limits:** 60 event batches per member per minute, 8 KB per event, 30-day retention (swept on writes), no live stream (the board polls every 15 s and skips hidden tabs).
 
@@ -33,7 +36,7 @@ browser / app window           --session cookie---->       (same function)      
 - **Task detail timeline:** each event also carries its `session`, the agent's `report` (percent, done, next, doing; or what blocks it), and a turn's `summary` and `status`, so a client can group by session and show reports as rows.
 
 ### Migrations
-`schema.sql` is the whole schema for a fresh database. A live one gets [cloud/cloud/migrations.sql](../cloud/cloud/migrations.sql), in order: `teamloop_cloud_v1` (applied), `teamloop_cloud_v2_tasks` (`tasks`), `teamloop_cloud_v3_usage` (`agent_usage`), `teamloop_cloud_v4_super_team` (`tasks.due`, `session_access`, `session_prompts`), `teamloop_cloud_v5_team_repos` (`team_repos`), `teamloop_cloud_v6_shares` (`shares`, and on Supabase the private `shares` bucket with a 25 MB limit). Each statement is safe to run twice.
+`schema.sql` is the whole schema for a fresh database. A live one gets [cloud/cloud/migrations.sql](../cloud/cloud/migrations.sql), in order: `teamloop_cloud_v1` (applied), `teamloop_cloud_v2_tasks` (`tasks`), `teamloop_cloud_v3_usage` (`agent_usage`), `teamloop_cloud_v4_super_team` (`tasks.due`, `session_access`, `session_prompts`), `teamloop_cloud_v5_team_repos` (`team_repos`), `teamloop_cloud_v6_shares` (`shares`, and on Supabase the private `shares` bucket with a 25 MB limit), `teamloop_cloud_v7_team_rules` (`team_rules`, `decisions`, `approvals`), `teamloop_cloud_v8_waitlist` (`waitlist`). Each statement is safe to run twice. Production has v1 to v6 (14 Oct); how a release applies the rest: [release.md](release.md).
 
 ## One-time setup (Yang)
 These four switch it on. They need your Supabase and GitHub accounts, and step 4 holds the database password, so they're yours.
