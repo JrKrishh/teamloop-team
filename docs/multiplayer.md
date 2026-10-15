@@ -16,7 +16,7 @@ shared sandbox, CRDT canvases, 12 weeks) onto what Super Agents has, what was bu
 | Hard interrupt | Stop, at the desk or on the phone | Have it; no rollback (in Manual, changes wait for a yes anyway) |
 | A team prompt queue | On the desktop, a note sent just as an answer finishes goes as the next message | Partly; a visible queue when someone asks for it |
 | A human backchannel, "promote to agent context" | | Parked: teams already talk in Slack or Teams |
-| A private vault with taint tracking | Prompts, code, diffs and tool output stay on each laptop; only one-line summaries and facts reach the team | Have it, by design |
+| A private vault with taint tracking | From coding sessions, prompts, code, diffs and tool output stay on each laptop; only one-line summaries and facts reach the team, plus what someone chooses to share (files, Super Team prompts by the owner's rules). The app's own agents send their context to Nemotron through the server, which doesn't store it | Have it, by design |
 | Session state with pinned decisions | Team decisions (Super Team → Rules, or "pin that" in a chat) in every agent's prompt with who decided, an agent asks before going against one (T-53); memory notes per laptop | Built |
 | Institutional memory | `team_ask` answers from the team's events with citations; recall over earlier chats and coding sessions | Have it |
 | An agent identity, permissions as an intersection | Each laptop's tools run with that person's own sign-ins; a teammate's prompt into your session runs by your rules (read only, or edits in that repo), never shell commands | Have the essentials |

@@ -181,7 +181,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
       <div class="steps">
         <div class="step reveal"><span class="n">01</span><h3>Get early access</h3><p>Join the waitlist. We let teams in a few at a time and email you when your team's spot opens.</p></div>
         <div class="step reveal"><span class="n">02</span><h3>Connect your repos</h3><p>Pick a folder. Super Agents wires Claude Code and Codex hooks into personal files that stay out of git.</p></div>
-        <div class="step reveal"><span class="n">03</span><h3>Code as usual</h3><p>Each session reports a one-line summary and facts: files changed, tests passed or failed, commits, PRs.</p></div>
+        <div class="step reveal"><span class="n">03</span><h3>Code as usual</h3><p>Each session reports a one-line summary and facts: files changed, tests passed or failed, commits.</p></div>
       </div>
     </div>
   </section>
@@ -194,7 +194,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
         <p class="sub reveal">Agent S runs on NVIDIA Nemotron. It answers only from your team's session events, and every answer points to the events it comes from.</p>
         <ul class="ticks reveal">
           <li><span><b>"What's blocked?"</b> Blockers, with the sessions that show them.</span></li>
-          <li><span><b>Progress you can trust.</b> "Done" needs a merged PR, passing tests or a commit, not just the agent's word.</span></li>
+          <li><span><b>Progress you can trust.</b> "Done" needs passing tests or a commit, not just the agent's word.</span></li>
           <li><span><b>A daily digest</b> for the lead: shipped, in progress, blocked, at risk.</span></li>
         </ul>
       </div>
@@ -236,12 +236,13 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
   <section class="block" id="privacy">
     <div class="wrap">
       <div class="kicker">Privacy</div>
-      <h2 class="reveal">Summaries leave the laptop. Code never does.</h2>
+      <h2 class="reveal">Summaries leave the laptop. Code stays, unless you share it.</h2>
       <p class="sub reveal">The summary is written on each laptop. You can pause sharing with one switch, and leads see work, not people: no rankings, no time tracking.</p>
       <div class="privacy">
-        <div class="col reveal"><h3>What's shared</h3><ul><li>A one-line summary of each agent turn</li><li>Facts: files changed, test results, commits, PRs</li><li>The task you're on and which coding tool</li></ul></div>
-        <div class="col never reveal"><h3>Never shared</h3><ul><li>Your prompts and the agent's replies</li><li>Tool output, file contents and diffs</li><li>Keystrokes, screenshots, time tracking</li></ul></div>
+        <div class="col reveal"><h3>What's shared</h3><ul><li>A one-line summary of each agent turn</li><li>Facts: files changed, test results, commits, token counts</li><li>The task you're on and which coding tool</li><li>What you choose: files you send a teammate, and prompts teammates send into your sessions, by your rules</li></ul></div>
+        <div class="col never reveal"><h3>Never shared</h3><ul><li>Your prompts and the agent's replies in your coding sessions</li><li>Tool output, file contents and diffs</li><li>Keystrokes, screenshots, time tracking</li></ul></div>
       </div>
+      <p class="sub reveal">Chats with the app's own agents are answered by NVIDIA Nemotron through the Super Agents server; they aren't stored there.</p>
     </div>
   </section>
 
