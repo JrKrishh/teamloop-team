@@ -104,12 +104,16 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
 @Composable
 fun Waiting(link: Link) {
     val p = LocalPalette.current
-    Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(top = 80.dp, start = 24.dp, end = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Mascot(size = 96.dp, mood = if (link == Link.Offline) Mood.Sleep else Mood.Think)
         Spacer(Modifier.height(18.dp))
         Text(if (link == Link.Offline) "Your laptop isn't answering" else "Finding your laptop…", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
-        Text("Super Agents has to be open on it, with Settings → Phone on.", style = MaterialTheme.typography.bodyMedium, color = p.muted)
+        Text("Super Agents has to be open on it, with Settings → Phone on.", style = MaterialTheme.typography.bodyMedium, color = p.muted,
+            textAlign = TextAlign.Center)
+        if (link == Link.Offline) OutlinedButton(onClick = { ctx.remote.tryNow() }, modifier = Modifier.padding(top = 18.dp).testTag("try-again"),
+            shape = RoundedCornerShape(14.dp)) { Text("Try again") }
     }
 }
 

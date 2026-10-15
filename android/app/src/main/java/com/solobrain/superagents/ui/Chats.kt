@@ -62,11 +62,11 @@ fun parseColor(hex: String?): Color? = hex?.let { runCatching { Color(android.gr
 /** Your chats on the laptop: search, a few one-tap questions, the latest three, then each project's chats in a folder
  *  of its own (the repo its agent worked in), so a long history stays a short list. */
 @Composable
-fun Chats(laptop: Laptop?, onChat: (ChatOpen) -> Unit) {
+fun Chats(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
     val p = LocalPalette.current
     var q by remember { mutableStateOf("") }
     val open = remember { mutableStateMapOf<String, Boolean>() }
-    if (laptop == null) return Waiting(Link.Connecting)
+    if (laptop == null) return Waiting(link)
     val query = q.trim()
     val shown = laptop.chats.filter { query.isEmpty() || it.title.contains(query, ignoreCase = true) || it.project.orEmpty().contains(query, ignoreCase = true) }
     val folders = shown.groupBy { it.project ?: GENERAL }.toList().sortedByDescending { (_, chats) -> chats.maxOf { it.updated } }

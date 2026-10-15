@@ -37,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,7 +97,8 @@ fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOp
     val board by r.board.collectAsState()
     val haptic = LocalHapticFeedback.current
     var settings by remember { mutableStateOf(false) }
-    val waiting = laptop?.live?.count { it.ask != null } ?: 0
+    val waiting = (laptop?.live?.count { it.ask != null } ?: 0) + (laptop?.asks?.size ?: 0)
+    LaunchedEffect(tab) { if (tab == Tab.Chats) runCatching { r.refresh() } }  // chats started since, here or at the desk
 
     Scaffold(
         containerColor = p.bg,
@@ -141,7 +143,7 @@ fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOp
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (tab) {
                 Tab.Needs -> NeedsYou(laptop, link, onChat)
-                Tab.Chats -> Chats(laptop, onChat)
+                Tab.Chats -> Chats(laptop, link, onChat)
                 Tab.Board -> BoardScreen(onChat)
             }
         }

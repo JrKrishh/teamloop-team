@@ -115,6 +115,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.solobrain.superagents.remote
 import com.solobrain.superagents.remote.Labels
+import com.solobrain.superagents.remote.LiveTurn
 import com.solobrain.superagents.remote.RemoteError
 import com.solobrain.superagents.remote.objects
 import com.solobrain.superagents.remote.text
@@ -239,6 +240,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     var pickedEffort by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(open.id != null) }
+    var loadError by remember { mutableStateOf<String?>(null) }  // the chat's history didn't come: say so, with Try again
     var follow by remember { mutableStateOf(true) }  // stay with the newest message, unless they scrolled up to read
     val catchUp: (String, Int) -> Unit = { turn, after -> scope.launch { runCatching { r.watch(turn, after) } } }
     BackHandler(onBack = onBack)
@@ -265,23 +267,28 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
         }
     }
 
+    suspend fun history(id: String, live: LiveTurn?) {
+        loading = true; loadError = null
+        runCatching { r.chat(id) }.onSuccess { c ->
+            model.title = c.optString("title").ifEmpty { "Chat" }
+            c.optString("agent").takeIf { it.isNotEmpty() }?.let { agent = it }
+            for (v in c.optJSONArray("view").objects()) {
+                model.user(v.optString("user"))
+                val b = model.agent(v.optString("agent").ifEmpty { agent }, past = true)
+                for (e in v.optJSONArray("events").objects()) model.apply(b, e)
+                b.answer = v.text("answer")
+                b.line = null
+            }
+        }.onFailure { if (live == null) loadError = it.message ?: "Couldn't reach your laptop." else model.title = live.message.take(60) }  // live: not saved yet
+        loading = false
+    }
+
     LaunchedEffect(Unit) {
         launch { r.events.collect { (turn, evs) -> model.onEvents(turn, evs, catchUp) } }
         val live = open.live
         if (open.id != null) {
             model.chatId = open.id
-            runCatching { r.chat(open.id) }.onSuccess { c ->
-                model.title = c.optString("title").ifEmpty { "Chat" }
-                c.optString("agent").takeIf { it.isNotEmpty() }?.let { agent = it }
-                for (v in c.optJSONArray("view").objects()) {
-                    model.user(v.optString("user"))
-                    val b = model.agent(v.optString("agent").ifEmpty { agent }, past = true)
-                    for (e in v.optJSONArray("events").objects()) model.apply(b, e)
-                    b.answer = v.text("answer")
-                    b.line = null
-                }
-            }.onFailure { if (live == null) Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() else model.title = live.message.take(60) }
-            loading = false
+            history(open.id, live)
         }
         val watching = live ?: laptop?.live?.firstOrNull { it.chat != null && it.chat == open.id }
         if (watching != null) {  // a turn running now, maybe started at the desk
@@ -317,6 +324,14 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
                 loading -> Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Mascot(size = 72.dp, mood = Mood.Think); Text("Opening…", color = p.muted)
                 }
+                loadError != null && model.items.isEmpty() -> Column(Modifier.fillMaxWidth().padding(top = 80.dp, start = 24.dp, end = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Mascot(size = 72.dp, mood = Mood.Oops)
+                    Text("Couldn't open this chat", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+                    Text(loadError.orEmpty(), color = p.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                    OutlinedButton(onClick = { open.id?.let { id -> scope.launch { history(id, null) } } }, shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.padding(top = 16.dp).testTag("try-again")) { Text("Try again") }
+                }
                 model.items.isEmpty() -> Welcome(hoodOf(agent, who?.color), onAsk = { send(it) })
                 else -> LazyColumn(state = list, contentPadding = PaddingValues(18.dp, 16.dp, 18.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
                     itemsIndexed(model.items) { _, item ->
@@ -336,7 +351,8 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
             (EFFORTS.toMap()[pickedEffort ?: laptop?.effort ?: "medium"] ?: "Medium")
         Composer(text, { text = it }, model.running != null, agent, who?.name ?: "Agent S", who?.color, MODES.first { it.first == mode }.second, tuning,
             onPick = { picking = true }, onSend = { send(text) },
-            onStop = { model.running?.let { t -> haptic.performHapticFeedback(HapticFeedbackType.Reject); scope.launch { runCatching { r.stopTurn(t) } } } })
+            onStop = { model.running?.let { t -> haptic.performHapticFeedback(HapticFeedbackType.Reject)
+                scope.launch { runCatching { r.stopTurn(t) }.onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } } } })
     }
 
     if (picking) ModalBottomSheet(onDismissRequest = { picking = false }, containerColor = p.bg2,
@@ -532,7 +548,16 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(onClick = { b.planDone = true; for (c in planned) c.status = "discarded" }, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Discard") }
-                Button(onClick = { b.planDone = true; model.running = b.turn; scope.launch { runCatching { r.runPlan(b.turn ?: return@launch) } } },
+                Button(onClick = {
+                    val turn = b.turn ?: return@Button
+                    b.planDone = true; model.running = turn
+                    scope.launch {
+                        runCatching { r.runPlan(turn) }.onFailure {  // the plan is still there: say why, and Run plan works again
+                            b.planDone = false; if (model.running == turn) model.running = null
+                            Toast.makeText(ctx, it.message ?: "Couldn't reach your laptop.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
                     modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text("Run plan") }
             }
