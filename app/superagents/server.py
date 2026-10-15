@@ -337,6 +337,8 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         if code == 200 and me.get("user"):
             teams = me.get("teams") or []
             team = s.get("team") if any(t["id"] == s.get("team") for t in teams) else (teams[0]["id"] if teams else None)
+            if team != s.get("team"):  # the phone reads the saved team: keep it the one this window shows
+                store.save({**store.load(), "team": team})
             out.update(signed_in=True, user={**me["user"], **{k: v for k, v in (s.get("profile") or {}).items() if k == "avatar"}},
                        teams=teams, team=team)
         elif code in (200, 401):  # the session expired or was revoked: sign in again

@@ -104,6 +104,7 @@ def test_github_sign_in_through_the_browser(env, monkeypatch):
     assert client.get("/api/auth/status").json() == {"state": "done"}
     boot = client.get("/api/boot").json()
     assert boot["signed_in"] and boot["user"]["avatar"] == "https://avatars.example/y.png" and boot["team"] == TEAM
+    assert store.load()["team"] == TEAM  # the team shown is the one the phone gets, before anyone picks one
     # the same link can't be used twice, and a forged one is refused
     again = TestClient(client.app, base_url=f"http://127.0.0.1:{PORT}").get(f"/auth/callback?flow={flow}&code=x")
     assert again.status_code == 400 and client.get("/api/auth/status").json()["state"] == "error"

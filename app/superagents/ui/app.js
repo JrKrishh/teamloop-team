@@ -760,12 +760,17 @@ const TOOL_UI = {
   assign_task: ["user", "Assign", a => `${a.task} → ${a.owner}`],
   close_task: ["check", "Close", a => a.task],
   start_task: ["play", "Start on this laptop", a => a.task + (a.repo ? ` in ${a.repo}` : "")],
+  set_deadline: ["flag", "Deadline", a => `${a.task} · ${a.due || "none"}`],
+  team_sessions: ["team", "Read teammates' sessions", () => ""],
+  prompt_session: ["send", "Prompt a session", a => `${a.member || a.session || "latest"}: “${(a.prompt || "").slice(0, 40)}”`],
+  session_prompt: ["send", "Check a prompt", a => (a.id || "").slice(0, 8)],
   list_files: ["folder", "List", a => a.path || "connected repos"],
   read_file: ["file", "Read", a => a.path],
   search_files: ["search", "Search", a => `“${a.query}”${a.path ? ` in ${a.path}` : ""}`],
   write_file: ["edit", "Write", a => a.path],
   run_command: ["term", "Run", a => a.command],
   git_status: ["branch", "Git status", a => a.repo || ""],
+  git_diff: ["branch", "Diff", a => (a.repo || "") + (a.base ? ` since ${a.base}` : "")],
   git_branch: ["branch", "Branch", a => a.name],
   git_commit: ["check", "Commit", a => `${(a.message || "").split("\n")[0]}${a.files ? ` · ${a.files.length} file${a.files.length === 1 ? "" : "s"}` : ""}`],
   git_push: ["up", "Push", a => a.repo || "this branch"],
@@ -776,6 +781,7 @@ const TOOL_UI = {
   team_files: ["file", "Read what's shared", () => ""],
   take_share: ["file", "Take a share", a => (a.id || "").slice(0, 8) + (a.repo ? ` into ${a.repo}` : "")],
   fetch_url: ["globe", "Read page", a => a.url],
+  github_pr: ["github", "Read pull request", a => `${a.repo}#${a.number}`],
   browser_open: ["globe", "Open", a => a.url],
   browser_snapshot: ["globe", "Read the page", a => (a.find ? `“${a.find}”` : "")],
   browser_click: ["globe", "Click", a => a.ref + (a.double ? " twice" : "")],
@@ -800,6 +806,9 @@ const TOOL_UI = {
   desktop_screenshot: ["laptop", "Screenshot", a => a.window || ""],
   desktop_batch: ["list", "Steps", a => `${(a.steps || []).length} in one go`],
   pin_decision: ["check", "Pin a decision", a => a.text],
+  remember: ["book", "Remember", a => a.note],
+  forget: ["x", "Forget a note", a => a.id],
+  recall: ["search", "Recall", a => `“${a.query}”${a.where && a.where !== "everywhere" ? ` in ${a.where}` : ""}`],
   load_skill: ["book", "Use skill", a => a.name],
   read_skill_file: ["book", "Read skill file", a => `${a.name}/${a.file}`],
 };
@@ -1505,7 +1514,7 @@ let backToAgent = null;  // adding a connector from an agent's editor: the edito
 async function editAgent(a, kept) {
   const isNew = !a;
   const draft = kept || (a ? JSON.parse(JSON.stringify(a)) : {name: "", color: S.colors[S.agents.length % S.colors.length] || "#3E9B6B", instructions: "",
-    model: "auto", mode: "manual", skills: ["karpathy-guidelines"], connectors: [], tools: {team: true, files: true, terminal: true, browser: true}});
+    model: "auto", mode: "manual", skills: ["karpathy-guidelines"], connectors: [], tools: {team: true, files: true, terminal: true, browser: true, memory: true, desktop: false}});  // as runtime/agents.py saves a new agent
   const [skills, conns] = await Promise.all([api("/api/skills").then(r => r.skills).catch(() => []), api("/api/connectors").then(r => r.items).catch(() => [])]);
   const name = inputEl({value: draft.name, maxLength: 40, placeholder: "e.g. Reviewer", required: true});
   const sw = el("div", "swatches"); const face = agent("pick-face", draft.color);  // the new agent's own mascot, in the hood you pick

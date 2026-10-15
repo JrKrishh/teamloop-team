@@ -545,3 +545,11 @@ def test_terminal_over_websocket(client, home):
         while "super-agents-ok" not in seen.replace("echo super-agents-ok", "") and time.time() < deadline:
             seen += ws.receive_text()
         assert "super-agents-ok" in seen.replace("echo super-agents-ok", "")
+
+
+def test_every_builtin_tool_has_a_card_in_the_ui():
+    """A tool missing from app.js's TOOL_UI shows as its raw name with its arguments as JSON."""
+    from superagents.runtime.tools import BUILTINS
+
+    block = (server.UI / "app.js").read_text(encoding="utf-8").split("const TOOL_UI = {", 1)[1].split("\n};", 1)[0]
+    assert [b.name for b in BUILTINS if f"\n  {b.name}: [" not in block] == []
