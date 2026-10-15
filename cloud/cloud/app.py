@@ -9,6 +9,7 @@ PUBLIC_URL (optional; used in invite and sign-in links), HUB_SECURE_COOKIE (defa
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import secrets
@@ -41,6 +42,7 @@ from . import blobs as blobstore
 STATIC = Path(hub.__file__).parent / "static"
 SITE = Path(__file__).parent / "site"
 DEMO_FILE = Path(hub.__file__).parent / "demo" / "demo.json"
+log = logging.getLogger("teamloop.cloud")  # Vercel keeps what reaches stderr
 ACTIVE_SECONDS = 300
 DEBOUNCE_SECONDS = 30
 RETENTION_DAYS = 30
@@ -981,6 +983,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                 try:
                     snap = progress.estimate(row["task"], evs, cards.title_for(row["task"], evs), chat=chat)
                 except Exception:  # noqa: BLE001 - try again in a minute
+                    log.exception("progress for %s failed", row["task"])
                     failed[key] = time.time()
                     continue
                 conn.execute("insert into snapshots (team_id, task, created_at, body) values (%s, %s, greatest(now(), %s), %s)",
@@ -1156,6 +1159,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                 out = agent.turn(body.message, task_events(conn, team_id), board, members,
                                  [a.model_dump() for a in body.attachments], body.mode, chat=chat)
         except Exception:  # noqa: BLE001
+            log.exception("agent turn failed")
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
         record_usage(conn, team_id, c.person, "agent", used)
         return {**out, "mode": body.mode}
@@ -1178,8 +1182,10 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             with llm.pinned(body.tier), llm.effort(body.effort):
                 out = chat_step(body.messages, body.tools, body.max_tokens)
         except urllib.error.HTTPError as e:
+            log.warning("the model refused an app step: %s", e.code)
             raise HTTPException(502, f"The model refused the request ({e.code})") from None
         except Exception:  # noqa: BLE001
+            log.exception("app step failed")
             raise HTTPException(503, "The model didn't answer; try again in a moment") from None
         if out.get("usage"):
             record_usage(conn, team_id, c.person, "app", {"calls": 1, "model": out.get("model"), **out["usage"]})
@@ -1236,6 +1242,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             with llm.meter() as used:
                 out = qa.answer(body.question, task_events(conn, team_id), chat=chat)
         except Exception:  # noqa: BLE001
+            log.exception("ask failed")
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
         record_usage(conn, team_id, c.person, "ask", used)
         return out
@@ -1256,6 +1263,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             with llm.pinned(model), llm.meter() as used:
                 out = {**agent_digest.digest([r["body"] for r in rows], chat=chat), "generated_at": time.time()}
         except Exception:  # noqa: BLE001
+            log.exception("digest failed")
             raise HTTPException(503, "Agent S couldn't write the digest right now; try again in a minute") from None
         record_usage(conn, team_id, c.person, "digest", used)
         digests[key] = (time.time(), out)
