@@ -203,11 +203,12 @@ def test_super_team_calls_reach_the_hub_but_running_prompts_stays_with_the_runne
     client, hub, *_ = env
     signed_in(monkeypatch, client)
     pid = "11111111-2222-3333-4444-555555555555"
-    for method, path in [("GET", "sessions"), ("PUT", "sessions/access"), ("POST", "prompts"), ("GET", f"prompts/{pid}"),
+    for method, path in [("GET", "sessions"), ("PUT", "sessions/access"), ("POST", "prompts"),
                          ("POST", f"prompts/{pid}/decide"), ("POST", f"prompts/{pid}/cancel")]:
         r = client.request(method, f"/api/cloud/{path}", params={"team": TEAM}, json={"mode": "auto"} if method != "GET" else None)
         assert r.json().get("detail") != "Not a Super Agents call", path
     assert any(c[0] == "PUT" and c[1] == "/v1/sessions/access" and c[2] == {"mode": "auto"} for c in hub.calls)
+    assert client.get("/api/cloud/me").json()["detail"] == "Not a Super Agents call"  # only what the page uses gets through
     for path in ("prompts/runnable", f"prompts/{pid}/claim", f"prompts/{pid}/finish"):  # only this laptop's runner does these
         assert client.post(f"/api/cloud/{path}", json={}).json()["detail"] == "Not a Super Agents call"
 

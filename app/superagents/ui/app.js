@@ -51,7 +51,6 @@ const ICONS = {
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   flag: '<path d="M5.5 21V4.5M5.5 5h11l-2 4 2 4h-11"/>',
   bolt: '<path d="M13 3 5.5 13.5H12L11 21l7.5-10.5H12Z"/>',
-  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   send: '<path d="M4 12h12M12 6l6 6-6 6"/>',
   file: '<path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8Z"/><path d="M14 3.5V8h4.5M9 13h6M9 16.5h4"/>',
   github: '<path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/>',
@@ -1154,7 +1153,7 @@ function pose(t, members) {
   const active = new Set(members.filter(m => m.active).map(m => m.name));
   return t.members.some(m => active.has(m)) ? "idle" : "sleep";
 }
-function list(label, items, cls, task) {
+function list(label, items, cls) {
   if (!items || !items.length) return null;
   const row = el("div", "lrow " + (cls || "")); row.append(el("span", null, label));
   const ul = el("ul");
@@ -1773,7 +1772,7 @@ async function renderMemory() {
     try {
       const r = await api(`/api/memory/search?q=${encodeURIComponent(q.value.trim())}`);
       results.replaceChildren(...(r.hits.length ? r.hits.map(h => {
-        const it = el("div", "hit"); const when = h.at ? new Date(h.at * 1000).toLocaleDateString([], {month: "short", day: "numeric"}) : "";
+        const it = el("div", "mem-hit"); const when = h.at ? new Date(h.at * 1000).toLocaleDateString([], {month: "short", day: "numeric"}) : "";
         it.append(el("span", "src", [{note: "note", chat: "chat", claude_code: "Claude Code", codex: "Codex"}[h.kind], h.project, h.kind !== "note" ? h.title : "", when].filter(Boolean).join(" · ")),
           el("span", "txt", h.text)); return it;
       }) : [el("p", "sub", "Nothing found.")]));

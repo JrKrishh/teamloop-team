@@ -570,6 +570,3 @@ class Turn:
 def new_chat(agent_id: str) -> dict:
     return {"id": secrets.token_urlsafe(8), "agent": agent_id, "created": time.time(), "messages": [], "view": []}
 
-
-def get_agent(agent_id: str) -> dict:
-    return agent_store.get(agent_id)

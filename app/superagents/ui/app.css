@@ -711,9 +711,9 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .mem-stats{font-size:12.5px;color:var(--faint)}
 .mem-search{display:flex;gap:8px;margin:14px 0 8px}
 .mem-search input{flex:1}
-.hit{display:grid;gap:3px;padding:10px 4px;border-bottom:1px solid var(--line)}
-.hit .src{font:500 12px var(--fb);color:var(--faint)}
-.hit .txt{font-size:14px;overflow-wrap:anywhere;white-space:pre-wrap}
+.mem-hit{display:grid;gap:3px;padding:10px 4px;border-bottom:1px solid var(--line)}
+.mem-hit .src{font:500 12px var(--fb);color:var(--faint)}
+.mem-hit .txt{font-size:14px;overflow-wrap:anywhere;white-space:pre-wrap}
 .note-add{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .note-add input{flex:1;min-width:240px}
 .drawer .thread{display:grid;gap:14px}
@@ -994,7 +994,6 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .spark svg{display:block;width:100%;height:auto}
 .timeline{list-style:none;margin:0;padding:0;display:grid;gap:0}
 .timeline li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;padding:6px 0;font-size:14px}
-.timeline li.hit{background:color-mix(in srgb,var(--brick) 9%,transparent)}
 .timeline time{font:500 12px/1.7 var(--fm);color:var(--faint)}
 .label{font:600 12px var(--fb);color:var(--faint)}
 

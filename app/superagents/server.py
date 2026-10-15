@@ -42,12 +42,12 @@ from .runtime import tools as runtime_tools
 
 UI = Path(__file__).parent / "ui"
 # what the UI may ask the hub for, through /api/cloud/<path>
-CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events|usage"
+CLOUD_PATHS = re.compile(r"^(teams|board|team|digest|refresh|events|usage"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)|shares|shares/[0-9a-f-]{36}"
-                         r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40}"
+                         r"|invites/[A-Za-z0-9_-]{8,80}/accept|tasks/[A-Za-z0-9_.-]{1,40}"
                          r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread"
-                         r"|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?"
-                         r"|rules|decisions|decisions/[0-9a-f-]{36}|approvals|approvals/[0-9a-f-]{36}(/(decide|cancel))?)$")
+                         r"|prompts|prompts/[0-9a-f-]{36}/(decide|cancel)"
+                         r"|rules|decisions|decisions/[0-9a-f-]{36}|approvals|approvals/[0-9a-f-]{36}/decide)$")
 
 
 class State:
