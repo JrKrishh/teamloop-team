@@ -203,7 +203,6 @@ class ChatModel {
             "answer" -> { b.answer = e.optString("text"); b.line = null }
             "error" -> { b.failed = e.optString("text"); b.line = null }
             "end" -> {
-                if (b.answer != null || b.failed != null) b.line = null
                 if (!b.past) b.planned = e.optInt("planned")
                 if (running == b.turn) running = null
                 b.line = null

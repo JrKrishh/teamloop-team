@@ -752,7 +752,7 @@ function failTurn(st, text) {
 // ---- tool cards: what the agent did, and what waits for you ---------------------------------------------------
 const TOOL_UI = {
   team_board: ["board", "Read the board", () => ""],
-  team_ask: ["spark", "Asked the team's history", a => a.question],
+  team_ask: ["spark", "Ask the team's history", a => a.question],
   team_task: ["board", "Read task", a => a.task],
   team_usage: ["gauge", "Read the team's AI usage", a => (a.days ? `last ${a.days} days` : "")],
   create_task: ["plus", "Create task", a => (a.title || "") + (a.owner ? ` · ${a.owner}` : "")],
@@ -773,7 +773,7 @@ const TOOL_UI = {
   git_branch: ["branch", "Branch", a => a.name],
   git_commit: ["check", "Commit", a => `${(a.message || "").split("\n")[0]}${a.files ? ` · ${a.files.length} file${a.files.length === 1 ? "" : "s"}` : ""}`],
   git_push: ["up", "Push", a => a.repo || "this branch"],
-  open_pr: ["github", "Pull request", a => a.title],
+  open_pr: ["github", "Open a pull request", a => a.title],
   git_pull: ["reload", "Pull", a => a.repo || ""],
   share_files: ["file", "Share", a => `${(a.paths || []).join(", ")} with ${a.to || "everyone"}`],
   share_branch: ["branch", "Hand over the branch", a => `to ${a.to || "everyone"}${a.repo ? ` · ${a.repo}` : ""}`],

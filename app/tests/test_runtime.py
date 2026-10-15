@@ -547,9 +547,11 @@ def test_terminal_over_websocket(client, home):
         assert "super-agents-ok" in seen.replace("echo super-agents-ok", "")
 
 
-def test_every_builtin_tool_has_a_card_in_the_ui():
-    """A tool missing from app.js's TOOL_UI shows as its raw name with its arguments as JSON."""
+def test_every_builtin_tool_has_a_card_in_the_ui_and_a_label_on_the_phone():
+    """A tool missing from app.js's TOOL_UI, or from the phone's Labels.kt, shows as its raw name with its arguments."""
     from superagents.runtime.tools import BUILTINS
 
     block = (server.UI / "app.js").read_text(encoding="utf-8").split("const TOOL_UI = {", 1)[1].split("\n};", 1)[0]
     assert [b.name for b in BUILTINS if f"\n  {b.name}: [" not in block] == []
+    phone = (server.UI.parents[2] / "android/app/src/main/java/com/solobrain/superagents/remote/Labels.kt").read_text(encoding="utf-8")
+    assert [b.name for b in BUILTINS if f'"{b.name}" to (' not in phone] == []

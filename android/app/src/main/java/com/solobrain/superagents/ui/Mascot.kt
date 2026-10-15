@@ -68,7 +68,7 @@ fun moodFor(tool: String?): Mood = when {
 }
 
 private val READS = setOf("read_file", "list_files", "fetch_url", "team_board", "team_ask", "team_sessions", "recall")
-private val WRITES = setOf("write_file", "edit_file", "create_task", "assign_task", "close_task", "set_deadline", "share_files", "remember")
+private val WRITES = setOf("write_file", "create_task", "assign_task", "close_task", "set_deadline", "share_files", "remember")
 
 // brand/mark.svg, on its 100 × 100 canvas
 private const val HOOD = "M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8" +
