@@ -461,11 +461,12 @@ async function loadAgents() {
   if (!S.agents.some(a => a.id === S.agent)) S.agent = "agent-s";
   renderAgentPick();
 }
+function askHint(a) { return a.id === "agent-s" ? "Ask about your team's work, or ask Agent S to plan it…" : `Message ${a.name}…`; }
 function renderAgentPick() {
   const a = currentAgent();
   $("agentLabel").textContent = a.name;
   $("agentMini").replaceChildren(agent("", a.color));
-  $("askIn").placeholder = a.id === "agent-s" ? "Ask about your team's work, or ask Agent S to plan it…" : `Message ${a.name}…`;
+  $("askIn").placeholder = askHint(a);
   $("askIn").setAttribute("aria-label", `Message ${a.name}`);
 }
 function setAgent(id, save = true, defaults = true) {
@@ -651,7 +652,7 @@ const shortModel = m => /ultra/i.test(m || "") ? "Nemotron Ultra" : /super/i.tes
   : /lightning/i.test(m || "") ? "Nemotron Lightning" : (m || "").replace(/^ollama:/, "local ");
 function setRunning(on) {
   S.running = on;
-  $("askIn").placeholder = on ? "Add a note while it works: it reads it before its next step" : ASK_PLACEHOLDER;
+  $("askIn").placeholder = on ? "Add a note while it works: it reads it before its next step" : askHint(currentAgent());  // the agent picked now
   syncSend();
 }
 // The round button: Send; while an answer runs, Stop, or Send again once you type a note for it
@@ -1127,7 +1128,6 @@ $("issuesForm").addEventListener("submit", async ev => {
 });
 
 const askIn = $("askIn");
-const ASK_PLACEHOLDER = askIn.placeholder;
 askIn.addEventListener("input", () => { askIn.style.height = "auto"; askIn.style.height = `${Math.min(askIn.scrollHeight, 180)}px`; syncSend(); });
 askIn.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!S.running || (S.steerable && askIn.value.trim())) $("askForm").requestSubmit(); }
