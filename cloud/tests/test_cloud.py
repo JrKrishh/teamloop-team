@@ -95,7 +95,8 @@ def test_signed_out_visitors_get_the_demo(app):
     assert c.post("/v1/teams", json={"name": "x"}).status_code == 401
     assert c.get("/v1/board", params={"team": "00000000-0000-0000-0000-000000000000"}).status_code == 401
     landing = c.get("/")
-    assert landing.status_code == 200 and "Download for Windows" in landing.text  # the website is the landing page
+    assert landing.status_code == 200 and "Join the waitlist" in landing.text  # the website is the landing page: a waitlist,
+    assert "releases/latest/download" not in landing.text  # no downloads (invited people get theirs on /join)
     assert "Join a team" in c.get("/join/inv_abc").text and c.get("/site/app-board.webp").status_code == 200
     for page in ("/auth", "/device"):  # `teamloop login` from a terminal still signs in on the web
         assert c.get(page).status_code == 200
