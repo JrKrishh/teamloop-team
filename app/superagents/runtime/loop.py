@@ -22,10 +22,17 @@ from . import agents as agent_store
 from . import memory
 from . import skills as skill_store
 from .mcpman import Manager, Tool
+from .mcpman import load as load_connectors
 from .tools import BY_NAME, BUILTINS, Builtin
 
 MAX_STEPS = 200  # a runaway guard, not a working limit: like Claude Code, a turn works until the job is done
 TO_MODEL, TO_WINDOW = 12_000, 4_000
+# Tool definitions were most of every step (about 5,400 of 7,000 input tokens, 16 Oct), so a step sends the groups an
+# answer almost always needs; the rest come with more_tools, or with the first call to one of their tools.
+ALWAYS = {"team", "memory", "skills", "terminal"}
+MORE = {"files": "read, search and edit code in connected repos, and git: status, diff, branch, commit, push, pull request",
+        "browser": "open and click through web pages, the dev server and its console, fetch a URL, read a GitHub pull request",
+        "desktop": "use this PC's apps through their own controls"}
 # A long turn stays small and quick, the way Claude Code keeps its context: the newest tool results go to the model
 # whole, older ones shrink to their start, and past FOLD_AT messages the oldest steps fold into a line each (in batches,
 # so the start of the prompt stays put). It also keeps every step inside the hub's 200 messages and 400k characters.
@@ -223,6 +230,7 @@ class Turn:
         self.mode_note: str | None = None  # told to the model before its next step, after a mode switch
         self.steers: list[tuple[str, str]] = []  # notes typed while it works (text, from where), read before its next step
         self.looping = False
+        self.loaded: set[str] = set()  # tool groups beyond ALWAYS this turn has asked for (or used)
         self.ended = 0.0  # when it last finished (its answer, or Run plan)
         self.lead_rules: set[str] = set()  # for a member: the rules whose steps wait for a lead's yes (from the board)
 
@@ -316,16 +324,39 @@ class Turn:
         return bool((self.agent.get("tools") or {}).get(group, group not in agent_store.OFF_UNTIL_ON))  # groups added later are on for agents saved before them, except desktop
 
     def _toolset(self) -> list[dict]:
+        """Every tool this agent may use (self.tools), and the schemas the first step sends."""
         groups = {g for g in agent_store.TOOL_GROUPS if self._on(g)} | {"skills"}
         self.tools = {b.name: b for b in BUILTINS if b.group in groups}
         if not self.skills:
             for name in ("load_skill", "read_skill_file"):
                 self.tools.pop(name, None)
-        schemas = [b.schema() for b in self.tools.values()]
         for t in self.mcp.tools(self.agent.get("connectors") or []):
             self.tools[t.full] = t
-            schemas.append({"type": "function", "function": {"name": t.full, "description": t.description, "parameters": t.schema}})
-        return schemas
+        return self._schemas()
+
+    @staticmethod
+    def _group(tool) -> str:
+        return tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"
+
+    def _schemas(self) -> list[dict]:
+        """What a step sends: the ALWAYS groups and the ones loaded so far, plus more_tools offering the rest."""
+        out, rest = [], {}
+        for name, tool in self.tools.items():
+            g = self._group(tool)
+            if g in ALWAYS or g in self.loaded:
+                out.append(tool.schema() if isinstance(tool, Builtin) else
+                           {"type": "function", "function": {"name": tool.full, "description": tool.description, "parameters": tool.schema}})
+            else:
+                rest.setdefault(g, []).append(name)
+        if rest:
+            names = {f"mcp:{c['id']}": c.get("name") or c["id"] for c in load_connectors()}
+            said = "; ".join(f"{g}: {MORE[g]}" if g in MORE else f"{g}: the {names.get(g, g[4:])} connector ("
+                             + ", ".join(n.split("__")[-1] for n in rest[g])[:160] + ")" for g in rest)
+            out.append({"type": "function", "function": {"name": "more_tools", "description": (
+                f"Add a group of tools for the rest of this answer, then use them from your next step. {said}."),
+                "parameters": {"type": "object", "properties": {"group": {"type": "string", "enum": sorted(rest)}},
+                               "required": ["group"]}}})
+        return out
 
     def _kind(self, tool, args: dict | None = None) -> str:
         if isinstance(tool, Tool):
@@ -358,9 +389,9 @@ class Turn:
         board = self.hub("GET", "board")
         if board.get("role") == "member":  # a lead's own yes is enough
             self.lead_rules = set((board.get("rules") or {}).get("lead_approves") or [])
-        tools = self._toolset()
+        self._toolset()
         self.emit("start", agent={k: self.agent[k] for k in ("id", "name", "color")}, mode=self.mode, model=self.model,
-                  effort=self.effort, tools=len(tools), mcp_errors=dict(self.mcp.errors))
+                  effort=self.effort, tools=len(self.tools), mcp_errors=dict(self.mcp.errors))
         content = self.message + "".join(f"\n\n[Imported file: {a['name']}]\n{a['text'][:60_000]}" for a in self.attachments)
         history = self.chat.get("messages", [])[-24:]
         messages = [{"role": "system", "content": self._system(board)}, *history, {"role": "user", "content": content}]
@@ -376,7 +407,7 @@ class Turn:
                 self.mode_note = None
             self._steered(messages)
             compact(messages, head)
-            step = self._step(messages, tools)
+            step = self._step(messages, self._schemas())
             model = step.get("model", model)
             calls = step.get("tool_calls") or []
             if step.get("content") and calls:
@@ -416,7 +447,7 @@ class Turn:
             self.emit("thinking")
             messages.append({"role": "user", "content": WRAP_UP.format(n=MAX_STEPS)})
             compact(messages, head)
-            step = self._step(messages, tools)
+            step = self._step(messages, self._schemas())
             model = step.get("model", model)
             answer = (CITE_MARK.sub("", (step.get("content") or "").strip())
                       or f"I took {MAX_STEPS} steps on this and stopped there. Ask me to continue.")
@@ -440,9 +471,16 @@ class Turn:
         except ValueError as e:
             self.emit("tool", id=cid, name=name, args={}, status="failed", result=f"Bad arguments: {e}")
             return f"Error: the arguments were not valid JSON ({e})."
+        if name == "more_tools" and not tool:  # plumbing, not a step the person needs to see
+            group = str(args.get("group") or "")
+            if group not in {self._group(t) for t in self.tools.values()} - ALWAYS:
+                return f"Error: there's no tool group called {group!r} for you."
+            self.loaded.add(group)
+            return f"Added the {group} tools; use them from your next step."
         if not tool:
             self.emit("tool", id=cid, name=name, args=args, status="failed", result="No such tool")
             return f"Error: there is no tool called {name}."
+        self.loaded.add(self._group(tool))  # called by name before its group was added: it's there from now on
         card = self._card(cid, tool, args)
         kind = card["access"]
         if kind != "read" and self.mode == "plan":

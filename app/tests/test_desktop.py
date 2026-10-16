@@ -98,13 +98,18 @@ def test_desktop_is_off_until_the_person_turns_it_on(home):
                   llm=lambda *a: {}, mcp=type("M", (), {"errors": {}, "tools": lambda self, ids: []})(), person="Yang",
                   hub=lambda *a, **k: {})
     t.skills = {}
-    assert not [s for s in t._toolset() if s["function"]["name"].startswith("desktop_")]
+
+    def offered(schemas):  # the groups more_tools offers this step
+        more = [s for s in schemas if s["function"]["name"] == "more_tools"]
+        return set(more[0]["function"]["parameters"]["properties"]["group"]["enum"]) if more else set()
+
+    assert "desktop" not in offered(t._toolset()) and not any(n.startswith("desktop_") for n in t.tools)
     old = {**agent_s, "tools": {"team": True, "files": True}}  # saved before desktop existed
     t.agent = old
-    assert not [s for s in t._toolset() if s["function"]["name"].startswith("desktop_")]
+    assert "desktop" not in offered(t._toolset()) and not any(n.startswith("desktop_") for n in t.tools)
     on = agents.save("agent-s", {"tools": {**agent_s["tools"], "desktop": True}})
     t.agent = on
-    assert {"desktop_snapshot", "desktop_click", "desktop_open"} <= {s["function"]["name"] for s in t._toolset()}
+    assert "desktop" in offered(t._toolset()) and {"desktop_snapshot", "desktop_click", "desktop_open"} <= set(t.tools)
 
 
 @pytest.mark.skipif(sys.platform != "win32" or os.getenv("SA_DESKTOP_TESTS") != "1", reason="opens Notepad: SA_DESKTOP_TESTS=1")

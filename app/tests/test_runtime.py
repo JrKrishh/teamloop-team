@@ -119,6 +119,21 @@ def test_the_answer_carries_the_turns_usage_and_agents_can_read_the_teams(home):
     assert loop.load_chat(t.chat["id"])["view"][0]["usage"]["calls"] == 2
 
 
+def test_bigger_tool_groups_come_when_an_answer_needs_them(home):
+    hub_calls = []
+    llm, sent = script(call("more_tools", {"group": "files"}, "m1"), call("more_tools", {"group": "nonsense"}, "m2"),
+                       call("browser_snapshot", {}, "b1"), answer("Done."))
+    t = run_turn("manual", llm, hub_calls, message="what does the board say?")
+    first = sent[0]["tools"]
+    assert {"team_board", "create_task", "remember", "run_command", "more_tools"} <= set(first)  # every step: the small groups
+    assert "read_file" not in first and "browser_open" not in first  # the big ones wait to be asked for
+    assert "read_file" in sent[1]["tools"] and "browser_open" not in sent[1]["tools"]
+    results = [m["content"] for m in sent[2]["messages"] if m["role"] == "tool"]
+    assert results[0].startswith("Added the files tools") and "no tool group called 'nonsense'" in results[1]
+    assert "browser_open" in sent[3]["tools"]  # called by name before it was added: added from then on
+    assert not [e for e in t.events if e["kind"] == "tool" and e["name"] == "more_tools"]  # plumbing, not a step on screen
+
+
 def test_declining_stops_the_change(home):
     hub_calls = []
     llm, sent = script(call("close_task", {"task": "T-3"}), answer("Left it open."))
