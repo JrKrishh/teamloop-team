@@ -12,6 +12,24 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 3. Free text, like the agent's last message, never reaches the team. It's read once, to write a one-line summary: by Nemotron through the hub, which keeps none of it (or by a local model with `TEAMLOOP_SUMMARIZER=ollama`).
 4. Summaries and structured facts (files changed, tests passed or failed, commits, token counts) go to the team hub. Agent S, on NVIDIA Nemotron via Nebius Token Factory, turns them into per-task progress and answers questions with citations.
 
+## NVIDIA Nemotron on Nebius Token Factory
+Every model call in Super Agents is NVIDIA Nemotron on Nebius Token Factory, through its OpenAI-compatible API with one key, held by the hub. Three sizes, routed by job (`agent_s/agent_s/llm.py`):
+
+| Job | Model | Why this one |
+|---|---|---|
+| A one-line summary of every coding turn | Nemotron 3.5 Lightning, thinking off | One line from one message: one call, about a second, ~40 tokens |
+| Each step of an agent in the app (Auto) | Nemotron 3 Super (120B, 12B active) | Reliable tool calling for the agent loop; people can pin Lightning, Super or Ultra and set how hard it thinks (`reasoning_effort`, low to max) |
+| Progress per task, and Ask | Nemotron 3 Super | Strict JSON-schema answers in which every claim cites an event; uncited items are dropped in code |
+| The daily digest | Nemotron 3 Ultra (550B, 55B active) | The one job that reasons across a whole day of every task |
+
+A timeout, 429 or 5xx is retried once, and an Ultra job then falls back to Super.
+
+What Token Factory made easy: one endpoint for three sizes, so routing is a per-call model name, not separate deployments; strict JSON-schema output, which keeps citations machine-checkable; and OpenAI-style tool calling, so the agent loop runs on each laptop while every step goes through the hub's key.
+
+Measured on Token Factory (October 2026):
+- **Agent S eval** (`python scripts/eval_agent_s.py` over `agent_s/golden/`): on Super, 4/4 progress estimates in range, 0 uncited claims, and 5/5 good answers, including "I don't have evidence for that" when the record doesn't show it; about 2 s a call ([docs/research/eval-20261013-nebius.md](docs/research/eval-20261013-nebius.md)).
+- **Tokens:** tool definitions were about 5,400 of the 7,000 input tokens of every agent step, so a step now sends the big tool groups only when the answer needs them: a simple step went from 7,014 to 3,629 tokens. Turn summaries without thinking take one call and ~40 tokens, where Lightning thinking first took three calls and ~1,400.
+
 **Never shared with the team from coding sessions:** prompts, the agent's replies, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking. The exceptions are explicit: a prompt you allow into your session, and files you share with a teammate in Super Team → Files.
 
 ## In the app
@@ -83,7 +101,7 @@ Open `http://<hub>:8799/`, sign in with the room and token, and watch tasks fill
 | `packaging/` | The PyInstaller build, the Inno Setup installer and its check | CI |
 | `api/`, `vercel.json` | The Vercel entry point | Vercel |
 
-Docs: the app [docs/app.md](docs/app.md), the hosted hub [docs/cloud.md](docs/cloud.md), the event API [docs/hub-api.md](docs/hub-api.md), releasing [docs/release.md](docs/release.md). [PLAN.md](PLAN.md) is the plan of 13 Oct, kept for its reasoning.
+Docs: the app [docs/app.md](docs/app.md), the hosted hub [docs/cloud.md](docs/cloud.md), the event API [docs/hub-api.md](docs/hub-api.md), releasing [docs/release.md](docs/release.md), trying it as a judge [docs/judging.md](docs/judging.md). [PLAN.md](PLAN.md) is the plan of 13 Oct, kept for its reasoning.
 
 ## Tests
 ```bash

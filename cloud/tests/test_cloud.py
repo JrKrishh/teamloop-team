@@ -85,6 +85,7 @@ def age_events(url, seconds=120):
 
 def test_signed_out_visitors_get_the_demo(app):
     c = TestClient(app)
+    assert c.get("/healthz").json()["ok"] is True  # reads the database (the keep-alive relies on it)
     assert c.get("/v1/config").json()["mode"] == "cloud"
     assert c.get("/v1/me").json() == {"user": None, "role": "viewer", "demo": True, "teams": []}
     board = c.get("/v1/board").json()

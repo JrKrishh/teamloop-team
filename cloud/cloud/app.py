@@ -376,7 +376,10 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         app.add_api_route(path, page, include_in_schema=False)
 
     @app.get("/healthz")
-    def healthz() -> dict:
+    def healthz(conn=Depends(db)) -> dict:
+        """Up, which version, and the database answering. The daily keep-alive (.github/workflows/keepalive.yml) reads
+        it, so a free Supabase project doesn't pause between visits (judging runs 1-15 Dec)."""
+        conn.execute("select 1")
         return {"ok": True, "version": __version__, "mode": "cloud"}
 
     @app.get("/v1/config")
