@@ -45,6 +45,7 @@ def env(monkeypatch, database_url):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test")
     monkeypatch.setenv("HUB_SECURE_COOKIE", "0")  # the test client talks plain http
+    monkeypatch.setenv("HUB_TEAM_CREATORS", "*")  # anyone may start a team here; test_cloud checks the invite-only rule
     monkeypatch.delenv("PUBLIC_URL", raising=False)
 
     def fake_user(access_token):

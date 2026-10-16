@@ -472,10 +472,23 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         return {"user": user, "teams": teams, "demo": False}
 
     # ---- teams, invites, members -------------------------------------------------------------------
+    def may_start_team(conn, person: auth.Person) -> bool:
+        """Invite only for now: people already in a team, or listed in HUB_TEAM_CREATORS (emails, or * for anyone), start
+        teams; everyone else joins through a lead's invite. Without a team nothing reaches the model, so a new account
+        costs nothing until someone lets it in."""
+        listed = {e.strip().lower() for e in os.environ.get("HUB_TEAM_CREATORS", "").split(",") if e.strip()}
+        if "*" in listed or (person.email or "").lower() in listed:
+            return True
+        return conn.execute("select 1 from memberships where user_id = %s and removed_at is null limit 1",
+                            (person.id,)).fetchone() is not None
+
     @app.post("/v1/teams")
     def create_team(body: TeamIn, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
+        if not may_start_team(conn, c.person):
+            raise HTTPException(403, "Super Agents is invite only for now: join with your lead's invite link, or get on the "
+                                     "waitlist at teamloop.vercel.app")
         row = conn.execute("insert into teams (name, created_by) values (%s, %s) returning id",
                            (body.name.strip(), c.person.id)).fetchone()
         conn.execute("insert into memberships (team_id, user_id, email, name, role) values (%s, %s, %s, %s, 'lead')",

@@ -214,6 +214,18 @@ def test_malformed_events_are_refused_so_the_board_keeps_working(app):
     assert yang.get("/v1/board", params={"team": team}).status_code == 200
 
 
+def test_teams_are_invite_only(app, monkeypatch):
+    monkeypatch.setenv("HUB_TEAM_CREATORS", "Yang@Example.com")
+    yang = signin(app, "yang")
+    team = new_team(yang)  # listed: starts a team
+    stranger = signin(app, "stranger")
+    r = stranger.post("/v1/teams", json={"name": "Free tokens"})
+    assert r.status_code == 403 and "invite" in r.json()["detail"]
+    asha = join(app, yang, team, "asha")  # invited: in the team, and now may start one of her own
+    assert asha.post("/v1/teams", json={"name": "Side project"}).status_code == 200
+    assert stranger.post("/v1/llm", params={"team": team}, json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 403
+
+
 def test_teams_dont_see_each_other(app):
     yang = signin(app, "yang")
     a = new_team(yang, "A")
