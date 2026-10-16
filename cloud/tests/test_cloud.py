@@ -28,6 +28,9 @@ def fake_chat(job, messages, schema):
     calls.append(job)
     if job == "qa":
         return {"answerable": True, "answer": "T-3 is done (e1).", "citations": ["e1"], "unknowns": []}
+    if job == "summary":
+        llm._count("nvidia/Nemotron-3_5-Lightning", {"usage": {"prompt_tokens": 120, "completion_tokens": 20}})
+        return {"summary": "Fixed add(); all 3 tests pass.", "status": "done"}
     if job == "digest":
         return {"headline": "One fix shipped.", "shipped": [{"text": "T-3 add() fixed", "evidence": ["e1"]}],
                 "in_progress": [], "blocked": [], "at_risk": []}
@@ -212,6 +215,22 @@ def test_malformed_events_are_refused_so_the_board_keeps_working(app):
         assert TestClient(app).post("/v1/events", json={"events": [{**base, "id": f"{n:032x}", **e}]}, headers=h).status_code == 422, e
     assert TestClient(app).post("/v1/events", json={"events": good}, headers=h).json()["accepted"] == len(good)
     assert yang.get("/v1/board", params={"team": team}).status_code == 200
+
+
+def test_summaries_for_connectors_keep_nothing(app, env):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    h = connect(app, yang, team)
+    turn = {"text": "Fixed add() in calc.py; all 3 tests pass.", "facts": {"tool": "Bash", "cmd": {"kind": "test", "ok": True}}}
+    r = TestClient(app).post("/v1/summarize", json=turn, headers=h)
+    assert r.status_code == 200 and r.json()["summary"] and r.json()["status"] in ("progress", "blocked", "done", "question")
+    assert calls[-1] == "summary"
+    assert yang.post("/v1/summarize", json=turn).status_code == 401  # a connector's call, not a browser's
+    assert TestClient(app).post("/v1/summarize", json={"text": "x", "facts": {"k": "v" * 9000}}, headers=h).status_code == 413
+    with psycopg.connect(env, autocommit=True) as conn:
+        used = conn.execute("select source, user_id is not null from agent_usage").fetchall()
+        stored = conn.execute("select count(*) from events where body::text like '%calc.py%'").fetchone()[0]
+    assert used == [("progress", True)] and stored == 0  # counted for the person; the message itself isn't kept
 
 
 def test_teams_are_invite_only(app, monkeypatch):

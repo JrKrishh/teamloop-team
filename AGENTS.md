@@ -28,8 +28,9 @@ holds, its scope and schedule don't.
 1. **The hook never breaks a session.** No network, no stdout output, always exit 0; errors go to `~/.teamloop/hook.log`.
    No subprocess, except one detached `teamloop send` at session end (the MCP-hosted sender exits with the session).
 2. **Free text from hooks lives only in `local`.** `facts` hold structured values only. MCP self-reports go in `report`:
-   the agent writes them for the team on purpose, and they're redacted and capped at 5 items of 160 chars. Anything bound
-   for the hub goes through `spool.public()`.
+   the agent writes them for the team on purpose, and they're redacted and capped at 5 items of 160 chars. Events bound
+   for the hub go through `spool.public()`; `local` text reaches the hub only through `summarize.py` (`/v1/summarize`,
+   which keeps nothing), and the event carries the summary, never the text.
 3. **Redact before writing anything**, even to the local spool.
 4. **Agent transcripts are read only on the laptop:** the connector takes only numbers from them (token counts,
    `usage.py`), and the app's recall index over them stays local (what a search finds goes to the model like any tool

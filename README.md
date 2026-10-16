@@ -9,10 +9,10 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 ## How it works
 1. Each developer installs the Super Agents app and signs in with GitHub. The app connects their repos: Claude Code and Codex hooks call the connector after every turn and tool call.
 2. The connector writes each event to a local spool. Secrets are hidden first, and file paths are made repo-relative.
-3. Free text, like the agent's last message, stays on the laptop. It is only used to write a one-line summary there.
+3. Free text, like the agent's last message, never reaches the team. It's read once, to write a one-line summary: by Nemotron through the hub, which keeps none of it (or by a local model with `TEAMLOOP_SUMMARIZER=ollama`).
 4. Summaries and structured facts (files changed, tests passed or failed, commits, token counts) go to the team hub. Agent S, on NVIDIA Nemotron via Nebius Token Factory, turns them into per-task progress and answers questions with citations.
 
-**Never shared from coding sessions:** prompts, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking. The exceptions are explicit: a prompt you allow into your session, and files you share with a teammate in Super Team → Files.
+**Never shared with the team from coding sessions:** prompts, the agent's replies, tool output, file contents, diffs, keystrokes, screenshots. No rankings, no time tracking. The exceptions are explicit: a prompt you allow into your session, and files you share with a teammate in Super Team → Files.
 
 ## In the app
 - **Super Team.** Anyone on the team can prompt a teammate's live Claude Code or Codex session (the agent that has the context), by that owner's rules: off, ask each time, or automatic; read only or edit; a daily token limit per teammate. It runs on the owner's laptop as a copy of the session, and every prompt is on record: who asked what, who allowed it, what it used. Threads are saved, so a follow-up sent while the owner's laptop is closed waits and runs, as a follow-up, when it's back. Teammates also share files (saved into the recipient's project, out of git) and hand over branches, on the record.
@@ -28,7 +28,7 @@ Your team's AI agents, on one page. Super Agents turns every teammate's Claude C
 - **Your agents from your phone**, like Claude Code's Remote Control. It comes as a native Android app (APK) or a web app for the home screen; you pair it with a QR code. Everything waiting for your yes, from every running turn, sits in one Needs you list: swipe right to approve, left to deny. On Android a question also arrives as a notification you can answer from, while the app is in the background. It also has your chats, the team's board, and a fingerprint lock, while the agents keep running on the laptop. It's end-to-end encrypted: the key travels only in the QR code, so the relay sees nothing.
 - **A browser you share with your agents.** They start your dev server, open it, click through it, read the console and check their own fixes while you watch in the side panel, and you can take over. Next to it: a file viewer for your connected repos and real terminals.
 
-Chats with your agents are the one thing that leaves the laptop by design: to answer, a message and what its tools read (including what `recall` finds in your own past sessions) go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).
+Chats with your agents leave the laptop by design (besides the turn messages that get summarized): to answer, a message and what its tools read (including what `recall` finds in your own past sessions) go to Nemotron through the Super Agents server, which doesn't store them. Details: [docs/app.md](docs/app.md).
 
 ## Install on Windows
 1. Open your invite link and download `SuperAgents-Setup.exe` there (or from [Releases](https://github.com/JrKrishh/teamloop-team/releases/latest)), then open it. Until the app is code-signed, Windows may say it "protected your PC": choose **More info → Run anyway**.

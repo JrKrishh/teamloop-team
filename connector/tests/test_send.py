@@ -125,6 +125,24 @@ def test_off_means_no_model_call(monkeypatch):
     assert summarize.summarize("anything") is None
 
 
+def test_a_laptop_on_the_hosted_hub_gets_its_summaries_there(teamloop_home, monkeypatch):
+    from teamloop import login
+
+    monkeypatch.delenv("TEAMLOOP_SUMMARIZER")
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+    assert summarize.provider() == "ollama"  # not connected: local, or nothing
+    teamloop_home.mkdir(parents=True, exist_ok=True)
+    (teamloop_home / "config.json").write_text(json.dumps({"mode": "cloud", "url": "https://hub.test", "token": "tl_x"}))
+    asked = []
+    monkeypatch.setattr(login, "request", lambda cfg, method, path, body: asked.append((cfg["token"], method, path, body)) or
+                        {"summary": "Fixed add() with key ghp_" + "a" * 36, "status": "done", "model": "nebius:nvidia/Nemotron-3_5-Lightning"})
+    out = summarize.summarize("Fixed add(); 3 tests pass.", {"tool": "Bash"})
+    assert summarize.provider() == "hub" and asked == [("tl_x", "POST", "/v1/summarize", {"text": "Fixed add(); 3 tests pass.", "facts": {"tool": "Bash"}})]
+    assert out["status"] == "done" and "ghp_" not in out["summary"] and out["model"].endswith("Lightning")  # redacted here too
+    monkeypatch.setenv("TEAMLOOP_SUMMARIZER", "ollama")
+    assert summarize.provider() == "ollama"  # keeping the message on the laptop is one setting away
+
+
 def test_one_sender_per_laptop(teamloop_home):
     assert send.my_turn() and send.my_turn()  # we hold it, and keep holding it
     (teamloop_home / "sender.lock").write_text("999999")  # another live sender

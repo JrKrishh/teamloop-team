@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from agent_s import agent, llm, progress, qa
 from agent_s import digest as agent_digest
+from agent_s import summary as agent_summary
 from hub import cards
 from hub import usage as usage_sum
 from hub.relay import _Window
@@ -219,6 +220,11 @@ class EventsIn(BaseModel):
     events: list[dict] = Field(max_length=50)
 
 
+class SummaryIn(BaseModel):
+    text: str = Field(min_length=1, max_length=20_000)
+    facts: dict = Field(default_factory=dict)
+
+
 class AskIn(BaseModel):
     question: str = Field(min_length=1, max_length=500)
 
@@ -320,6 +326,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     posts = _Window(60, 60.0)
     asks = _Window(30, 600.0)
     llm_steps = _Window(150, 600.0)  # an agent turn is a few steps; this allows a busy person, not a script
+    summaries = _Window(120, 600.0)  # one per coding turn: a turn every 5 s for 10 minutes is a script
     signups = _Window(5, 600.0)  # the waitlist, per visitor
     digests: dict[str, tuple[float, dict]] = {}
     failed: dict[tuple[str, str], float] = {}
@@ -1216,6 +1223,29 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             members.append({**p, "tools": sorted(p["tools"]), "active": now - p["last_activity"] < ACTIVE_SECONDS,
                             "tasks": [{"task": t, "last_activity": a} for t, a in sorted(p["tasks"].items(), key=lambda x: -x[1])]})
         return {"room": name, "demo": False, "role": role, "members": members}
+
+    @app.post("/v1/summarize")
+    def summarize_turn(body: SummaryIn, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """A coding turn's one-line summary, by Nemotron Lightning from the agent's last message, for a team member's
+        connector. The message is only read for this answer, never stored; the connector sends the summary, with the
+        event, and nothing else of it."""
+        if c.kind != "connector":
+            raise HTTPException(401, "Summaries are for a signed-in connector (`teamloop login`)")
+        team_id = team_scope(c, None, conn)[0]
+        if len(json.dumps(body.facts)) > 8000:
+            raise HTTPException(413, "The turn's facts are too big to summarize")
+        if not summaries.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Lots of turns just now; the connector will retry")
+        if spent_today(conn, c.person.id) >= DAILY_TOKENS:
+            raise HTTPException(403, "You've used today's model allowance; it frees up over the next 24 hours")
+        try:
+            with llm.meter() as used:
+                out = agent_summary.summarize(body.text, body.facts, chat=chat)
+        except Exception:  # noqa: BLE001
+            log.exception("summary failed")
+            raise HTTPException(503, "The summary didn't come; the connector will retry") from None
+        record_usage(conn, team_id, c.person, "progress", used)  # turn summaries feed the progress estimates
+        return out
 
     @app.post("/v1/ask")
     def ask(body: AskIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:

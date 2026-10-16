@@ -14,7 +14,9 @@ Everything ships under one version: the desktop app, the connector inside it, bo
    v8 (waitlist) are waiting.
 4. **Hub deploy.** The Vercel project isn't connected to GitHub, so a push deploys nothing. From the repo root:
    `vercel deploy --prod --skip-domain --yes`, open the new deployment's `/healthz` (it shows the version), then promote
-   it. The hub also serves the website (`cloud/cloud/site`), so site changes go out the same way.
+   it. The hub also serves the website (`cloud/cloud/site`), so site changes go out the same way. The hub is invite only:
+   people already in a team can start more, and `HUB_TEAM_CREATORS` on Vercel (emails, comma-separated) lets others
+   start their first one.
 5. **Builds.** Push the tag `v<version>`. CI builds `SuperAgents-Setup.exe` (and installs, opens and uninstalls it on a
    clean Windows machine) and the APK. Download both artifacts from that run.
 6. **Release.** `gh release create v<version> SuperAgents-Setup.exe SuperAgents-android.apk`, with exactly those asset

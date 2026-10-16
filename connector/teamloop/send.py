@@ -1,7 +1,7 @@
 """`teamloop send` / `teamloop daemon`: spool -> summaries -> hub. The one place data leaves the laptop.
 
-Only `spool.public()` records go out, so `local` text can't. Turn-end text is summarized first, and only the
-summary is attached. The hub API contract is in docs/hub-api.md.
+Only `spool.public()` records go out, so `local` text can't. Turn-end text is summarized first (by the hub's
+/v1/summarize, which keeps none of it, or a local model; summarize.py), and only the summary is attached. The hub API contract is in docs/hub-api.md.
 """
 
 from __future__ import annotations
