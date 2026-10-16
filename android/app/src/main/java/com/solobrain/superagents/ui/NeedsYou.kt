@@ -58,6 +58,8 @@ import com.solobrain.superagents.remote.Labels
 import com.solobrain.superagents.remote.Laptop
 import com.solobrain.superagents.remote.Link
 import com.solobrain.superagents.remote.LiveTurn
+import com.solobrain.superagents.remote.TeamAsk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -71,12 +73,13 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
     val working = live.filter { it.ask == null }
     if (laptop == null) return Waiting(link)
     LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(laptop.asks, key = { it.id }) { a -> TeamAskCard(a) }
         items(asks, key = { it.ask!!.id }) { t -> AskCard(t, laptop.agent(t.agent).name, laptop.agent(t.agent).color, onOpen = { onChat(ChatOpen(t.chat, t)) }) }
         if (working.isNotEmpty()) item { Label("Working now") }
         items(working, key = { it.turn }) { t ->
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.panel).border(1.dp, p.line, RoundedCornerShape(16.dp))
                 .clickable { onChat(ChatOpen(t.chat, t)) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Mascot(size = 36.dp, mood = moodFor(t.now?.name))  // acts out the step it's on
+                Mascot(size = 36.dp, mood = moodFor(t.now?.name), hood = hoodOf(t.agent, laptop.agent(t.agent).color))  // acts out the step it's on
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(laptop.agent(t.agent).name, style = MaterialTheme.typography.titleMedium)
@@ -85,7 +88,7 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
                 }
             }
         }
-        if (live.isEmpty()) item {
+        if (live.isEmpty() && laptop.asks.isEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Mascot(size = 96.dp, mood = if (link == Link.Online) Mood.Idle else Mood.Sleep, interactive = true)
                 Spacer(Modifier.height(18.dp))
@@ -101,18 +104,75 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
 @Composable
 fun Waiting(link: Link) {
     val p = LocalPalette.current
-    Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(top = 80.dp, start = 24.dp, end = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Mascot(size = 96.dp, mood = if (link == Link.Offline) Mood.Sleep else Mood.Think)
         Spacer(Modifier.height(18.dp))
         Text(if (link == Link.Offline) "Your laptop isn't answering" else "Finding your laptop…", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
-        Text("Super Agents has to be open on it, with Settings → Phone on.", style = MaterialTheme.typography.bodyMedium, color = p.muted)
+        Text("Super Agents has to be open on it, with Settings → Phone on.", style = MaterialTheme.typography.bodyMedium, color = p.muted,
+            textAlign = TextAlign.Center)
+        if (link == Link.Offline) OutlinedButton(onClick = { ctx.remote.tryNow() }, modifier = Modifier.padding(top = 18.dp).testTag("try-again"),
+            shape = RoundedCornerShape(14.dp)) { Text("Try again") }
     }
 }
 
 @Composable
 fun Label(text: String) = Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.faint,
     modifier = Modifier.padding(top = 10.dp, start = 2.dp))
+
+/** A lead's: a step of a member's agent that the team's rules give to a lead. It goes ahead on Allow. */
+@Composable
+private fun TeamAskCard(a: TeamAsk) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    var sending by remember(a.id) { mutableStateOf<Boolean?>(null) }  // the answer on its way (the card goes once it's there)
+    var error by remember(a.id) { mutableStateOf<String?>(null) }
+    fun decide(ok: Boolean) {
+        if (sending != null) return
+        sending = ok; error = null
+        haptic.performHapticFeedback(if (ok) HapticFeedbackType.Confirm else HapticFeedbackType.Reject)
+        scope.launch {
+            try { ctx.remote.decideTeam(a.id, ok) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "Couldn't reach your laptop."; sending = null }
+        }
+    }
+    val shape = RoundedCornerShape(20.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(p.panel).border(1.dp, p.warn.copy(alpha = 0.6f), shape).padding(16.dp).testTag("team-ask")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${a.from}'s agent", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.weight(1f))
+            Text("needs your yes", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.width(6.dp))
+            Mascot(size = 28.dp, mood = Mood.Ask)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(a.what, style = MaterialTheme.typography.titleLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        if (a.detail.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text(a.detail, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 8, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(p.bg2).border(1.dp, p.line, RoundedCornerShape(12.dp)).padding(12.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("Your team's rules give this step to a lead.", style = MaterialTheme.typography.bodySmall)
+        error?.let { Spacer(Modifier.height(6.dp)); Text(it, style = MaterialTheme.typography.bodySmall, color = p.bad) }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = { decide(false) }, enabled = sending == null, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) {
+                if (sending == false) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = p.text) else Text("Deny")
+            }
+            Button(onClick = { decide(true) }, enabled = sending == null, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("team-allow"),
+                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick,
+                    disabledContainerColor = p.brick.copy(alpha = if (sending == true) 0.85f else 0.35f), disabledContentColor = p.onBrick)) {
+                if (sending == true) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = p.onBrick) else Text("Allow")
+            }
+        }
+    }
+}
 
 @Composable
 private fun AskCard(t: LiveTurn, agent: String, color: String?, onOpen: () -> Unit) {
@@ -145,7 +205,7 @@ private fun AskCard(t: LiveTurn, agent: String, color: String?, onOpen: () -> Un
         val yes = offset.value >= 0
         Row(Modifier.matchParentSize().clip(shape).background(if (yes) p.ok.copy(alpha = 0.22f) else p.bad.copy(alpha = 0.22f)).padding(horizontal = 24.dp),
             horizontalArrangement = if (yes) Arrangement.Start else Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            Text(if (yes) (if (ask.name == "run_command") "Run it" else "Approve") else "Deny", style = MaterialTheme.typography.titleMedium,
+            Text(if (yes) (if (ask.name == "run_command") "Run it" else "Allow") else "Deny", style = MaterialTheme.typography.titleMedium,
                 color = if (yes) p.ok else p.bad)
         }
         Column(Modifier.offset { IntOffset(offset.value.roundToInt(), 0) }
@@ -171,7 +231,7 @@ private fun AskCard(t: LiveTurn, agent: String, color: String?, onOpen: () -> Un
                 Spacer(Modifier.weight(1f))
                 Text("is waiting for you", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.width(6.dp))
-                Mascot(size = 28.dp, mood = Mood.Ask)  // hops in as the question arrives, eyes on you
+                Mascot(size = 28.dp, mood = Mood.Ask, hood = hoodOf(t.agent, color))  // hops in as the question arrives, eyes on you
             }
             Spacer(Modifier.height(8.dp))
             Text("$verb $what".trim(), style = MaterialTheme.typography.titleLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)

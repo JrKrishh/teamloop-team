@@ -42,11 +42,12 @@ from .runtime import tools as runtime_tools
 
 UI = Path(__file__).parent / "ui"
 # what the UI may ask the hub for, through /api/cloud/<path>
-CLOUD_PATHS = re.compile(r"^(me|teams|board|team|ask|tasks|digest|refresh|settings|events|usage"
+CLOUD_PATHS = re.compile(r"^(teams|board|team|digest|refresh|events|usage"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)|shares|shares/[0-9a-f-]{36}"
-                         r"|invites/[A-Za-z0-9_-]{8,80}(/accept)?|tasks/[A-Za-z0-9_.-]{1,40}"
+                         r"|invites/[A-Za-z0-9_-]{8,80}/accept|tasks/[A-Za-z0-9_.-]{1,40}"
                          r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread"
-                         r"|prompts|prompts/[0-9a-f-]{36}(/(decide|cancel))?)$")
+                         r"|prompts|prompts/[0-9a-f-]{36}/(decide|cancel)"
+                         r"|rules|decisions|decisions/[0-9a-f-]{36}|approvals|approvals/[0-9a-f-]{36}/decide)$")
 
 
 class State:
@@ -233,6 +234,15 @@ class DecideBody(BaseModel):
     approve: bool
 
 
+class ModeBody(BaseModel):
+    mode: str = Field(pattern="^(manual|auto|plan)$")
+
+
+class SteerBody(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    via: str = Field(default="desk", pattern="^(desk|phone)$")
+
+
 class NoteBody(BaseModel):
     text: str = Field(min_length=1, max_length=600)
     scope: str = Field(default="all", pattern="^[a-z0-9-]{3,40}$")
@@ -327,6 +337,8 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         if code == 200 and me.get("user"):
             teams = me.get("teams") or []
             team = s.get("team") if any(t["id"] == s.get("team") for t in teams) else (teams[0]["id"] if teams else None)
+            if team != s.get("team"):  # the phone reads the saved team: keep it the one this window shows
+                store.save({**store.load(), "team": team})
             out.update(signed_in=True, user={**me["user"], **{k: v for k, v in (s.get("profile") or {}).items() if k == "avatar"}},
                        teams=teams, team=team)
         elif code in (200, 401):  # the session expired or was revoked: sign in again
@@ -441,6 +453,15 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     @app.get("/api/laptop/git")
     def laptop_git() -> dict:
         return laptop.git_info(laptop.status()["repos"])
+
+    @app.get("/api/github/repos")
+    def github_repos() -> dict:  # Connect from GitHub: this laptop's GitHub sign-in lists them; Get clones one
+        try:
+            return laptop.github_repos()
+        except LookupError as e:
+            raise HTTPException(409, str(e)) from None
+        except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+            raise HTTPException(502, f"Couldn't list your GitHub repos: {e}"[:300]) from None
 
     @app.post("/api/laptop/clone")
     def laptop_clone(body: CloneIn) -> dict:
@@ -643,6 +664,11 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         """One model step through the hub, thinking as hard as asked; its tokens count toward the team's usage."""
         payload = {"tier": tier, "effort": effort, "messages": messages, "tools": tools, "max_tokens": THINK_ROOM[effort]}
         code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
+        for wait in (10, 20, 30):  # the hub's per-person rate limit: a long turn waits for room instead of failing
+            if code != 429:
+                break
+            time.sleep(wait)
+            code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
         if code == 422 and payload["max_tokens"] > 4000:  # a hub from before effort caps a step at 4000 tokens
             payload = {**payload, "max_tokens": 4000}
             code, data = cloud(state, "POST", "/v1/llm", payload, {"team": team})
@@ -660,6 +686,9 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
                                  mode=body.mode, model=body.model, hub=team_hub(body.team), mcp=state.mcp,
                                  llm=lambda messages, tools, tier: llm_step(messages, tools, tier, body.team, body.effort),
                                  person=(store.load().get("profile") or {}).get("name") or "you", effort=body.effort)
+        for tid, t in list(state.turns.items()):  # finished over an hour ago with no plan waiting: nothing will ask for it
+            if t.done and not t.planned and time.time() - t.ended > 3600:
+                state.turns.pop(tid, None)
         state.turns[turn.id] = turn
         threading.Thread(target=turn.run, daemon=True).start()
         return {"turn": turn.id, "chat": chat["id"]}
@@ -693,6 +722,17 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         the_turn(tid).cancel()
         return {"ok": True}
 
+    @app.post("/api/turns/{tid}/mode")
+    def turn_mode(tid: str, body: ModeBody) -> dict:  # switched while the answer runs: it carries on in the new mode
+        the_turn(tid).set_mode(body.mode)
+        return {"ok": True}
+
+    @app.post("/api/turns/{tid}/steer")
+    def turn_steer(tid: str, body: SteerBody) -> dict:  # typed while the answer runs: read before its next step
+        if not body.text.strip() or not the_turn(tid).steer(body.text.strip(), body.via):
+            raise HTTPException(409, "That answer has finished; send it as a new message")
+        return {"ok": True}
+
     def step_of(t, call: Optional[str] = None, status: Optional[str] = None) -> Optional[dict]:
         """A turn's tool call as the chat shows it: the one waiting on `call`, or the latest one now in `status`
         (each call's last event says where it is)."""
@@ -712,7 +752,7 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         for t in list(state.turns.values()):
             if t.done:
                 continue
-            waiting = [cid for cid, e in list(t.decisions.items()) if not e.is_set()]
+            waiting = [cid for cid, e in list(t.decisions.items()) if not e.is_set() and t.waiting.get(cid) != "lead"]  # a lead's, not yours
             out.append({"turn": t.id, "chat": t.chat.get("id"), "agent": t.agent.get("id"), "message": t.message[:200],
                         "asking": bool(waiting), "ask": step_of(t, call=waiting[-1]) if waiting else None,
                         "now": None if waiting else step_of(t, status="running")})

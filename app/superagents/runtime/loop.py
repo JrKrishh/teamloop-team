@@ -22,10 +22,35 @@ from . import agents as agent_store
 from . import memory
 from . import skills as skill_store
 from .mcpman import Manager, Tool
+from .mcpman import load as load_connectors
 from .tools import BY_NAME, BUILTINS, Builtin
 
-MAX_STEPS = 24  # browser and desktop tasks take many small steps
+MAX_STEPS = 200  # a runaway guard, not a working limit: like Claude Code, a turn works until the job is done
 TO_MODEL, TO_WINDOW = 12_000, 4_000
+# Tool definitions were most of every step (about 5,400 of 7,000 input tokens, 16 Oct), so a step sends the groups an
+# answer almost always needs; the rest come with more_tools, or with the first call to one of their tools.
+ALWAYS = {"team", "memory", "skills", "terminal"}
+MORE = {"files": "read, search and edit code in connected repos, and git: status, diff, branch, commit, push, pull request",
+        "browser": "open and click through web pages, the dev server and its console, fetch a URL, read a GitHub pull request",
+        "desktop": "use this PC's apps through their own controls"}
+# A long turn stays small and quick, the way Claude Code keeps its context: the newest tool results go to the model
+# whole, older ones shrink to their start, and past FOLD_AT messages the oldest steps fold into a line each (in batches,
+# so the start of the prompt stays put). It also keeps every step inside the hub's 200 messages and 400k characters.
+KEEP_WHOLE, OLD_RESULT, FOLD_AT, FOLD_KEEP = 6, 400, 110, 40
+CUT = "\n… [older output cut to save room; run the tool again if you need it]"
+FOLDED = "(Earlier steps of this answer, folded to save room; run a tool again if you need what it returned.)\n"
+WRAP_UP = ("That's {n} steps on this, the most one answer can take. Don't call any more tools: say what you did, what's "
+           "left, and what the person can do next (they can ask you to continue).")
+REPEAT_NUDGE = ("\nThis exact call has now returned the same thing {n} times: don't repeat it. Try another way, or finish "
+                "with what you have.")
+# The team's rules (Super Team → Rules, set by a lead): steps of a member's agent that wait for a lead's yes instead of
+# the member's own, by rule.
+LEAD_RULE = {"git_push": "push", "open_pr": "pr", "share_files": "share", "share_branch": "share", "run_command": "shell",
+             **{n: "board" for n in ("create_task", "close_task", "assign_task", "set_deadline")}}
+LEAD_POLL = 3  # seconds between looks at the hub for a lead's answer
+# Typed while the turn works, as into Claude Code: read before the next step, nothing stops or starts over.
+STEER = ("{who} adds, while you work: {text}\n(Take this into account from your next step on; keep what's already done unless "
+         "it says otherwise.)")
 BASE = """You are {name}, an agent in Super Agents, the app where a software team sees and plans the work their
 developers do with AI coding agents. You work for {person} in the team "{team}" (members: {members}).
 
@@ -62,6 +87,66 @@ UI_FILE = re.compile(r"\.(html?|css|scss|less|[cm]?jsx?|tsx?|vue|svelte|astro)$"
 VERIFY_NUDGE = ("You changed {files}. Before you finish, check it in the browser: start the dev server if it isn't running "
                 "(dev_server), open the page (browser_open) and look for errors (browser_console). Then give your answer, "
                 "saying what you checked.")
+
+
+def compact(messages: list[dict], head: int) -> None:
+    """Shrinks a turn's own steps in place before each model call (messages[:head], the system prompt, earlier chats and
+    the person's message, never change). Tool results and long arguments older than the newest KEEP_WHOLE are cut to
+    their start; past FOLD_AT messages, the oldest steps become one line each in a single note."""
+    for m in [m for m in messages[head:] if m["role"] == "tool"][:-KEEP_WHOLE]:
+        if len(m["content"]) > OLD_RESULT + len(CUT):
+            m["content"] = m["content"][:OLD_RESULT] + CUT
+    for m in [m for m in messages[head:] if m.get("tool_calls")][:-KEEP_WHOLE]:
+        for c in m["tool_calls"]:
+            f = c.get("function") or {}
+            if len(f.get("arguments") or "") > 2 * OLD_RESULT:
+                c["function"] = {**f, "arguments": _short_args(f["arguments"])}
+    if len(messages) - head <= FOLD_AT:
+        return
+    cut = next((i for i in range(len(messages) - FOLD_KEEP, len(messages)) if messages[i].get("tool_calls")), None)
+    if cut is None:
+        return
+    results = {m.get("tool_call_id"): m["content"] for m in messages[head:cut] if m["role"] == "tool"}
+    lines = []
+    for m in messages[head:cut]:
+        text = (m.get("content") or "").strip()
+        if m["role"] == "user" and text.startswith(FOLDED.strip()):
+            lines += text.splitlines()[1:]
+        elif m.get("tool_calls"):
+            for c in m["tool_calls"]:
+                f = c.get("function") or {}
+                said = (results.get(c.get("id")) or "").strip().split("\n", 1)[0][:160]
+                lines.append(f"- {f.get('name')} {(f.get('arguments') or '')[:160]} → {said}")
+        elif m["role"] != "tool" and text:
+            lines.append(f"- ({'you said' if m['role'] == 'assistant' else 'note'}) {text[:200]}")
+    messages[head:cut] = [{"role": "user", "content": FOLDED + "\n".join(lines[-200:])}]
+
+
+def lead_line(name: str, a: dict) -> tuple[str, str]:
+    """What a lead is asked to allow, in a line, and the text it would send when there is one. Never file contents."""
+    repo, to = f" of {a['repo']}" if a.get("repo") else "", a.get("to") or "the whole team"
+    what, detail = {
+        "git_push": (f"Push the current branch{repo} to GitHub", ""),
+        "open_pr": (f"Open a pull request{' into ' + str(a['base']) if a.get('base') else ''}: {a.get('title') or ''}", a.get("body")),
+        "share_files": (f"Share {', '.join(map(str, a.get('paths') or []))} with {to}", a.get("note")),
+        "share_branch": (f"Hand the current branch{repo} to {to}", a.get("note")),
+        "run_command": (f"Run a command{' in ' + str(a['cwd']) if a.get('cwd') else ''}", a.get("command")),
+        "create_task": (f"Create the task “{a.get('title') or ''}”" + (f" for {a['owner']}" if a.get("owner") else ""), ""),
+        "close_task": (f"Close {a.get('task') or 'a task'}", ""),
+        "assign_task": (f"Assign {a.get('task') or 'a task'} to {a.get('owner') or 'someone'}", ""),
+        "set_deadline": (f"Set {a.get('task') or 'a task'}'s deadline to {a.get('due') or 'none'}", ""),
+    }.get(name, (name, ""))
+    return what.strip()[:300], str(detail or "")[:4000]
+
+
+def _short_args(raw: str) -> str:
+    try:
+        args = json.loads(raw)
+    except ValueError:
+        return raw[:OLD_RESULT]
+    if not isinstance(args, dict):
+        return raw[:OLD_RESULT]
+    return json.dumps({k: v[:OLD_RESULT] + "…" if isinstance(v, str) and len(v) > OLD_RESULT else v for k, v in args.items()})
 
 
 def chats_dir():
@@ -140,6 +225,14 @@ class Turn:
         self.ui_written: list[str] = []  # UI files this turn wrote, and how many of them a browser step came after
         self.ui_checked = 0
         self.failures: dict[tuple, int] = {}  # failing calls, by tool and arguments
+        self.repeats: dict[tuple, int] = {}  # calls that worked, by tool, arguments and what they returned
+        self.waiting: dict[str, str] = {}  # calls waiting for a yes, and their kind ("change" or "ask")
+        self.mode_note: str | None = None  # told to the model before its next step, after a mode switch
+        self.steers: list[tuple[str, str]] = []  # notes typed while it works (text, from where), read before its next step
+        self.looping = False
+        self.loaded: set[str] = set()  # tool groups beyond ALWAYS this turn has asked for (or used)
+        self.ended = 0.0  # when it last finished (its answer, or Run plan)
+        self.lead_rules: set[str] = set()  # for a member: the rules whose steps wait for a lead's yes (from the board)
 
     # ---- events for the window -----------------------------------------------------------------------------
     def emit(self, kind: str, **data) -> None:
@@ -154,6 +247,8 @@ class Turn:
             return self.events[after:]
 
     def decide(self, call_id: str, approve: bool) -> None:
+        if approve and self.waiting.get(call_id) == "lead":
+            return  # that yes is a lead's to give; the person can still cancel the step
         self.answers[call_id] = approve
         if call_id in self.decisions:
             self.decisions[call_id].set()
@@ -162,6 +257,36 @@ class Turn:
         self.cancelled = True
         for ev in self.decisions.values():
             ev.set()
+
+    def set_mode(self, mode: str) -> None:
+        """The person switched modes while this turn runs: its next steps work that way, and the model hears it. What waits
+        for a yes moves on too: a change runs now in Auto (shell commands still ask), and anything is queued in Plan."""
+        if mode not in MODE_RULES or mode == self.mode:
+            return
+        self.mode = mode
+        self.mode_note = f"(The person switched this chat to {mode} mode. {MODE_RULES[mode]})"
+        self.emit("mode", mode=mode)
+        for cid, kind in list(self.waiting.items()):
+            if mode == "plan" or (mode == "auto" and kind == "change"):
+                self.answers[cid] = True
+                self.decisions[cid].set()
+
+    def steer(self, text: str, via: str = "desk") -> bool:
+        """A note typed while this turn works, at the desk or on the phone: the model reads it before its next step and
+        nothing stops. One that arrives as it writes its answer still gets answered; once it's done, False."""
+        with self.cond:
+            if not self.looping:
+                return False
+            self.steers.append((text, via))
+        self.emit("steer", text=text, via=via)
+        return True
+
+    def _steered(self, messages: list[dict]) -> None:
+        with self.cond:
+            notes, self.steers = self.steers, []
+        for text, via in notes:
+            who = self.person + (" (from their phone)" if via == "phone" else "")
+            messages.append({"role": "user", "content": STEER.format(who=who, text=text)})
 
     # ---- the loop --------------------------------------------------------------------------------------------
     def _system(self, board: dict) -> str:
@@ -184,6 +309,13 @@ class Turn:
                 kept.append(f"- {n['id']}: {n['text']}")
             if kept:
                 text += "\n\n## Memory (notes saved earlier: use them; forget or replace one when it's out of date)\n" + "\n".join(reversed(kept))
+        decisions = (board.get("rules") or {}).get("decisions") or []
+        if decisions:
+            text += ("\n\n## Team decisions (pinned in Super Team; every agent in the team follows them)\n"
+                     + "\n".join(f"- {d['text']} (decided by {d['by']['name']}{', lead' if d['by'].get('role') == 'lead' else ''})"
+                                 for d in decisions)
+                     + "\nIf the person asks for something that goes against one, say which decision and who made it, and ask "
+                       "before going against it.")
         if self.agent.get("instructions", "").strip():
             text += f"\n\n## Your instructions from {self.person}\n{self.agent['instructions'].strip()}"
         return text
@@ -192,16 +324,39 @@ class Turn:
         return bool((self.agent.get("tools") or {}).get(group, group not in agent_store.OFF_UNTIL_ON))  # groups added later are on for agents saved before them, except desktop
 
     def _toolset(self) -> list[dict]:
+        """Every tool this agent may use (self.tools), and the schemas the first step sends."""
         groups = {g for g in agent_store.TOOL_GROUPS if self._on(g)} | {"skills"}
         self.tools = {b.name: b for b in BUILTINS if b.group in groups}
         if not self.skills:
             for name in ("load_skill", "read_skill_file"):
                 self.tools.pop(name, None)
-        schemas = [b.schema() for b in self.tools.values()]
         for t in self.mcp.tools(self.agent.get("connectors") or []):
             self.tools[t.full] = t
-            schemas.append({"type": "function", "function": {"name": t.full, "description": t.description, "parameters": t.schema}})
-        return schemas
+        return self._schemas()
+
+    @staticmethod
+    def _group(tool) -> str:
+        return tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"
+
+    def _schemas(self) -> list[dict]:
+        """What a step sends: the ALWAYS groups and the ones loaded so far, plus more_tools offering the rest."""
+        out, rest = [], {}
+        for name, tool in self.tools.items():
+            g = self._group(tool)
+            if g in ALWAYS or g in self.loaded:
+                out.append(tool.schema() if isinstance(tool, Builtin) else
+                           {"type": "function", "function": {"name": tool.full, "description": tool.description, "parameters": tool.schema}})
+            else:
+                rest.setdefault(g, []).append(name)
+        if rest:
+            names = {f"mcp:{c['id']}": c.get("name") or c["id"] for c in load_connectors()}
+            said = "; ".join(f"{g}: {MORE[g]}" if g in MORE else f"{g}: the {names.get(g, g[4:])} connector ("
+                             + ", ".join(n.split("__")[-1] for n in rest[g])[:160] + ")" for g in rest)
+            out.append({"type": "function", "function": {"name": "more_tools", "description": (
+                f"Add a group of tools for the rest of this answer, then use them from your next step. {said}."),
+                "parameters": {"type": "object", "properties": {"group": {"type": "string", "enum": sorted(rest)}},
+                               "required": ["group"]}}})
+        return out
 
     def _kind(self, tool, args: dict | None = None) -> str:
         if isinstance(tool, Tool):
@@ -219,34 +374,41 @@ class Turn:
         return str(tool.run(self, **args)), False
 
     def run(self) -> None:
+        self.looping = True  # a note typed now is read before its next step (not while Run plan applies changes)
         try:
             self._run()
         except Exception as e:  # noqa: BLE001 - shown in the chat
             self.emit("error", text=f"{e}"[:500] or type(e).__name__)
         finally:
-            self.done = True
+            self.looping = False
+            self.done, self.ended = True, time.time()
             self.emit("end", planned=len(self.planned))
 
     def _run(self) -> None:
         self.skills = skill_store.all_skills()
         board = self.hub("GET", "board")
-        tools = self._toolset()
+        if board.get("role") == "member":  # a lead's own yes is enough
+            self.lead_rules = set((board.get("rules") or {}).get("lead_approves") or [])
+        self._toolset()
         self.emit("start", agent={k: self.agent[k] for k in ("id", "name", "color")}, mode=self.mode, model=self.model,
-                  effort=self.effort, tools=len(tools), mcp_errors=dict(self.mcp.errors))
+                  effort=self.effort, tools=len(self.tools), mcp_errors=dict(self.mcp.errors))
         content = self.message + "".join(f"\n\n[Imported file: {a['name']}]\n{a['text'][:60_000]}" for a in self.attachments)
         history = self.chat.get("messages", [])[-24:]
         messages = [{"role": "system", "content": self._system(board)}, *history, {"role": "user", "content": content}]
+        head = len(messages)
         used, answer, model, plan_text, kept, verify_asked = [], "", "", "", "", False
         for _ in range(MAX_STEPS):
             if self.cancelled:
                 answer = answer or "Stopped."
                 break
             self.emit("thinking")
-            step = self.llm(messages, tools, self.model)
+            if self.mode_note:  # the person switched modes since the last step
+                messages.append({"role": "user", "content": self.mode_note})
+                self.mode_note = None
+            self._steered(messages)
+            compact(messages, head)
+            step = self._step(messages, self._schemas())
             model = step.get("model", model)
-            self.spent["calls"] += 1
-            for k in ("in", "out"):
-                self.spent[k] += int((step.get("usage") or {}).get(k) or 0)
             calls = step.get("tool_calls") or []
             if step.get("content") and calls:
                 self.emit("text", text=step["content"])
@@ -269,6 +431,11 @@ class Turn:
                     messages += [{"role": "assistant", "content": text or "Done."},
                                  {"role": "user", "content": VERIFY_NUDGE.format(files=files)}]
                     continue
+                with self.cond:  # finished, unless a note came in while it wrote this: then it answers that too
+                    self.looping = bool(self.steers)
+                if self.looping:
+                    messages.append({"role": "assistant", "content": text or "Done."})
+                    continue
                 answer = CITE_MARK.sub("", plan_text or kept or text) or "Done."
                 break
             messages.append({"role": "assistant", "content": step.get("content") or "", "tool_calls": calls})
@@ -276,10 +443,23 @@ class Turn:
                 result = self._one(call)
                 used.append(call["function"]["name"])
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result[:TO_MODEL]})
-        else:
-            answer = answer or "I stopped after many steps. Ask me to continue if you need more."
+        else:  # the runaway guard: one last step that runs nothing, so the answer says what's done and what's left
+            self.emit("thinking")
+            messages.append({"role": "user", "content": WRAP_UP.format(n=MAX_STEPS)})
+            compact(messages, head)
+            step = self._step(messages, self._schemas())
+            model = step.get("model", model)
+            answer = (CITE_MARK.sub("", (step.get("content") or "").strip())
+                      or f"I took {MAX_STEPS} steps on this and stopped there. Ask me to continue.")
         self.emit("answer", text=answer, model=model, usage=dict(self.spent))
         self._remember(content, answer, used)
+
+    def _step(self, messages: list[dict], tools: list[dict]) -> dict:
+        step = self.llm(messages, tools, self.model)
+        self.spent["calls"] += 1
+        for k in ("in", "out"):
+            self.spent[k] += int((step.get("usage") or {}).get(k) or 0)
+        return step
 
     def _one(self, call: dict) -> str:
         cid, name = call.get("id") or secrets.token_hex(4), call["function"]["name"]
@@ -291,23 +471,65 @@ class Turn:
         except ValueError as e:
             self.emit("tool", id=cid, name=name, args={}, status="failed", result=f"Bad arguments: {e}")
             return f"Error: the arguments were not valid JSON ({e})."
+        if name == "more_tools" and not tool:  # plumbing, not a step the person needs to see
+            group = str(args.get("group") or "")
+            if group not in {self._group(t) for t in self.tools.values()} - ALWAYS:
+                return f"Error: there's no tool group called {group!r} for you."
+            self.loaded.add(group)
+            return f"Added the {group} tools; use them from your next step."
         if not tool:
             self.emit("tool", id=cid, name=name, args=args, status="failed", result="No such tool")
             return f"Error: there is no tool called {name}."
-        kind = self._kind(tool, args)
-        group = tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"
-        card = {"id": cid, "name": name, "args": args, "access": kind, "group": group}
+        self.loaded.add(self._group(tool))  # called by name before its group was added: it's there from now on
+        card = self._card(cid, tool, args)
+        kind = card["access"]
         if kind != "read" and self.mode == "plan":
             self.planned.append((cid, tool, args))
             self.emit("tool", **card, status="planned")
             return "Not run: plan mode. This change is part of the plan the person will review and run."
-        if kind == "ask" or (kind == "change" and self.mode == "manual"):
+        if kind != "read" and LEAD_RULE.get(name) in self.lead_rules:
+            ok, why = self._ask_lead(cid, card, name, args)
+            if self.mode == "plan":  # switched to Plan while it waited: queued, not run
+                self.planned.append((cid, tool, args))
+                self.emit("tool", **card, status="planned")
+                return "Not run: the person switched to plan mode. This change is part of the plan they will review and run."
+            if not ok:
+                self.emit("tool", **card, status="declined", result=why)
+                return f"{why} Don't retry it; tell the person."
+        elif kind == "ask" or (kind == "change" and self.mode == "manual"):
             ev = self.decisions[cid] = threading.Event()
+            self.waiting[cid] = kind
             self.emit("tool", **card, status="asking")
             ev.wait()
+            self.waiting.pop(cid, None)
             if self.cancelled or not self.answers.get(cid):
                 self.emit("tool", **card, status="declined")
                 return "The person declined this action. Don't retry it; ask or continue without it."
+            if self.mode == "plan":  # switched to Plan while it waited: queued, not run
+                self.planned.append((cid, tool, args))
+                self.emit("tool", **card, status="planned")
+                return "Not run: the person switched to plan mode. This change is part of the plan they will review and run."
+        result, is_error = self._apply(tool, args, card)
+        key = (name, json.dumps(args, sort_keys=True))
+        if is_error:  # models retry the same failing call until they run out of steps; say so once it's happened twice
+            self.failures[key] = self.failures.get(key, 0) + 1
+            if self.failures[key] >= 2:
+                result += ("\nThis exact call has now failed twice the same way: don't repeat it. Read the current state "
+                           "again, try another way, or tell the person what's in the way.")
+        else:  # or call the same thing over and over and get the same answer: a loop, not progress
+            same = (*key, hash(result))
+            self.repeats[same] = self.repeats.get(same, 0) + 1
+            if self.repeats[same] >= 3:
+                result += REPEAT_NUDGE.format(n=self.repeats[same])
+        return result
+
+    def _card(self, cid: str, tool, args: dict) -> dict:
+        return {"id": cid, "name": tool.name if isinstance(tool, Builtin) else tool.full, "args": args,
+                "access": self._kind(tool, args), "group": tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"}
+
+    def _apply(self, tool, args: dict, card: dict) -> tuple[str, bool]:
+        """Run a step that's been let through, in an answer or by Run plan: its card goes running, then done or failed."""
+        name = card["name"]
         self.emit("tool", **card, status="running")
         try:
             result, is_error = self._execute(tool, args)
@@ -324,30 +546,53 @@ class Turn:
             except ValueError:
                 pass
         self.emit("tool", **card, status="failed" if is_error else "done", result=result[:TO_WINDOW], **extra)
-        if is_error:  # models retry the same failing call until they run out of steps; say so once it's happened twice
-            key = (name, json.dumps(args, sort_keys=True))
-            self.failures[key] = self.failures.get(key, 0) + 1
-            if self.failures[key] >= 2:
-                result += ("\nThis exact call has now failed twice the same way: don't repeat it. Read the current state "
-                           "again, try another way, or tell the person what's in the way.")
-        return result
+        return result, is_error
+
+    def _ask_lead(self, cid: str, card: dict, name: str, args: dict) -> tuple[bool, str]:
+        """A step the team's rules give to a lead: it waits for a lead's yes, on their desk or their phone, instead of the
+        person's own; the person can still cancel it. (True, "") once a lead says yes; else (False, what to tell the model)."""
+        what, detail = lead_line(name, args)
+        try:
+            req = self.hub("POST", "approvals", {"rule": LEAD_RULE[name], "tool": name, "what": what, "detail": detail})
+        except RuntimeError as e:
+            return False, f"Not run: the team's rules want a lead's yes for this, and asking failed ({e})."
+        ev = self.decisions[cid] = threading.Event()
+        self.waiting[cid] = "lead"
+        self.emit("tool", **card, status="asking", lead=", ".join(req.get("leads") or []) or "a lead")
+        r = {"status": "pending"}
+        while r["status"] == "pending" and not ev.wait(LEAD_POLL):  # set: the person cancelled it, switched to Plan, or stopped
+            try:
+                r = self.hub("GET", f"approvals/{req['id']}")
+            except RuntimeError:
+                continue  # the hub is away for a moment: keep waiting
+        self.waiting.pop(cid, None)
+        if r["status"] == "pending":
+            try:
+                self.hub("POST", f"approvals/{req['id']}/cancel")
+            except RuntimeError:
+                pass
+            return False, "Not run: the person cancelled it while it waited for a lead."
+        if r["status"] == "approved":
+            return True, ""
+        if r["status"] == "denied":
+            return False, f"{r.get('decided_by') or 'A lead'} said no" + (f": {r['note']}" if r.get("note") else ".")
+        return False, "Not run: no lead answered within a day."
 
     def run_plan(self) -> None:
-        """Apply the changes queued in plan mode, in order."""
+        """Apply the changes queued in plan mode, in order (what the team's rules give to a lead waits for their yes)."""
         planned, self.planned = self.planned, []
         self.done = False
         try:
             for cid, tool, args in planned:
-                card = {"id": cid, "name": tool.name if isinstance(tool, Builtin) else tool.full, "args": args,
-                        "access": self._kind(tool, args), "group": tool.group if isinstance(tool, Builtin) else f"mcp:{tool.connector}"}
-                self.emit("tool", **card, status="running")
-                try:
-                    result, is_error = self._execute(tool, args)
-                except Exception as e:  # noqa: BLE001
-                    result, is_error = f"Error: {e}", True
-                self.emit("tool", **card, status="failed" if is_error else "done", result=result[:TO_WINDOW])
+                card = self._card(cid, tool, args)
+                if card["access"] != "read" and LEAD_RULE.get(card["name"]) in self.lead_rules:
+                    ok, why = self._ask_lead(cid, card, card["name"], args)
+                    if not ok:
+                        self.emit("tool", **card, status="declined", result=why)
+                        continue
+                self._apply(tool, args, card)
         finally:
-            self.done = True
+            self.done, self.ended = True, time.time()
             self.emit("end", planned=0)
 
     def _remember(self, content: str, answer: str, used: list[str]) -> None:
@@ -357,7 +602,7 @@ class Turn:
             {"role": "assistant", "content": answer + (f"\n\n(tools used: {', '.join(sorted(set(used)))})" if used else "")}])
         chat.setdefault("view", []).append({"user": self.message, "files": [a["name"] for a in self.attachments],
                                             "answer": answer, "agent": self.agent["id"], "mode": self.mode, "usage": dict(self.spent),
-                                            "events": [e for e in self.events if e["kind"] in ("tool", "text")][-60:]})
+                                            "events": [e for e in self.events if e["kind"] in ("tool", "text", "steer")][-60:]})
         chat["title"] = chat.get("title") or self.message[:60]
         chat["agent"] = self.agent["id"]
         chat["updated"] = time.time()
@@ -367,6 +612,3 @@ class Turn:
 def new_chat(agent_id: str) -> dict:
     return {"id": secrets.token_urlsafe(8), "agent": agent_id, "created": time.time(), "messages": [], "view": []}
 
-
-def get_agent(agent_id: str) -> dict:
-    return agent_store.get(agent_id)

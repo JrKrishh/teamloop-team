@@ -1,5 +1,9 @@
 # TeamLoop Team Plan
 
+> **Historical (12–13 Oct 2026).** The reasoning, event schema and Agent S rules below still hold, and code comments cite
+> its sections. The scope and schedule don't: the product became the Super Agents app. What exists now: the README's
+> "Where things live" and `docs/`.
+
 **What it is:** live progress from every teammate's AI coding session, on one board, without anyone typing a status update.
 
 **Status:** draft v1, 12 Oct 2026, by Yang's agent, for Yang and Sourabh to review. **No code until both of you sign off on §25.**

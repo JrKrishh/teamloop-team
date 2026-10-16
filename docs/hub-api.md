@@ -1,8 +1,11 @@
-# Hub API v1 (draft)
+# Hub API v1: events in, the board out
 
-Drafted by Yang's agent from what the connector sends today. **Sourabh owns the hub, so change anything.** The connector side is `connector/teamloop/send.py`.
+What the connector sends (`connector/teamloop/send.py`) and how a hub answers. Both hubs take the same events and give the
+same board shapes; they differ in sign-in. This page's auth is the **self-hosted hub's** (`hub/`). The hosted hub (`cloud/`)
+signs people in with accounts, gives each laptop a `tl_` token through `teamloop login`, and has many more endpoints: see
+[cloud.md](cloud.md).
 
-## Auth (ccbridge's, unchanged)
+## Auth on the self-hosted hub (ccbridge's, unchanged)
 1. `POST /v1/join` with `Authorization: Bearer <room token>` and body `{room, display_name, identity_key}`. The first join under a name binds it to that identity key.
 2. Every call after that sends `Authorization: Bearer <room token>`, `X-CCBridge-Room` and `X-CCBridge-Session`. A 401 means join again.
 
@@ -18,6 +21,7 @@ The lead's browser uses `POST /v1/board/login {room, token}` instead. It sets an
 - **Idempotent on `event.id`.** Retries after a timeout resend the same ids.
 - **Limits:** at most 50 events per batch. Suggested body cap: 256 KB.
 - **Defence in depth:** return 400 for any event that has a `local` key. The connector never sends one, so a 400 here means a bug.
+- **Shape:** 422 for an event the readers can't use (`hub.team.bad_shape`): no 32-hex `id` or lowercase `kind`, a `ts` that isn't text, `facts` or `report` that aren't objects, a `self_report` without `report`, a `pr`/`review`/`check` without `facts`, `facts.cmd` without a `kind`, `facts.usage` counts that aren't whole numbers, or `report.done`/`next` that aren't lists of text. 413 for an event over 8 KB.
 
 ## Event
 | field | always | notes |
@@ -62,7 +66,3 @@ The lead's browser uses `POST /v1/board/login {room, token}` instead. It sets an
 
 `GET /v1/me` returns `{room, role, name, demo}`. The role is signed into the cookie (`room|role|expires|hmac`), so a forged role fails verification.
 
-## Next (hub side)
-- `GET /v1/stream`: SSE for the board.
-- `GET /v1/board`: snapshot of teams, tasks, sessions and progress.
-- **Session liveness:** a session is active if an event arrived in the last 5 min, and waiting if its last event is `waiting_input`.

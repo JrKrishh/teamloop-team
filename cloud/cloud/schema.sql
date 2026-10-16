@@ -199,6 +199,59 @@ do $$ begin  -- on Supabase only: the private bucket the files go in
   end if;
 end $$;
 
+-- v7 (migration teamloop_cloud_v7_team_rules): Super Team → Rules. Decisions every agent in the team follows (who
+-- decided is part of each), the steps of a member's agent that need a lead's yes, and those requests.
+create table public.decisions (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  text text not null check (char_length(text) between 1 and 300),
+  by_user uuid not null,
+  by_name text not null,
+  by_role text not null check (by_role in ('lead', 'member')),
+  created_at timestamptz not null default now()
+);
+create index decisions_team_idx on public.decisions (team_id, created_at);
+create table public.team_rules (
+  team_id uuid primary key references public.teams(id) on delete cascade,
+  lead_approves text[] not null default '{}',
+  updated_by uuid,
+  updated_at timestamptz not null default now()
+);
+create table public.approvals (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams(id) on delete cascade,
+  from_user uuid not null,
+  from_name text not null,
+  rule text not null check (rule in ('push', 'pr', 'share', 'board', 'shell')),
+  tool text not null,
+  what text not null check (char_length(what) between 1 and 300),
+  detail text not null default '' check (char_length(detail) <= 4000),
+  status text not null default 'pending' check (status in ('pending', 'approved', 'denied', 'cancelled')),
+  decided_by uuid,
+  decided_name text,
+  note text check (note is null or char_length(note) <= 500),
+  created_at timestamptz not null default now(),
+  decided_at timestamptz
+);
+create index approvals_team_idx on public.approvals (team_id, status, created_at desc);
+
+alter table public.decisions enable row level security;
+alter table public.team_rules enable row level security;
+alter table public.approvals enable row level security;
+
+-- v8 (migration teamloop_cloud_v8_waitlist): the website's waitlist. An email once; name, team size and a note are
+-- optional. Read it in the Supabase table editor.
+create table public.waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique check (char_length(email) between 3 and 254),
+  name text check (name is null or char_length(name) <= 120),
+  team_size text check (team_size is null or team_size in ('1', '2-5', '6-20', '21+')),
+  note text check (note is null or char_length(note) <= 1000),
+  source text check (source is null or char_length(source) <= 40),
+  created_at timestamptz not null default now()
+);
+
+alter table public.waitlist enable row level security;
 alter table public.teams enable row level security;
 alter table public.team_repos enable row level security;
 alter table public.shares enable row level security;

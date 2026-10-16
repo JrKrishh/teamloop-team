@@ -1,6 +1,8 @@
 package com.solobrain.superagents.remote
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
@@ -46,8 +48,10 @@ class Remote(private val app: Context) {
     @Volatile private var known = Pairings.has(app)
     @Volatile private var relay: Relay? = null
     @Volatile private var connecting = false
+    @Volatile private var watching = false
     private var backoff = 1000L
-    private var pinger: Job? = null
+    @Volatile private var pinger: Job? = null
+    @Volatile private var greeter: Job? = null
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
     private val seen = ConcurrentHashMap<String, Long>()
     private val told: MutableSet<String> = ConcurrentHashMap.newKeySet()
@@ -58,7 +62,16 @@ class Remote(private val app: Context) {
 
     val paired: Boolean get() = known
 
-    fun start() { if (known && relay == null) connect() }
+    /** The app came on screen: connect, or on a live line ask the laptop again, so chats and questions are fresh. */
+    fun start() {
+        if (known && relay == null) connect() else if (relay?.joined == true) hello()
+        if (!watching) {  // back on a network (out of a lift, Wi-Fi again): connect now, not after the wait between tries
+            watching = true
+            app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) { if (known && relay == null) { backoff = 1000; connect() } }
+            })
+        }
+    }
 
     fun pair(l: Pairings.Link) {
         stop()
@@ -76,9 +89,14 @@ class Remote(private val app: Context) {
         link.value = Link.NotPaired
     }
 
+    /** Try again pressed: the laptop now, not after the wait between tries. */
+    fun tryNow() {
+        if (relay?.joined == true) hello(now = true) else if (known) { backoff = 1000; link.value = Link.Connecting; connect() }
+    }
+
     private fun stop() {
         relay?.close(); relay = null
-        pinger?.cancel()
+        pinger?.cancel(); greeter?.cancel()
     }
 
     private fun connect() {
@@ -95,7 +113,7 @@ class Remote(private val app: Context) {
             }
             lateinit var r: Relay
             r = Relay(http, scope,
-                onJoined = { backoff = 1000; scope.launch { hello() } },
+                onJoined = { backoff = 1000; hello(now = true) },
                 onEnvelope = { receive(it) },
                 onDown = { if (relay === r) { relay = null; link.value = Link.Offline; retry() } })
             relay = r
@@ -131,7 +149,9 @@ class Remote(private val app: Context) {
         when {
             waiting != null -> waiting.complete(m)
             m.optString("t") == "events" -> onEvents(m.optString("turn"), m.optJSONArray("events").objects())
-            m.optString("t") == "live" -> laptop.value?.let { laptop.value = it.copy(live = parseLive(m.optJSONArray("live"))); liveChanged() }
+            m.optString("t") == "live" -> laptop.value?.let {
+                laptop.value = it.copy(live = parseLive(m.optJSONArray("live")), asks = parseAsks(m.optJSONArray("asks"))); liveChanged()
+            } ?: hello()  // the laptop is there but this phone has no answer to its hello yet: ask again now
         }
     }
 
@@ -146,34 +166,45 @@ class Remote(private val app: Context) {
     /** A request to the laptop, answered by a message that names it. */
     suspend fun request(msg: JSONObject, waitMs: Long = 15_000): JSONObject {
         val p = pairing ?: throw RemoteError("This phone isn't paired.")
-        val r = relay?.takeIf { it.joined } ?: throw RemoteError("Not connected to your laptop yet.")
+        val r = relay?.takeIf { it.joined } ?: throw LineDown("Not connected to your laptop yet.")
         val id = Seal.b64(ByteArray(12).also(random::nextBytes))
         val answer = CompletableDeferred<JSONObject>()
         pending[id] = answer
         msg.put("from", "phone").put("id", id).put("ts", System.currentTimeMillis())
         if (!r.broadcast(Seal.seal(p.key, p.channel, msg))) {
             pending.remove(id)
-            throw RemoteError("Not connected to your laptop yet.")
+            throw LineDown("Not connected to your laptop yet.")
         }
-        val reply = withTimeoutOrNull(waitMs) { answer.await() }
+        val reply = try { withTimeoutOrNull(waitMs) { answer.await() } } finally { pending.remove(id) }  // cancelled too
         if (reply == null) {
-            pending.remove(id)
             link.value = Link.Offline
-            throw RemoteError("Your laptop didn't answer. Is Super Agents open on it?")
+            throw LineDown("Your laptop didn't answer. Is Super Agents open on it?")
         }
         if (reply.optString("t") == "error") throw RemoteError(reply.optString("error"))
         return reply
     }
 
-    private suspend fun hello(tries: Int = 0) {
-        try {
-            refresh(5_000)
-            pinger?.cancel()
-            pinger = scope.launch {  // keeps this phone "online", so the laptop keeps pushing what's running
-                while (isActive) { delay(30_000); if (relay?.joined == true) runCatching { request(JSONObject().put("t", "ping")) } }
+    /** Hello until the laptop answers, for as long as this line is up (Super Agents may open on the laptop much later),
+     *  waiting longer between tries; then ping, so the laptop keeps pushing what's running. `now` starts over at once
+     *  (a new line, or Try again) instead of leaving it to a hello that's waiting. */
+    private fun hello(now: Boolean = false) {
+        val r = relay ?: return
+        if (!now && greeter?.isActive == true) return  // already trying
+        greeter?.cancel()
+        greeter = scope.launch {
+            var wait = 2_000L
+            while (relay === r && r.joined) {
+                try {
+                    refresh(5_000)
+                    pinger?.cancel()
+                    pinger = scope.launch {
+                        while (isActive) { delay(30_000); if (relay?.joined == true) runCatching { request(JSONObject().put("t", "ping")) } }
+                    }
+                    return@launch
+                } catch (e: RemoteError) {
+                    delay(wait); wait = min(wait * 2, 30_000)
+                }
             }
-        } catch (e: RemoteError) {
-            if (tries < 5 && relay?.joined == true) { delay(2_000); hello(tries + 1) }  // the laptop may still be joining
         }
     }
 
@@ -186,16 +217,18 @@ class Remote(private val app: Context) {
     private fun account(): Any = if (!Accounts.signedIn(app)) JSONObject.NULL
         else JSONObject().put("name", Accounts.name(app) ?: JSONObject.NULL).put("email", Accounts.email(app) ?: JSONObject.NULL)
 
-    /** A question nobody has seen yet becomes a notification when the app isn't on screen; answered ones go away. */
-    private fun liveChanged() {
+    /** While the app isn't on screen, each waiting question becomes one notification, including one first seen on
+     *  screen and left unanswered when the app went away (SuperAgentsApp calls this then); answered ones go away. */
+    fun liveChanged() {
         val lp = laptop.value ?: return
-        for (t in lp.live) {
-            val ask = t.ask ?: continue
-            val fresh = told.add(ask.id)
-            Log.d(TAG, "a question: new=$fresh, in the background=${!inForeground}")
-            if (fresh && !inForeground) Notifications.ask(app, t, ask, lp.agent(t.agent).name)
+        if (!inForeground) {
+            for (t in lp.live) {
+                val ask = t.ask ?: continue
+                if (told.add(ask.id)) { Log.d(TAG, "a question, in the background"); Notifications.ask(app, t, ask, lp.agent(t.agent).name) }
+            }
+            for (a in lp.asks) if (told.add(a.id)) Notifications.teamAsk(app, a)  // a member's agent wants this lead's yes
         }
-        Notifications.keepAsks(app, lp.live.mapNotNull { it.ask?.id }.toSet())
+        Notifications.keepAsks(app, lp.live.mapNotNull { it.ask?.id }.toSet() + lp.asks.map { it.id })
     }
 
     suspend fun send(chat: String?, agent: String, mode: String, model: String, effort: String, message: String): Pair<String, String> {
@@ -212,11 +245,38 @@ class Remote(private val app: Context) {
     }
 
     suspend fun decide(turn: String, call: String, approve: Boolean) {
-        request(JSONObject().put("t", "decide").put("turn", turn).put("call", call).put("approve", approve))
+        again { JSONObject().put("t", "decide").put("turn", turn).put("call", call).put("approve", approve) }
         Notifications.cancelAsk(app, call)
     }
 
+    /** For what's safe to say twice (a yes said twice is still one yes): when the line died without a word, as it can
+     *  while the phone sleeps, connect again and say it once more instead of leaving the agent waiting. */
+    private suspend fun again(msg: () -> JSONObject): JSONObject = try {
+        request(msg(), 8_000)
+    } catch (e: LineDown) {
+        Log.d(TAG, "no answer on the line: connecting again")
+        stop()
+        backoff = 1000
+        connect()  // and if the phone is offline, again the moment a network is back (start's callback)
+        withTimeoutOrNull(20_000) { while (relay?.joined != true) delay(250) }
+        request(msg(), 10_000)
+    }
+
+    /** A lead's yes or no to a member's agent's step, through the laptop to the team's hub. Said twice, it's still once. */
+    suspend fun decideTeam(id: String, approve: Boolean) {
+        try {
+            again { JSONObject().put("t", "team_decide").put("approval", id).put("approve", approve) }  // "id" is the message's own
+        } catch (e: RemoteError) {
+            if (e.message?.startsWith("Already decided") != true) throw e  // the first try got there; its answer didn't
+        }
+        Notifications.cancelAsk(app, id)
+    }
+
     suspend fun stopTurn(turn: String) { request(JSONObject().put("t", "stop").put("turn", turn)) }
+    /** Typed while the answer runs: a note it reads before its next step. */
+    suspend fun steer(turn: String, text: String) { request(JSONObject().put("t", "steer").put("turn", turn).put("text", text)) }
+    /** Switched while the answer runs: it carries on in the new mode. */
+    suspend fun setMode(turn: String, mode: String) { request(JSONObject().put("t", "mode").put("turn", turn).put("mode", mode)) }
 
     suspend fun runPlan(turn: String) { request(JSONObject().put("t", "run_plan").put("turn", turn)) }
 

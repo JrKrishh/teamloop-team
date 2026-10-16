@@ -35,7 +35,7 @@ def server(script):
 @pytest.fixture
 def provider(monkeypatch):
     def use(url):
-        cfg = {"url": url, "key": None, "extra": {}, "models": {"progress": "mid", "qa": "mid", "digest": "big", "agent": "mid"}}
+        cfg = {"url": url, "key": None, "extra": {}, "models": {"progress": "mid", "qa": "mid", "digest": "big", "agent": "mid", "summary": "small"}}
         monkeypatch.setitem(llm.PROVIDERS, "test", cfg)
         monkeypatch.setenv("AGENT_S_PROVIDER", "test")
         monkeypatch.setattr(llm.time, "sleep", lambda s: None)
@@ -98,3 +98,28 @@ def test_the_meter_counts_every_answered_call(provider):
     assert m == {"calls": 2, "in": 240, "out": 60, "model": "test:mid"}
     llm.chat_tools([{"role": "user", "content": "hi"}], [])  # outside a meter: nothing to count into
     assert m["calls"] == 2
+
+
+def test_summaries_skip_thinking(provider):
+    """One line from one message: thinking first used the whole budget and retried (see llm.NO_THINK)."""
+    bodies = []
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            bodies.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({"choices": [{"message": {"content": json.dumps({"ok": True})}}]}).encode())
+
+        def log_message(self, *a):
+            pass
+
+    s = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    provider(f"http://127.0.0.1:{s.server_port}/v1/chat/completions")
+    llm.PROVIDERS["test"].update(extra={"reasoning_effort": "low"}, no_think={"reasoning_effort": "none"})
+    llm.chat_json("summary", [], {})
+    llm.chat_json("progress", [], {})
+    with llm.effort("high"):  # an effort someone picked still wins
+        llm.chat_json("summary", [], {})
+    assert [(b["model"], b["reasoning_effort"]) for b in bodies] == [("small", "none"), ("mid", "low"), ("small", "high")]

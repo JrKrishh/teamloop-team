@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from teamloop import claude, codex, init, login, normalize, redact, repo, send, spool
@@ -86,6 +89,60 @@ def git_info(repos: list[dict]) -> dict:
     return {"git": found, "helper": _git_out("config", "--get", "credential.helper") if found else "",
             "gh": shutil.which("gh") is not None,
             "origins": {r["path"]: _git_out("remote", "get-url", "origin", cwd=r["path"]) for r in repos if r["ok"] and found}}
+
+
+GITHUB_API = "https://api.github.com"
+
+
+def github_repos(run=subprocess.run, fetch=None) -> dict:
+    """The GitHub repos this laptop's GitHub sign-in can open, most recently pushed first: through the GitHub CLI when
+    it's signed in, otherwise with the token Git Credential Manager keeps for github.com (it never leaves this
+    function). Raises LookupError when neither is signed in."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never", "GH_PROMPT_DISABLED": "1"}
+    query = "user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member"
+    found: list[dict] = []
+    if shutil.which("gh"):
+        for page in (1, 2, 3):
+            r = run(["gh", "api", f"{query}&page={page}"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=60, stdin=subprocess.DEVNULL, env=env)
+            if r.returncode != 0:
+                break
+            batch = json.loads(r.stdout or "[]")
+            found += batch
+            if len(batch) < 100:
+                return {"via": "gh", "repos": _repo_list(found)}
+        if found:
+            return {"via": "gh", "repos": _repo_list(found)}
+    r = run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n\n", capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=20, env=env)
+    token = next((line[9:] for line in (r.stdout or "").splitlines() if line.startswith("password=")), "") if r.returncode == 0 else ""
+    if not token:
+        raise LookupError("Sign in to GitHub on this laptop first: install the GitHub CLI and run `gh auth login`, "
+                          "or clone any private GitHub repo once so Git Credential Manager keeps your sign-in.")
+    fetch = fetch or _github_get
+    for page in (1, 2, 3):
+        batch = fetch(f"{GITHUB_API}/{query}&page={page}", token)
+        found += batch
+        if len(batch) < 100:
+            break
+    return {"via": "git", "repos": _repo_list(found)}
+
+
+def _github_get(url: str, token: str) -> list:
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                                               "User-Agent": "SuperAgents"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise LookupError("GitHub didn't accept this laptop's sign-in: sign in again with `gh auth login`."
+                          if e.code == 401 else f"GitHub answered {e.code}.") from None
+
+
+def _repo_list(items: list) -> list[dict]:
+    return [{"name": it["full_name"], "url": it["html_url"], "private": bool(it.get("private")),
+             "description": it.get("description") or "", "pushed": it.get("pushed_at") or it.get("updated_at") or ""}
+            for it in items if isinstance(it, dict) and it.get("full_name") and it.get("html_url")]
 
 
 def clone(url: str, parent: str) -> dict:

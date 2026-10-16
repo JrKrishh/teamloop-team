@@ -147,6 +147,13 @@ def test_a_phone_starts_a_turn_watches_it_and_answers_its_question(home):
     assert [e["i"] for m in got if m["t"] == "events" for e in m["events"]] == [0, 1, 2, 3]
     relay.on_message(phone(key, pid, {"t": "decide", "turn": "turn-0001", "call": "c1", "approve": True}, id="m3"))
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/decide", {"call": "c1", "approve": True}) in api.calls)
+    relay.on_message(phone(key, pid, {"t": "mode", "turn": "turn-0001", "mode": "auto"}, id="m5"))  # switched while it ran
+    assert wait_for(lambda: ("POST", "/api/turns/turn-0001/mode", {"mode": "auto"}) in api.calls)
+    relay.on_message(phone(key, pid, {"t": "steer", "turn": "turn-0001", "text": "Use the Q3 numbers"}, id="m6"))  # typed while it ran
+    assert wait_for(lambda: ("POST", "/api/turns/turn-0001/steer", {"text": "Use the Q3 numbers", "via": "phone"}) in api.calls)
+    aid = "0f0e0d0c-0b0a-4908-8706-050403020100"  # a lead's yes to a member's agent, from the phone
+    relay.on_message(phone(key, pid, {"t": "team_decide", "approval": aid, "approve": True}, id="m7"))
+    assert wait_for(lambda: ("POST", f"/api/cloud/approvals/{aid}/decide?team={TEAM}", {"approve": True}) in api.calls)
     relay.on_message(phone(key, pid, {"t": "stop", "turn": "turn-0001"}, id="m4"))
     assert wait_for(lambda: ("POST", "/api/turns/turn-0001/cancel", None) in api.calls)
 
@@ -223,6 +230,8 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
             return board
         if path == "/api/turns" and method == "GET":
             return {"turns": live}
+        if path == f"/api/cloud/approvals?team={TEAM}":  # this laptop's person leads: a member's agent waits on their yes
+            return {"approvals": [{"id": "a1", "from": {"id": "u2", "name": "Asha"}, "what": "Close T-3", "detail": "", "rule": "board"}]}
         return api(method, path, body)
     r = remote.Remote(call, relay=lambda: "wss://relay", team=lambda: TEAM, relay_cls=FakeRelay)
     r.sync()
@@ -236,10 +245,12 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
     assert "done" not in t and "progress" not in t  # a phone needs the gist, not the evidence ids
     ask = got["h1"]["live"][0]["ask"]
     assert ask["id"] == "c9" and len(ask["args"]["content"]) < 4100  # what waits, cut for a phone
+    assert got["h1"]["asks"] == [{"id": "a1", "from": "Asha", "what": "Close T-3", "detail": "", "rule": "board"}]
     r.online[pid] = time.time()
     relay.sent.clear()
     r.push_live(every=0.01, rounds=3)  # an open phone hears about running turns once, not every round
-    assert [m["t"] for m in heard(relay, key, pid)] == ["live"]
+    pushed = heard(relay, key, pid)
+    assert [m["t"] for m in pushed] == ["live"] and pushed[0]["asks"][0]["what"] == "Close T-3"
 
 
 def test_long_output_is_cut_for_the_phone():
@@ -260,12 +271,15 @@ def test_settings_pair_a_phone_and_list_live_turns(home):
     assert store.remote()["phones"] == []
     push = {"kind": "tool", "id": "call-1", "name": "git_push", "args": {"repo": "acme"}}
     state.turns["t-1"] = SimpleNamespace(id="t-1", chat={"id": "c-1"}, agent={"id": "agent-s"}, message="Push it", done=False,
-                                         decisions={"call-1": threading.Event()}, events=[{**push, "status": "asking"}])
+                                         decisions={"call-1": threading.Event()}, waiting={"call-1": "change"}, events=[{**push, "status": "asking"}])
     test = {"kind": "tool", "id": "call-2", "name": "run_command", "args": {"command": "npm test"}}
     state.turns["t-2"] = SimpleNamespace(id="t-2", chat={"id": "c-2"}, agent={"id": "agent-s"}, message="Test it", done=False,
-                                         decisions={}, events=[{**push, "status": "done"}, {**test, "status": "running"}])
+                                         decisions={}, waiting={}, events=[{**push, "status": "done"}, {**test, "status": "running"}])
     state.turns["t-3"] = SimpleNamespace(id="t-3", chat={"id": "c-3"}, agent={"id": "agent-s"}, message="Done one", decisions={},
-                                         events=[], done=True)
-    t1, t2 = c.get("/api/turns").json()["turns"]
+                                         waiting={}, events=[], done=True)
+    state.turns["t-4"] = SimpleNamespace(id="t-4", chat={"id": "c-4"}, agent={"id": "agent-s"}, message="Push it too", done=False,
+                                         decisions={"call-4": threading.Event()}, waiting={"call-4": "lead"}, events=[{**push, "id": "call-4", "status": "asking"}])
+    t1, t2, t4 = c.get("/api/turns").json()["turns"]
     assert t1["asking"] and t1["ask"] == {"id": "call-1", "name": "git_push", "args": {"repo": "acme"}, "group": None, "access": None}
     assert not t2["asking"] and t2["ask"] is None and t2["now"]["name"] == "run_command"  # the step it's on, not one that's done
+    assert not t4["asking"] and t4["ask"] is None  # waiting for a lead's yes, not this person's: not in their Needs you

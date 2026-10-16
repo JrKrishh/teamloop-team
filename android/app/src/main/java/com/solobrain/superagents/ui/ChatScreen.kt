@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.sp
 import com.solobrain.superagents.remote.Agent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -73,6 +72,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -88,6 +88,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -106,12 +107,19 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.solobrain.superagents.remote
 import com.solobrain.superagents.remote.Labels
+import com.solobrain.superagents.remote.LiveTurn
+import com.solobrain.superagents.remote.RemoteError
 import com.solobrain.superagents.remote.objects
 import com.solobrain.superagents.remote.text
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -123,6 +131,7 @@ class Card(val id: String) {
     var args by mutableStateOf(JSONObject())
     var status by mutableStateOf("")
     var result by mutableStateOf<String?>(null)
+    var lead by mutableStateOf<String?>(null)  // waiting for this lead's yes, by the team's rules, not yours
 }
 
 /** One agent turn in the chat: its steps, what it said along the way, what waits for you, and its answer. */
@@ -131,6 +140,7 @@ class Block(val agent: String?, val past: Boolean = false) {
     val cards = mutableStateMapOf<String, Card>()
     val order = mutableStateListOf<String>()
     val notes = mutableStateListOf<String>()
+    val steers = mutableStateListOf<Pair<String, Boolean>>()  // notes typed while it worked, and whether from the phone
     var answer by mutableStateOf<String?>(null)
     var failed by mutableStateOf<String?>(null)
     var line by mutableStateOf<String?>(if (past) null else "Thinking…")
@@ -178,19 +188,21 @@ class ChatModel {
         when (e.optString("kind")) {
             "thinking" -> b.line = "Thinking…"
             "text" -> b.notes.add(e.optString("text"))
+            "mode" -> MODES.firstOrNull { it.first == e.optString("mode") }?.let { b.notes.add("Switched to ${it.second} mode") }  // while it ran
+            "steer" -> b.steers.add(e.optString("text") to (e.optString("via") == "phone"))  // a note typed while it worked
             "tool" -> {
                 val id = e.optString("id")
                 val c = b.cards[id] ?: Card(id).also { b.cards[id] = it; b.order.add(id) }
                 if (e.has("name")) c.name = e.optString("name")
                 e.optJSONObject("args")?.let { c.args = it }
                 c.status = e.optString("status")
+                c.lead = e.optString("lead").ifEmpty { null }
                 if (e.has("result") && !e.isNull("result")) c.result = e.optString("result")
-                if (!b.past) b.line = when (c.status) { "asking" -> "Waiting for you…"; "running" -> "Working…"; else -> b.line }
+                if (!b.past) b.line = when (c.status) { "asking" -> "Waiting for ${c.lead ?: "you"}…"; "running" -> "Working…"; else -> b.line }
             }
             "answer" -> { b.answer = e.optString("text"); b.line = null }
             "error" -> { b.failed = e.optString("text"); b.line = null }
             "end" -> {
-                if (b.answer != null || b.failed != null) b.line = null
                 if (!b.past) b.planned = e.optInt("planned")
                 if (running == b.turn) running = null
                 b.line = null
@@ -227,13 +239,20 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     var pickedEffort by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(open.id != null) }
+    var loadError by remember { mutableStateOf<String?>(null) }  // the chat's history didn't come: say so, with Try again
     var follow by remember { mutableStateOf(true) }  // stay with the newest message, unless they scrolled up to read
     val catchUp: (String, Int) -> Unit = { turn, after -> scope.launch { runCatching { r.watch(turn, after) } } }
     BackHandler(onBack = onBack)
 
     fun send(message: String) {
         val msg = message.trim()
-        if (msg.isEmpty() || model.running != null) return
+        if (msg.isEmpty()) return
+        model.running?.let { turn ->  // typed while it works: a note it reads before its next step; nothing stops
+            text = ""
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            scope.launch { runCatching { r.steer(turn, msg) }.onFailure { text = msg; Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } }
+            return
+        }
         text = ""
         follow = true
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -247,23 +266,28 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
         }
     }
 
+    suspend fun history(id: String, live: LiveTurn?) {
+        loading = true; loadError = null
+        runCatching { r.chat(id) }.onSuccess { c ->
+            model.title = c.optString("title").ifEmpty { "Chat" }
+            c.optString("agent").takeIf { it.isNotEmpty() }?.let { agent = it }
+            for (v in c.optJSONArray("view").objects()) {
+                model.user(v.optString("user"))
+                val b = model.agent(v.optString("agent").ifEmpty { agent }, past = true)
+                for (e in v.optJSONArray("events").objects()) model.apply(b, e)
+                b.answer = v.text("answer")
+                b.line = null
+            }
+        }.onFailure { if (live == null) loadError = it.message ?: "Couldn't reach your laptop." else model.title = live.message.take(60) }  // live: not saved yet
+        loading = false
+    }
+
     LaunchedEffect(Unit) {
         launch { r.events.collect { (turn, evs) -> model.onEvents(turn, evs, catchUp) } }
         val live = open.live
         if (open.id != null) {
             model.chatId = open.id
-            runCatching { r.chat(open.id) }.onSuccess { c ->
-                model.title = c.optString("title").ifEmpty { "Chat" }
-                c.optString("agent").takeIf { it.isNotEmpty() }?.let { agent = it }
-                for (v in c.optJSONArray("view").objects()) {
-                    model.user(v.optString("user"))
-                    val b = model.agent(v.optString("agent").ifEmpty { agent }, past = true)
-                    for (e in v.optJSONArray("events").objects()) model.apply(b, e)
-                    b.answer = v.text("answer")
-                    b.line = null
-                }
-            }.onFailure { if (live == null) Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() else model.title = live.message.take(60) }
-            loading = false
+            history(open.id, live)
         }
         val watching = live ?: laptop?.live?.firstOrNull { it.chat != null && it.chat == open.id }
         if (watching != null) {  // a turn running now, maybe started at the desk
@@ -278,7 +302,10 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
     LaunchedEffect(model.running) {  // anything lost at a turn's very end comes back within 30 s
         while (model.running != null) { delay(30_000); model.running?.let { t -> catchUp(t, model.nextOf(t)) } }
     }
-    LaunchedEffect(model.tick) { if (follow && model.items.isNotEmpty()) list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000) }
+    LaunchedEffect(model.tick) {  // a busy turn sends many events a second: one scroll after the burst, not one per event
+        delay(80)
+        if (follow && model.items.isNotEmpty()) list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000)
+    }
     LaunchedEffect(list.isScrollInProgress, list.canScrollForward) {
         if (!list.canScrollForward) follow = true else if (list.isScrollInProgress) follow = false
     }
@@ -296,7 +323,15 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
                 loading -> Column(Modifier.fillMaxWidth().padding(top = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Mascot(size = 72.dp, mood = Mood.Think); Text("Opening…", color = p.muted)
                 }
-                model.items.isEmpty() -> Welcome(onAsk = { send(it) })
+                loadError != null && model.items.isEmpty() -> Column(Modifier.fillMaxWidth().padding(top = 80.dp, start = 24.dp, end = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Mascot(size = 72.dp, mood = Mood.Oops)
+                    Text("Couldn't open this chat", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+                    Text(loadError.orEmpty(), color = p.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                    OutlinedButton(onClick = { open.id?.let { id -> scope.launch { history(id, null) } } }, shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.padding(top = 16.dp).testTag("try-again")) { Text("Try again") }
+                }
+                model.items.isEmpty() -> Welcome(hoodOf(agent, who?.color), onAsk = { send(it) })
                 else -> LazyColumn(state = list, contentPadding = PaddingValues(18.dp, 16.dp, 18.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
                     itemsIndexed(model.items) { _, item ->
                         when (item) {
@@ -315,7 +350,8 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
             (EFFORTS.toMap()[pickedEffort ?: laptop?.effort ?: "medium"] ?: "Medium")
         Composer(text, { text = it }, model.running != null, agent, who?.name ?: "Agent S", who?.color, MODES.first { it.first == mode }.second, tuning,
             onPick = { picking = true }, onSend = { send(text) },
-            onStop = { model.running?.let { t -> haptic.performHapticFeedback(HapticFeedbackType.Reject); scope.launch { runCatching { r.stopTurn(t) } } } })
+            onStop = { model.running?.let { t -> haptic.performHapticFeedback(HapticFeedbackType.Reject)
+                scope.launch { runCatching { r.stopTurn(t) }.onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } } } })
     }
 
     if (picking) ModalBottomSheet(onDismissRequest = { picking = false }, containerColor = p.bg2,
@@ -334,7 +370,10 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
             Label("Mode")
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 6.dp)) {
                 MODES.forEachIndexed { i, (k, name) ->
-                    SegmentedButton(selected = mode == k, onClick = { mode = k }, shape = SegmentedButtonDefaults.itemShape(i, MODES.size), label = { Text(name) })
+                    SegmentedButton(selected = mode == k, onClick = {
+                        if (mode != k) model.running?.let { t -> scope.launch { runCatching { r.setMode(t, k) } } }  // the running answer switches too
+                        mode = k
+                    }, shape = SegmentedButtonDefaults.itemShape(i, MODES.size), label = { Text(name) })
                 }
             }
             Text(MODE_HINT[mode].orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
@@ -386,11 +425,11 @@ private fun EffortTrack(at: Int, onPick: (Int) -> Unit) {
 
 /** A new chat: the mascot says hello, with a few things to ask. */
 @Composable
-private fun Welcome(onAsk: (String) -> Unit) {
+private fun Welcome(hood: Color?, onAsk: (String) -> Unit) {
     val p = LocalPalette.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        Mascot(size = 88.dp, mood = Mood.Wave, interactive = true)
+        Mascot(size = 88.dp, mood = Mood.Wave, interactive = true, hood = hood)
         Spacer(Modifier.height(18.dp))
         Text("What should your agents do?", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
@@ -414,14 +453,10 @@ private fun UserBubble(text: String) {
     }
 }
 
-/** Who answers: the mascot is Agent S's face; other agents get their colour and initial. */
+/** Who answers: every agent is a mascot in its own hood colour; Agent S's is the page's ink. */
 @Composable
-private fun Avatar(agentId: String?, name: String, color: String?, size: Dp) {
-    if (agentId == null || agentId == "agent-s") Mascot(size = size, mood = Mood.Idle, fidget = false)
-    else Box(Modifier.size(size).background(parseColor(color) ?: LocalPalette.current.brick, CircleShape), contentAlignment = Alignment.Center) {
-        Text(name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium.copy(fontSize = (size.value * 0.48f).sp), color = Color.White)
-    }
-}
+private fun Avatar(agentId: String?, name: String, color: String?, size: Dp) =
+    Mascot(size = size, mood = Mood.Idle, fidget = false, hood = hoodOf(agentId, color), label = name)
 
 /** One box for writing: the message, then who answers and how, and send, all inside it, as in Claude's app. */
 @Composable
@@ -430,6 +465,7 @@ private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, a
     val p = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(26.dp)
+    val stop = running && text.isBlank()  // while it works: Stop, or send the note you typed for it
     val ready = running || text.isNotBlank()
     Box(Modifier.fillMaxWidth().background(p.bg).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp)) {
         Column(Modifier.fillMaxWidth().shadow(if (p.bg.luminance() > 0.5f) 10.dp else 0.dp, shape).clip(shape).background(p.panel)
@@ -438,7 +474,7 @@ private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, a
                 .onFocusChanged { focused = it.isFocused }.testTag("input"),
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = p.text), cursorBrush = SolidColor(p.brick),
                 decorationBox = { inner ->
-                    Box { if (text.isEmpty()) Text("Message your laptop's agents", style = MaterialTheme.typography.bodyLarge, color = p.faint); inner() }
+                    Box { if (text.isEmpty()) Text(if (running) "Add a note while it works" else "Message your laptop's agents", style = MaterialTheme.typography.bodyLarge, color = p.faint); inner() }
                 })
             Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.clip(RoundedCornerShape(999.dp)).background(p.panel2).clickable(onClick = onPick)
@@ -454,10 +490,10 @@ private fun Composer(text: String, onText: (String) -> Unit, running: Boolean, a
                     Text(tuning, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
                 Spacer(Modifier.weight(1f))
-                Box(Modifier.size(40.dp).clip(CircleShape).background(if (running) p.text else if (ready) p.brick else p.panel2)
-                    .clickable { if (running) onStop() else onSend() }.testTag("send"), contentAlignment = Alignment.Center) {
-                    Icon(if (running) Glyph.Stop else Glyph.Up, if (running) "Stop" else "Send", Modifier.size(20.dp),
-                        tint = if (running) p.bg else if (ready) p.onBrick else p.faint)
+                Box(Modifier.size(40.dp).clip(CircleShape).background(if (stop) p.text else if (ready) p.brick else p.panel2)
+                    .clickable { if (stop) onStop() else onSend() }.testTag("send"), contentAlignment = Alignment.Center) {
+                    Icon(if (stop) Glyph.Stop else Glyph.Up, if (stop) "Stop" else if (running) "Add the note" else "Send", Modifier.size(20.dp),
+                        tint = if (stop) p.bg else if (ready) p.onBrick else p.faint)
                 }
             }
         }
@@ -477,23 +513,26 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
     val asking = cards.filter { b.waiting(it) && it.status == "asking" }
     val planned = cards.filter { b.waiting(it) && it.status == "planned" }
     val name = who?.name ?: "Agent S"
+    val hood = hoodOf(b.agent, who?.color)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(b.agent, name, who?.color, 24.dp); Spacer(Modifier.width(8.dp))
             Text(name, style = MaterialTheme.typography.labelLarge, color = p.muted)
         }
         if (folded.isNotEmpty() || b.notes.isNotEmpty()) Steps(b, folded)
-        for (c in asking) Approval(c) { ok ->
-            scope.launch { runCatching { r.decide(b.turn ?: return@launch, c.id, ok) }.onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } }
+        for (c in asking) key(c.id) {
+            val decide: suspend (Boolean) -> Unit = { ok -> r.decide(b.turn ?: throw RemoteError("This answer isn't running any more."), c.id, ok) }
+            if (c.lead != null) LeadWait(c, decide) else Approval(c, hood, decide)
         }
-        b.line?.let { WorkingLine(b, it) }
+        for ((note, phone) in b.steers) SteerNote(note, phone)
+        b.line?.let { WorkingLine(b, it, hood) }
         b.answer?.let { a ->
             Markdown(a)
             if (model.running == null || model.running != b.turn) AnswerActions(a)  // not while it's still being written
         }
         b.failed?.let {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.bad.copy(alpha = 0.10f)).padding(12.dp)) {
-                Mascot(size = 28.dp, mood = Mood.Oops); Spacer(Modifier.width(10.dp))
+                Mascot(size = 28.dp, mood = Mood.Oops, hood = hood); Spacer(Modifier.width(10.dp))
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = p.bad)
             }
         }
@@ -508,7 +547,16 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(onClick = { b.planDone = true; for (c in planned) c.status = "discarded" }, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Discard") }
-                Button(onClick = { b.planDone = true; model.running = b.turn; scope.launch { runCatching { r.runPlan(b.turn ?: return@launch) } } },
+                Button(onClick = {
+                    val turn = b.turn ?: return@Button
+                    b.planDone = true; model.running = turn
+                    scope.launch {
+                        runCatching { r.runPlan(turn) }.onFailure {  // the plan is still there: say why, and Run plan works again
+                            b.planDone = false; if (model.running == turn) model.running = null
+                            Toast.makeText(ctx, it.message ?: "Couldn't reach your laptop.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
                     modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) { Text("Run plan") }
             }
@@ -516,17 +564,32 @@ private fun AgentBlock(b: Block, who: Agent?, model: ChatModel) {
     }
 }
 
-/** A step waiting for a yes: what it is, the command or change itself, and the two answers. */
+/** A step waiting for a yes: what it is, the command or change itself, and the two answers. A tap answers at once (a
+ *  buzz, a spinner on the button) and the card goes when the laptop starts the step; if the answer can't get there,
+ *  the card says so and both buttons work again. */
 @Composable
-private fun Approval(c: Card, onDecide: (Boolean) -> Unit) {
+private fun Approval(c: Card, hood: Color?, onDecide: suspend (Boolean) -> Unit) {
     val p = LocalPalette.current
-    var busy by remember(c.status) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    var sending by remember { mutableStateOf<Boolean?>(null) }  // the answer on its way
+    var error by remember { mutableStateOf<String?>(null) }
+    fun decide(ok: Boolean) {
+        if (sending != null) return
+        sending = ok; error = null
+        haptic.performHapticFeedback(if (ok) HapticFeedbackType.Confirm else HapticFeedbackType.Reject)
+        scope.launch {
+            try { onDecide(ok) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "Couldn't reach your laptop."; sending = null }
+        }
+    }
     val (verb, what) = Labels.of(c.name, c.args)
     val detail = Labels.detail(c.name, c.args).ifEmpty { "$verb $what".trim() }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.panel).border(1.dp, p.warn.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
         .padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Mascot(size = 32.dp, mood = Mood.Ask)
+            Mascot(size = 32.dp, mood = Mood.Ask, hood = hood)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (c.name == "run_command") "Wants to run a command" else "Wants to ${verb.lowercase()} this", style = MaterialTheme.typography.titleMedium)
@@ -535,14 +598,50 @@ private fun Approval(c: Card, onDecide: (Boolean) -> Unit) {
         }
         Text(detail, style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 10, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(p.bg2).padding(12.dp))
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = p.bad, modifier = Modifier.testTag("decide-error")) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = { busy = true; onDecide(false) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Deny") }
-            Button(onClick = { busy = true; onDecide(true) }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("allow"),
-                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick)) {
-                Text(if (c.name == "run_command") "Run it" else "Allow")
+            OutlinedButton(onClick = { decide(false) }, enabled = sending == null, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) {
+                if (sending == false) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = p.text) else Text("Deny")
+            }
+            Button(onClick = { decide(true) }, enabled = sending == null, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("allow"),
+                shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = p.brick, contentColor = p.onBrick,
+                    disabledContainerColor = p.brick.copy(alpha = if (sending == true) 0.85f else 0.35f), disabledContentColor = p.onBrick)) {
+                if (sending == true) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = p.onBrick)
+                else Text(if (c.name == "run_command") "Run it" else "Allow")
             }
         }
+    }
+}
+
+/** A step the team's rules give to a lead: it waits for their yes (at their desk or on their phone); you can cancel it. */
+@Composable
+private fun LeadWait(c: Card, onDecide: suspend (Boolean) -> Unit) {
+    val p = LocalPalette.current
+    val scope = rememberCoroutineScope()
+    var sending by remember { mutableStateOf(false) }
+    val (verb, what) = Labels.of(c.name, c.args)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.panel).border(1.dp, p.line2, RoundedCornerShape(20.dp))
+        .padding(16.dp).testTag("lead-wait"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Waiting for ${c.lead}'s yes", style = MaterialTheme.typography.titleMedium)
+        Text("$verb $what".trim(), style = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono, color = p.text), maxLines = 4, overflow = TextOverflow.Ellipsis)
+        Text("Your team's rules give this step to a lead. It goes ahead when they say yes.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { sending = true; scope.launch { runCatching { onDecide(false) }; sending = false } }, enabled = !sending,
+            shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.text)) { Text("Cancel the step") }
+    }
+}
+
+/** A note typed while it worked, quoted with where it came from. */
+@Composable
+private fun SteerNote(note: String, phone: Boolean) {
+    val p = LocalPalette.current
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(Modifier.width(2.dp).fillMaxHeight().background(p.line2))
+        Spacer(Modifier.width(10.dp))
+        Text(buildAnnotatedString {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = p.text)) { append(if (phone) "You  " else "You, at the laptop  ") }
+            append(note)
+        }, style = MaterialTheme.typography.bodyMedium, color = p.muted)
     }
 }
 
@@ -566,7 +665,7 @@ private fun shimmer(base: Color, glow: Color): Brush {
 /** What the agent is doing now: the mascot acts out the step, and the line names it with a shimmer, like Claude's
  *  "thinking". A quick step (reading a file takes milliseconds) stays up a moment, long enough to be seen. */
 @Composable
-private fun WorkingLine(b: Block, line: String) {
+private fun WorkingLine(b: Block, line: String, hood: Color?) {
     val p = LocalPalette.current
     val latest = b.order.lastOrNull()?.let { b.cards[it] }
     var shown by remember(b) { mutableStateOf<Card?>(null) }
@@ -577,7 +676,7 @@ private fun WorkingLine(b: Block, line: String) {
     val step = shown
     val acting = step != null && step.status != "asking"
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Mascot(size = 32.dp, mood = when { step == null -> Mood.Think; step.status == "asking" -> Mood.Ask; else -> moodFor(step.name) })
+        Mascot(size = 32.dp, mood = when { step == null -> Mood.Think; step.status == "asking" -> Mood.Ask; else -> moodFor(step.name) }, hood = hood)
         Spacer(Modifier.width(10.dp))
         val style = if (acting) MaterialTheme.typography.bodySmall.copy(fontFamily = Mono) else MaterialTheme.typography.bodyMedium
         Text(if (acting) Labels.of(step!!.name, step.args).let { (v, w) -> "$v $w".trim() } else line, maxLines = 1, overflow = TextOverflow.Ellipsis,

@@ -28,7 +28,7 @@
     <div class="brand-row"><span class="brand-mark" id="loginMark"></span>Super Agents</div>
     <div>
       <h1 class="login-head">Your team's AI agents,<br>on one page.</h1>
-      <p class="login-sub">Live progress from every teammate's Claude Code and Codex session, answers that show their evidence, and a yes from your phone. Code, prompts and diffs stay on each laptop.</p>
+      <p class="login-sub">Live progress from every teammate's Claude Code and Codex session, answers that show their evidence, and a yes from your phone. Your team sees summaries and facts, never your code, prompts or diffs.</p>
     </div>
     <!-- The product at work: an illustration, not live data -->
     <div class="stage" aria-hidden="true">
@@ -41,8 +41,8 @@
         </div>
         <div class="sc-card sc-ask">
           <div class="sc-q">What's blocking the release?</div>
-          <div class="sc-a"><span class="sc-face" id="loginFace"></span><p><b>T-19 waits on review.</b> Ravi's PR #42 passes CI. T-22's reconnect test still fails in Asha's session.</p></div>
-          <div class="sc-cites"><span>session 7f2c · 14:02</span><span>PR #42</span><span>T-22</span></div>
+          <div class="sc-a"><span class="sc-face" id="loginFace"></span><p><b>T-22 is blocked on database access.</b> Ravi's session hit the same permission error twice. T-19's tests pass in Asha's session.</p></div>
+          <div class="sc-cites"><span>session 7f2c · 14:02</span><span>T-22</span><span>T-19</span></div>
         </div>
         <div class="sc-card sc-ping"><span class="sc-face" id="loginPing"></span><div><b>Agent S needs you</b><small>Run <code>npm test</code> on Asha's laptop?</small></div><span class="sc-btn">Run it</span></div>
       </div>
@@ -116,7 +116,7 @@
       <button type="button" data-view="laptop" data-tip="This laptop"><span class="ic" data-ic="laptop"></span><span class="lbl">This laptop</span></button>
     </nav>
     <div class="rail-section chats-section">
-      <div class="rail-label">Chats</div>
+      <div class="rail-label">Recent</div>
       <ul class="chats" id="chatList"></ul>
     </div>
     <div class="rail-section">
@@ -204,6 +204,7 @@
         <div><h1>Super Team</h1><p class="sub" id="teamSub"></p></div>
         <div class="tabs" id="teamTabs" role="tablist">
           <button type="button" role="tab" data-tab="people" class="on">People</button>
+          <button type="button" role="tab" data-tab="rules">Rules</button>
           <button type="button" role="tab" data-tab="sessions">Sessions</button>
           <button type="button" role="tab" data-tab="prompts">Prompts</button>
           <button type="button" role="tab" data-tab="files">Files</button>
@@ -217,6 +218,7 @@
         </div>
         <div class="people" id="people"></div>
       </div>
+      <div class="tab" id="team-rules" hidden></div>
       <div class="tab" id="team-sessions" hidden></div>
       <div class="tab" id="team-prompts" hidden></div>
       <div class="tab" id="team-files" hidden></div>

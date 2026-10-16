@@ -116,6 +116,29 @@ def clean(event: dict) -> dict:
     return out
 
 
+def bad_shape(e: dict) -> Optional[str]:
+    """Why an incoming event can't be stored, or None. The board, Agent S and the usage counter read these fields
+    without checks, so one malformed event would break its team's board until it aged out. Both hubs use this."""
+    if not ID_RE.match(str(e.get("id", ""))) or not KIND_RE.match(str(e.get("kind", ""))):
+        return "Each event needs a 32-hex id and a lowercase kind"
+    facts, report = e.get("facts", {}), e.get("report", {})
+    if not isinstance(e.get("ts"), str) or not isinstance(facts, dict) or not isinstance(report, dict):
+        return "An event's ts is text, and its facts and report are objects"
+    needs = {"pr": "facts", "review": "facts", "check": "facts", "self_report": "report"}.get(e["kind"])
+    if needs and needs not in e:
+        return f"A {e['kind']} event needs its {needs}"
+    if "cmd" in facts and not (isinstance(facts["cmd"], dict) and isinstance(facts["cmd"].get("kind"), str)):
+        return "facts.cmd needs a kind"
+    usage = facts.get("usage", {})
+    if not isinstance(usage, dict) or any(type(usage.get(k, 0)) is not int or usage.get(k, 0) < 0
+                                          for k in ("in", "cw", "cr", "out", "calls")):
+        return "facts.usage counts are whole numbers"
+    if any(not isinstance(report.get(k, []), list) or not all(isinstance(x, str) for x in report.get(k, []))
+           for k in ("done", "next")):
+        return "report.done and report.next are lists of text"
+    return None
+
+
 def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.0, every: float = 5.0,
             start_worker: bool = True) -> None:
     conn, lock, caller = app.state.conn, app.state.lock, app.state.caller
@@ -251,8 +274,8 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
         for e in body.events:
             if "local" in e:
                 raise HTTPException(400, "Events must not carry 'local': that text never leaves the laptop")
-            if not ID_RE.match(str(e.get("id", ""))) or not KIND_RE.match(str(e.get("kind", ""))):
-                raise HTTPException(422, "Each event needs a 32-hex id and a lowercase kind")
+            if bad_shape(e):
+                raise HTTPException(422, bad_shape(e))
             task = e.get("task") if TASK_RE.match(str(e.get("task") or "")) else None
             e = {**clean(e), "member": who.display_name, "task": task}  # the session says who, not the body
             stored = json.dumps(e, ensure_ascii=False)

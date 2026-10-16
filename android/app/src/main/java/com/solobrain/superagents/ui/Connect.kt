@@ -200,7 +200,7 @@ private fun OptIns(activity: MainActivity, onDone: () -> Unit) {
             else activity.authenticate { ok -> if (ok) { lock = true; Prefs.setLock(ctx, true) } }
         })
     }
-    Choice("Let your agents reach you", "When an agent needs your yes, or answers, while the app is closed. Approve right from the notification.") {
+    Choice("Let your agents reach you", "When an agent needs your yes, or answers, while the app is closed. Allow it right from the notification.") {
         if (allowed) Text("On", color = p.ok, fontWeight = FontWeight.Bold)
         else OutlinedButton(onClick = { if (Build.VERSION.SDK_INT >= 33) ask.launch(Manifest.permission.POST_NOTIFICATIONS) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalPalette.current.text)) { Text("Allow") }
     }

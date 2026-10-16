@@ -22,13 +22,15 @@ PROVIDERS = {
     "nebius": {
         "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
         "key": "NEBIUS_API_KEY",
-        "models": {"progress": TIERS["super"], "qa": TIERS["super"], "agent": TIERS["super"], "digest": TIERS["ultra"]},
+        "models": {"progress": TIERS["super"], "qa": TIERS["super"], "agent": TIERS["super"], "digest": TIERS["ultra"],
+                   "summary": TIERS["lightning"]},
         "extra": {"reasoning_effort": "low"},
+        "no_think": {"reasoning_effort": "none", "chat_template_kwargs": {"enable_thinking": False}},
     },
     "ollama": {
         "url": os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/") + "/v1/chat/completions",
         "key": None,
-        "models": {job: os.environ.get("AGENT_S_OLLAMA_MODEL", "qwen3:4b") for job in ("progress", "qa", "agent", "digest")},
+        "models": {job: os.environ.get("AGENT_S_OLLAMA_MODEL", "qwen3:4b") for job in ("progress", "qa", "agent", "digest", "summary")},
         "extra": {"reasoning_effort": "none"},
     },
 }
@@ -37,6 +39,9 @@ _pinned: ContextVar[str | None] = ContextVar("agent_s_tier", default=None)
 EFFORTS = ("low", "medium", "high", "max")
 _effort: ContextVar[str | None] = ContextVar("agent_s_effort", default=None)
 _meter: ContextVar[dict | None] = ContextVar("agent_s_meter", default=None)
+# One line from one message: Lightning thinking first ran out of room, retried twice and fell back to Super, 10 s and
+# ~1,400 tokens a turn; without thinking it's one call, 1 s and ~40 tokens (16 Oct).
+NO_THINK = {"summary"}
 
 
 @contextmanager
@@ -61,9 +66,11 @@ def effort(level: str | None):
         _effort.reset(token)
 
 
-def _extra(p: dict) -> dict:
+def _extra(p: dict, job: str | None = None) -> dict:
     level = _effort.get()
-    return {**p["extra"], "reasoning_effort": level} if level else p["extra"]
+    if level:
+        return {**p["extra"], "reasoning_effort": level}
+    return {**p["extra"], **p.get("no_think", {})} if job in NO_THINK else p["extra"]
 
 
 @contextmanager
@@ -107,7 +114,7 @@ RETRYABLE = (TimeoutError, urllib.error.URLError, json.JSONDecodeError, KeyError
 def _call(p: dict, model: str, job: str, messages: list[dict], schema: dict, max_tokens: int, timeout: float) -> dict:
     body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.1,
             "response_format": {"type": "json_schema", "json_schema": {"name": job, "strict": True, "schema": schema}},
-            **_extra(p)}
+            **_extra(p, job)}
     headers = {"Content-Type": "application/json"}
     if p["key"]:
         headers["Authorization"] = f"Bearer {os.environ[p['key']]}"
@@ -118,7 +125,7 @@ def _call(p: dict, model: str, job: str, messages: list[dict], schema: dict, max
     return json.loads(raw["choices"][0]["message"]["content"])
 
 
-MAX_TOKENS = {"agent": 2000}  # a plan with a dozen actions needs room; the other jobs fit in 1200
+MAX_TOKENS = {"summary": 600}  # one line, plus what Lightning thinks first; the other jobs fit in 1200
 
 
 def chat_tools(messages: list[dict], tools: list[dict], max_tokens: int = 2000, timeout: float = 90) -> dict:
