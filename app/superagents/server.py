@@ -274,6 +274,13 @@ class ShareTakeIn(BaseModel):
     repo: str = Field(default="", max_length=200)
 
 
+class HandoffIn(BaseModel):
+    team: str = Field(min_length=36, max_length=36)
+    to: str = Field(min_length=1, max_length=120)
+    note: str = Field(default="", max_length=1000)
+    repo: str = Field(default="", max_length=200)
+
+
 IMAGES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
           ".svg": "image/svg+xml", ".ico": "image/x-icon", ".bmp": "image/bmp"}
 ISSUES_MAX = 50
@@ -911,6 +918,14 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
             raise HTTPException(404, "No such share")
         try:
             return runtime_tools.take(team_hub(body.team), sid, body.repo)
+        except (ValueError, PermissionError, OSError, RuntimeError, urllib.error.URLError) as e:
+            raise HTTPException(400, str(e)[:500]) from None
+
+    @app.post("/api/tasks/{task}/handoff")
+    def task_handoff(task: str, body: HandoffIn) -> dict:
+        """The task drawer's Hand off: this laptop's repo branch, checked to be all on origin, then the hub's handoff."""
+        try:
+            return runtime_tools.hand_off(team_hub(body.team), task, body.to, body.note, body.repo)
         except (ValueError, PermissionError, OSError, RuntimeError, urllib.error.URLError) as e:
             raise HTTPException(400, str(e)[:500]) from None
 

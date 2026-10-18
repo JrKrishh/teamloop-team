@@ -17,19 +17,22 @@ def note(n, text, frm="asha", via="agent", task=None, at=None):
             "task": task, "text": text, "at": at or time.time()}
 
 
-def fake_hub(monkeypatch, new):
-    asked = []
+def fake_hub(monkeypatch, new, board=None):
+    asked, board = [], board or {}
 
     def request(cfg, method, path, body=None):
         asked.append((method, path, body))
         if path.startswith("/v1/messages?since="):
-            return {"messages": [m for m in new if m["id"] > int(path.rsplit("=", 1)[1])]}
+            since = int(path.split("since=", 1)[1].split("&", 1)[0])
+            return {"messages": [m for m in new if m["id"] > since], **(board if "warnings=1" in path else {})}
         if path == "/v1/messages":
             return {"messages": [note(9, body["text"])], "skipped": ["ravi"] if body["to"] == "team" else []}
         if path.startswith("/v1/poll?since="):
             return {"messages": [{"id": 3, "from": "sourabh", "to": None, "text": "self-hosted hello", "at": time.time()}]}
         if path == "/v1/send":
             return {"ok": True, "id": 4}
+        if path.endswith("/handoff"):
+            return {"task": path.split("/")[3], "owner": body["to"].lower(), "share": {"id": "s1"}, "message": {"id": 10}}
         raise AssertionError(path)
     monkeypatch.setattr(login, "request", request)
     return asked
@@ -84,4 +87,65 @@ def test_a_self_hosted_hub_carries_notes_on_its_message_bus(monkeypatch):
     room = {"url": "http://hub", "room": "teamloop", "token": "t"}
     messages.send(room, "team", "hello")
     assert asked[-1] == ("POST", "/v1/send", {"to": None, "text": "hello"})
-    assert [(m["from"], m["to_all"], m["text"]) for m in messages.fetch(room, 0)] == [("sourabh", True, "self-hosted hello")]
+    notes, warned = messages.poll(room, 0)
+    assert [(m["from"], m["to_all"], m["text"]) for m in notes] == [("sourabh", True, "self-hosted hello")] and warned == []
+
+
+def test_the_boards_warnings_reach_each_session_once(monkeypatch):
+    who = [{"member": "asha", "tool": "cursor", "session": "s2", "task": "T-19", "at": 1.0},
+           {"member": "yang", "tool": "codex", "session": "s1", "task": "T-21", "at": 2.0}]
+    fake_hub(monkeypatch, [], {"overlaps": [{"repo": "acme-web", "file": "src/auth.py", "who": who}],
+                               "claims": [{"repo": "acme-web", "file": "src/snap.py", "task": "T-22", "owner": "asha", "who": [who[1]]}]})
+    cfg = {**CLOUD, "name": "yang"}
+    assert messages.pull(cfg) == 2 and messages.pull(cfg) == 0  # still there on the next poll: already told
+    notes = messages.take("s-1")
+    assert [n["text"] for n in notes] == [
+        "acme-web/src/auth.py: asha (Cursor, T-19) edited it in the last half hour too. Coordinate before changing it.",
+        "acme-web/src/snap.py is part of T-22, which asha claimed and has been editing. Check with asha before changing it."]
+    assert messages.take("s-1") == [] and len(messages.take("s-2")) == 2  # each live session hears it once
+    assert "- Super Agents' board: acme-web/src/auth.py" in messages.frame(notes)
+    who.append({**who[0], "session": "s3"})  # another of Asha's sessions in the same file: not a new overlap
+    assert messages.pull(cfg) == 0
+    assert messages.take("s-late", now=time.time() + 1900) == []  # a session that starts later: those warnings are stale
+    assert messages.warnings({"overlaps": [{"repo": "r", "file": "f", "who": who}]}, "yang")[0]["text"].count("asha") == 1
+
+
+def test_handing_a_task_over_from_a_coding_session(tmp_path, monkeypatch):
+    from teamloop import mcp_server
+
+    origin, work = tmp_path / "origin.git", tmp_path / "web"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=work, check=True, capture_output=True)
+
+    def commit(text):
+        (work / "snap.py").write_text(text)
+        git("add", "snap.py")
+        git("commit", "-q", "-m", text)
+    asked = fake_hub(monkeypatch, [])
+    monkeypatch.setattr(send, "config", lambda: {**CLOUD, "name": "yang"})
+    monkeypatch.chdir(work)
+    git("remote", "add", "origin", str(origin))
+    commit("one")
+    assert "not main" in mcp_server.handoff("T-22", "Ravi", "x")
+    git("switch", "-q", "-c", "T-22-snap")
+    commit("two")
+    assert mcp_server.handoff("T-22", "Ravi", "x") == "Push T-22-snap first (git push -u origin T-22-snap), so Ravi can fetch it."
+    git("push", "-q", "-u", "origin", "T-22-snap")
+    commit("three")
+    assert mcp_server.handoff("T-22", "Ravi", "x").startswith("Push your last commits first")
+    git("push", "-q")
+    (work / "snap.py").write_text("half done")
+    assert mcp_server.handoff("T-22", "Ravi", "x").startswith("Commit your changes first")
+    git("checkout", "--", "snap.py")
+    git("remote", "set-url", "origin", "https://github.com/acme/web.git")  # what the teammate's clone is matched by
+    said = mcp_server.handoff("T-22", "Ravi", "Migration   003 is left; key ghp_" + "Q" * 36)
+    method, path, body = asked[-1]
+    assert (method, path, body["to"], body["repo"], body["branch"]) == ("POST", "/v1/tasks/T-22/handoff", "Ravi", "acme/web", "T-22-snap")
+    assert body["note"].startswith("Migration 003 is left; key ") and "ghp_" not in body["note"]
+    assert said.startswith("Handed T-22 to ravi: it's theirs on the board, branch T-22-snap waits for them")
+    monkeypatch.setattr(send, "config", lambda: {"url": "http://hub", "room": "teamloop", "token": "t"})  # self-hosted
+    assert mcp_server.handoff("T-22", "ravi", "over to you").startswith("Told ravi on your hub's message bus")
+    assert asked[-1] == ("POST", "/v1/send", {"to": "ravi", "text": "Handing T-22 to you: branch T-22-snap of acme/web. over to you"})

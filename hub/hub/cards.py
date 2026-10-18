@@ -32,6 +32,35 @@ def overlaps(touch: list[dict]) -> list[dict]:
     return [t for t in touch if len(t["who"]) > 1]
 
 
+CLAIM_SECONDS = 24 * 3600  # a claimed task's files: what its owner edited on it in the last day
+
+
+def claimed(evs: list[dict], owners: dict[str, str], now: float, window: float = CLAIM_SECONDS) -> dict[tuple, dict]:
+    """(repo, file) -> {task, owner}: the files a task's owner edited on that task in the last day. `owners`: task -> the
+    owner's name, for open tasks someone owns (they claimed it by starting it, or it was handed to them)."""
+    out: dict[tuple, dict] = {}
+    for e in sorted(evs, key=lambda e: e["_at"]):
+        f, task = e.get("facts") or {}, e.get("task")
+        if e.get("kind") != "tool" or f.get("ok") is False or now - e["_at"] > window or not task or owners.get(task) != e.get("member"):
+            continue
+        for path in dict.fromkeys([f.get("file"), *(f.get("files") or [])]):
+            if isinstance(path, str) and path:
+                out[(e.get("repo") or "", path)] = {"task": task, "owner": e.get("member")}
+    return out
+
+
+def trespass(touch: list[dict], claims: dict[tuple, dict]) -> list[dict]:
+    """Recent edits to a file of a task someone else claimed, from sessions not on that task: [{repo, file, task, owner,
+    who: [those edits]}]. Teammates on the same task are working together, so they don't count."""
+    out = []
+    for t in touch:
+        c = claims.get((t["repo"], t["file"]))
+        who = [w for w in t["who"] if c and w["member"] != c["owner"] and w["task"] != c["task"]]
+        if who:
+            out.append({"repo": t["repo"], "file": t["file"], **c, "who": who})
+    return out
+
+
 def editing(touch: list[dict], task: str) -> list[dict]:
     """A task's files being edited now, for its card."""
     return [{"repo": t["repo"], "file": t["file"], "member": w["member"], "tool": w["tool"]}

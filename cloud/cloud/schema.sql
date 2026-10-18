@@ -187,6 +187,7 @@ create table public.shares (
   files jsonb not null default '[]',
   repo text,
   branch text,
+  task text,  -- v10: a handoff's task
   status text not null default 'uploading' check (status in ('uploading', 'ready', 'expired', 'deleted')),
   saved_by jsonb not null default '[]',
   created_at timestamptz not null default now(),

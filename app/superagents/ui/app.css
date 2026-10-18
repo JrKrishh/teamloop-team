@@ -710,6 +710,11 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .tl-parts{font:500 12px var(--fm);color:var(--faint)}
 .tl-fold .sh-bad{font:600 11.5px var(--fm);color:var(--bad)}
 .tl-steps .timeline{padding:0 0 4px}
+/* handing a task to a teammate */
+.handoff-form{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px}
+.handoff-form .btn{justify-self:start}
+.handoff{display:grid;gap:10px}
+.handoff > .btn{justify-self:start}
 /* a task's notes between the people and agents on it */
 .notes{display:grid;gap:8px}
 .note-list{display:grid;gap:8px}

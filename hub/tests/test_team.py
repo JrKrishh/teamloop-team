@@ -113,6 +113,21 @@ def test_old_edits_and_one_session_twice_are_not_overlaps():
     assert [(t["file"], len(t["who"]), t["who"][0]["at"]) for t in touch] == [("a.py", 1, now - 30)] and cards.overlaps(touch) == []
 
 
+def test_editing_a_file_of_a_task_someone_else_claimed():
+    from hub import cards
+    now = 100_000.0
+    owned = [{**edit(1, "src/auth.py", "s1", "T-22"), "member": "asha", "_at": now - 5 * 3600},  # hours ago: not an overlap
+             {**edit(2, "src/old.py", "s1", "T-22"), "member": "asha", "_at": now - 2 * 86400},  # days ago: no longer claimed
+             {**edit(3, "src/util.py", "s3", "T-22"), "member": "ravi", "_at": now - 3600}]  # not the owner's edit
+    claims = cards.claimed(owned, {"T-22": "asha"}, now)
+    assert claims == {("acme-web", "src/auth.py"): {"task": "T-22", "owner": "asha"}}
+    recent = [{**edit(4, "src/auth.py", "s2", "T-19"), "member": "yang", "_at": now - 60},
+              {**edit(5, "src/auth.py", "s3", "T-22"), "member": "ravi", "_at": now - 30},  # on T-22 too: working together
+              {**edit(6, "src/old.py", "s2", "T-19"), "member": "yang", "_at": now - 20}]
+    [t] = cards.trespass(cards.touching(recent, now), claims)
+    assert (t["file"], t["task"], t["owner"], [w["member"] for w in t["who"]]) == ("src/auth.py", "T-22", "asha", ["yang"])
+
+
 def test_blocked_task_shows_blocked(hub):
     _, client = hub
     sourabh = member(client, "sourabh")

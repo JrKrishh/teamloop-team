@@ -175,3 +175,6 @@ create table if not exists public.messages (
 create index if not exists messages_team_id_idx on public.messages (team_id, id);
 alter table public.session_access add column if not exists messages text not null default 'on' check (messages in ('on', 'off'));
 alter table public.messages enable row level security;
+
+-- teamloop_cloud_v10_handoffs: a branch handed over with its task (a handoff: the task's new owner gets the branch)
+alter table public.shares add column if not exists task text;

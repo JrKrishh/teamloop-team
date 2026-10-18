@@ -765,6 +765,7 @@ const TOOL_UI = {
   prompt_session: ["send", "Prompt a session", a => `${a.member || a.session || "latest"}: “${(a.prompt || "").slice(0, 40)}”`],
   session_prompt: ["send", "Check a prompt", a => (a.id || "").slice(0, 8)],
   message_teammate: ["send", "Note for a teammate", a => `${a.to === "task" ? `everyone on ${a.task}` : a.to}: “${(a.text || "").slice(0, 40)}”`],
+  handoff: ["send", "Hand off", a => `${a.task} → ${a.to}`],
   list_files: ["folder", "List", a => a.path || "connected repos"],
   read_file: ["file", "Read", a => a.path],
   search_files: ["search", "Search", a => `“${a.query}”${a.path ? ` in ${a.path}` : ""}`],
@@ -1417,6 +1418,31 @@ function openDrawer(kicker, title, nodes, foot) {
   $("dFoot").replaceChildren(...(foot || [])); $("dFoot").hidden = !(foot && foot.length);
   $("scrim").hidden = false; $("drawer").hidden = false;
 }
+// Hand the task to a teammate: from a repo on this laptop whose branch is all on origin. They get the task, the branch
+// (Super Team → Files → Take over, with a brief for their coding agent) and the note in their live sessions.
+function handoffBox(d) {
+  const box = el("div", "handoff"), me = (S.user || {}).name;
+  const people = ((S.board || {}).members || []).filter(m => m.name !== me), repos = ((S.laptop || {}).repos || []).filter(r => r.ok);
+  if (!people.length || !repos.length) return box;
+  const form = el("div", "handoff-form"); form.hidden = true;
+  const to = el("select"); to.setAttribute("aria-label", "Hand it to");
+  for (const m of people) to.append(Object.assign(el("option", null, m.name), {value: m.name, selected: m.name === d.owner}));
+  const repo = el("select"); repo.setAttribute("aria-label", "The branch of which repo");
+  for (const r of repos) repo.append(Object.assign(el("option", null, r.name), {value: r.name, selected: r.task === d.task}));
+  const note = textareaEl({rows: 3, maxLength: 1000, placeholder: "Where it stands and what's next, e.g. Migration 003 is written; its test fails on the read-only DB user"});
+  const open = btn("Hand off", "", () => { open.hidden = true; form.hidden = false; note.focus(); }, "send");
+  const go = btn("Hand it over", "primary", async () => {
+    go.disabled = true;
+    try {
+      const r = await api(`/api/tasks/${encodeURIComponent(d.task)}/handoff`, {method: "POST", body: {team: S.team, to: to.value, note: note.value.trim(), repo: repo.value}});
+      toast(`Handed ${r.task} to ${r.owner}: branch ${r.branch} waits for them in Super Team → Files.`); closeDrawer(); loadBoard();
+    } catch (e) { toast(e.message, true); go.disabled = false; }
+  }, "send");
+  form.append(groupBox("To", to), ...(repos.length > 1 ? [groupBox("The branch of", repo)] : []), groupBox("Note", note),
+    el("p", "sub", "The branch must be committed and pushed. They own the task from now on, take the branch over in one step, and your note reaches their coding sessions."), go);
+  box.append(open, form);
+  return box;
+}
 // A task's notes: coding agents write them with the connector's message_teammate tool, and they reach the other sessions
 // at their next step. Here a person reads them and writes to everyone else on the task, or replies to one person.
 async function notesBox(d) {
@@ -1465,6 +1491,7 @@ async function openTask(task, highlight) {
     if (d.pr) fact("Pull request", el("span", "tag pr", [`#${d.pr.number}`, d.pr.draft ? "draft" : d.pr.state, d.pr.checks ? `CI ${d.pr.checks}` : ""].filter(Boolean).join(" · ")));
     if (d.usage && d.usage.tokens) fact("AI usage", el("span", null, `${fmtTok(d.usage.tokens)} tokens over ${d.usage.turns} turns`));
     nodes.push(facts);
+    if (d.status !== "done") nodes.push(handoffBox(d));
     const p = d.progress || {}; const lists = el("div", "lists");
     for (const r of [list("Blocked", p.blockers, "blockers"), list("Now", p.doing), list("Next", p.next), list("Done", p.done)]) if (r) lists.append(r);
     if (lists.childElementCount) nodes.push(lists);
@@ -1997,13 +2024,13 @@ function termTheme() {
   names.forEach((n, i) => { theme[n] = ansi[i]; theme[`bright${n[0].toUpperCase()}${n.slice(1)}`] = ansi[i + 8]; });
   return theme;
 }
-function newTerminal() {
+function newTerminal(start) {  // start: {cwd, cmd}, a shell in that repo that runs cmd first (a handoff's Continue in…)
   const id = ++TERMS.n;
   const box = el("div", "term"); $("terms").append(box);
   const term = new Terminal({fontFamily: '"JB Mono", "Cascadia Mono", Consolas, monospace', fontSize: 13, lineHeight: 1.15, cursorBlink: true,
     scrollback: 5000, theme: termTheme()});
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(box);
-  const t = {id, name: `Terminal ${id}`, term, fit, box, ws: null, ended: false};
+  const t = {id, name: `Terminal ${id}`, term, fit, box, ws: null, ended: false, start};
   TERMS.list.push(t);
   term.onData(d => {
     if (t.ended) { if (d === "\r") { t.ended = false; term.reset(); connectTerm(t); } return; }
@@ -2015,11 +2042,15 @@ function newTerminal() {
 }
 function connectTerm(t) {
   try { t.fit.fit(); } catch (e) { /* default size */ }
-  const q = new URLSearchParams({k: KEY, cols: t.term.cols, rows: t.term.rows});
+  const q = new URLSearchParams({k: KEY, cols: t.term.cols, rows: t.term.rows, ...(t.start ? {cwd: t.start.cwd} : {})});
   const ws = new WebSocket(`ws://${location.host}/api/terminal?${q}`);
   t.ws = ws;
   ws.onmessage = e => t.term.write(e.data);
-  ws.onopen = () => { renderTermTabs(); if (TERMS.active === t) t.term.focus(); };
+  ws.onopen = () => {
+    renderTermTabs(); if (TERMS.active === t) t.term.focus();
+    const cmd = t.start && t.start.cmd;
+    if (cmd) { t.start = {cwd: t.start.cwd}; setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({t: "in", d: cmd + "\r"})), 800); }  // once: a new shell later doesn't run it again
+  };
   ws.onclose = () => {
     if (t.ws !== ws) return;
     t.ended = true; renderTermTabs();
@@ -2048,7 +2079,7 @@ function renderTermTabs() {
     b.append(el("i"), t.name, x); b.onclick = () => showTerm(t); bar.append(b);
   }
   const add = el("button", "add"); add.type = "button"; add.title = "New terminal"; add.setAttribute("aria-label", "New terminal"); add.append(ic("plus"));
-  add.onclick = newTerminal; bar.append(add);
+  add.onclick = () => newTerminal(); bar.append(add);
 }
 
 // Browser: the browser you share with your agents (a real Edge, run by this laptop), live: what an agent does shows here,
@@ -2239,7 +2270,8 @@ async function loadShares() {
 function shareRow(s) {
   const it = el("div", "item share" + (s.status === "ready" ? "" : " off")), iic = el("span", "iic"), w = el("div"), ctl = el("div", "ctl");
   iic.append(ic(s.kind === "branch" ? "branch" : "file"));
-  w.append(el("b", null, `${s.mine ? "You" : s.from.name} → ${s.to ? (s.for_me ? "you" : s.to.name) : "everyone"}`));
+  const whom = s.to ? (s.for_me ? "you" : s.to.name) : "everyone";
+  w.append(el("b", null, s.task ? `${s.mine ? "You" : s.from.name} handed ${s.task} to ${whom}` : `${s.mine ? "You" : s.from.name} → ${whom}`));
   if (s.kind === "branch") w.append(el("small", null, `Branch ${s.branch} of ${s.repo}`));
   else { const files = el("div", "share-files"); for (const f of s.files) files.append(el("span", "ck", `${f.name} · ${fmtBytes(f.size)}`)); w.append(files); }
   if (s.note) w.append(el("small", "share-note", s.note));
@@ -2249,7 +2281,7 @@ function shareRow(s) {
   w.append(el("small", null, bits.join(" · ")));
   if (s.status === "ready" && s.can_get && !s.mine) {
     const repos = ((S.laptop || {}).repos || []).filter(r => r.ok);
-    if (s.kind === "branch") ctl.append(btn("Check it out", "primary", () => takeShare(s, "", ctl), "branch"));
+    if (s.kind === "branch") ctl.append(btn(s.task ? "Take over" : "Check it out", "primary", () => takeShare(s, "", ctl), "branch"));
     else if (!repos.length) ctl.append(el("small", null, "Connect a repo on This laptop to save them"));
     else {
       const pick = el("select"); pick.setAttribute("aria-label", "Save into which repo"); pick.hidden = repos.length < 2;
@@ -2270,11 +2302,33 @@ async function takeShare(s, repo, ctl) {
   ctl.querySelectorAll("button, select").forEach(b => { b.disabled = true; });
   try {
     const r = await api(`/api/shares/${s.id}/take`, {method: "POST", body: {team: S.team, repo}});
-    if (r.branch) toast(`${r.repo} is on ${r.branch} now.`);
+    if (r.brief) offerContinue(r);
+    else if (r.branch) toast(`${r.repo} is on ${r.branch} now.`);
     else { toast(`Saved into ${r.repo}'s inbox: ${r.saved.map(p => p.split("/").pop()).join(", ")}.`); openPane("files"); openFile(r.saved[0]); }
   } catch (e) { toast(e.message, true); }
   loadShares();
 }
+// A handoff taken over: the repo is on its branch with the brief beside the code; continue in a coding agent, in the
+// in-app terminal, with a first prompt that names only the brief (nothing a teammate wrote reaches the command line).
+function offerContinue(r) {
+  const T = (S.laptop || {}).tools || {};
+  const safe = /^[\w .\/-]+$/.test(r.prompt);
+  const run = cmd => { closeDrawer(); runInTerminal(r.repo, cmd); };
+  const go = [];
+  if (safe && T.claude_code) go.push(btn("Continue in Claude Code", "primary", () => run(`claude "${r.prompt}"`), "term"));
+  if (safe && T.codex) go.push(btn("Continue in Codex", go.length ? "" : "primary", () => run(`codex "${r.prompt}"`), "term"));
+  if (T.cursor) go.push(btn("Open in Cursor", "", async () => {
+    try { await navigator.clipboard.writeText(r.prompt); } catch (e) { /* shown below to copy by hand */ }
+    run("cursor ."); toast("Cursor is opening the repo. In its agent chat, paste the first prompt (copied).");
+  }, "term"));
+  const read = btn("Read the brief", "ghost", () => { closeDrawer(); openPane("files"); openFile(`${r.repo}/${r.brief}`); }, "file");
+  openDrawer(`Handoff · ${r.task}`, `${r.task} is yours`, [
+    el("p", "sub", `${r.repo} is on ${r.branch}. The brief, ${r.brief}, has the note, where Agent S says the task stands and the latest turns. It's kept out of git.`),
+    el("div", "label", "First prompt"), el("pre", "log", r.prompt),
+    go.length ? el("p", "sub", "The agent starts in this app's terminal, in the repo, and reads the brief first.")
+      : el("p", "sub", "Claude Code, Codex or Cursor isn't on this laptop's PATH: open the repo in yours and give it the first prompt.")], [...go, read]);
+}
+function runInTerminal(cwd, cmd) { newTerminal({cwd, cmd}); openPane("terminal"); }
 const b64 = buf => { const b = new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
 function openShareComposer() {
   const files = inputEl({type: "file", multiple: true}); files.setAttribute("aria-label", "Files to share");
@@ -2418,7 +2472,8 @@ async function checkInbox() {
     const shared = (await hub(withTeam("shares"))).shares.filter(s => s.for_me && s.status === "ready");
     checkInbox.sharesRead = true;
     const news = shared.filter(s => !SHARE_SEEN.has(s.id)); news.forEach(s => SHARE_SEEN.add(s.id));
-    if (news.length && !first) toast(news.length === 1 ? `${news[0].from.name} shared ${news[0].kind === "branch" ? `branch ${news[0].branch}` : `${news[0].files.length} file${news[0].files.length === 1 ? "" : "s"}`} with you. Super Team → Files.`
+    if (news.length && !first) toast(news.length === 1 ? (news[0].task ? `${news[0].from.name} handed ${news[0].task} to you. Super Team → Files to take it over.`
+      : `${news[0].from.name} shared ${news[0].kind === "branch" ? `branch ${news[0].branch}` : `${news[0].files.length} file${news[0].files.length === 1 ? "" : "s"}`} with you. Super Team → Files.`)
       : `${news.length} new shares for you. Super Team → Files.`);
   } catch (e) { /* next poll */ }
 }

@@ -1,7 +1,8 @@
 # Plan: multiplayer agents, with Claude Code, Codex and Cursor bridged in
 
-Status (18 Oct 2026, branch `T-57-multiplayer`): Phases 2 and 3 built and tested. Phase 1 waits on real Cursor
-payloads (the capture kit is ready); Phases 4 and 5 are next.
+Status (19 Oct 2026, branch `T-57-multiplayer`): Phases 2, 3 and 4 built and tested. Phase 1 waits on real Cursor
+payloads (the capture kit is ready); Phase 5 waits on Phase 1 and `cursor-agent`. Built differently from the plan:
+the board's warnings ride on the connector's message poll (one call every 15 s, not two), and need the hosted hub.
 
 ## The idea
 Today Super Agents makes a team's agents **visible**: every teammate's Claude Code and Codex sessions report to one

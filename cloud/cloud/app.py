@@ -275,6 +275,13 @@ class AccessIn(BaseModel):
     messages: str = Field(default="on", pattern="^(on|off)$")  # teammates' notes into my sessions
 
 
+class HandoffIn(BaseModel):
+    to: str = Field(min_length=1, max_length=120)  # the teammate who takes the task over
+    note: str = Field(default="", max_length=1000)  # where it stands and what's next
+    repo: str = Field(min_length=1, max_length=300)
+    branch: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._/-]+$")
+
+
 class MessageIn(BaseModel):
     to: str = Field(min_length=1, max_length=64)  # a teammate's name; "team" for everyone; "task" for those working on `task`
     text: str = Field(min_length=1, max_length=1000)
@@ -721,6 +728,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         to = str(r["to_user"]) if r["to_user"] else None
         return {"id": str(r["id"]), "kind": r["kind"], "from": {"id": str(r["from_user"]), "name": r["from_name"]},
                 "to": {"id": to, "name": r["to_name"]} if to else None, "note": r["note"], "repo": r["repo"], "branch": r["branch"],
+                "task": r.get("task"),
                 "files": [{"n": i, "name": f["name"], "size": f["size"]} for i, f in enumerate(r["files"])],
                 "status": r["status"], "saved_by": r["saved_by"], "created_at": r["created_at"].timestamp(),
                 "expires_at": r["expires_at"].timestamp(), "mine": str(r["from_user"]) == me,
@@ -941,7 +949,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             raise HTTPException(401, "Events come from a signed-in connector (`teamloop login`)")
         if not posts.allow(f"{c.team_id}\0{c.person.id}", time.time()):
             raise HTTPException(429, "Too many event batches; the connector will retry")
-        rows = []
+        rows, starts = [], set()
         for e in body.events:
             if "local" in e:
                 raise HTTPException(400, "Events must not carry 'local': that text never leaves the laptop")
@@ -952,10 +960,15 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             if len(json.dumps(e, ensure_ascii=False).encode()) > MAX_EVENT_BYTES:
                 raise HTTPException(413, f"An event is over {MAX_EVENT_BYTES} bytes")
             rows.append((c.team_id, e["id"], c.person.id, c.person.name, task, e["kind"], str(e.get("ts", ""))[:32], Jsonb(e)))
+            if e["kind"] == "task_start" and task:
+                starts.add(task)
         new = 0
         for r in rows:
             new += conn.execute("insert into events (team_id, id, user_id, member, task, kind, ts, body)"
                                 " values (%s, %s, %s, %s, %s, %s, %s, %s) on conflict do nothing", r).rowcount
+        for task in starts:  # starting a task planned for nobody makes it yours (an unplanned one: see claimers)
+            conn.execute("update tasks set owner_id = %s, owner_name = %s, updated_at = now() where team_id = %s and task = %s"
+                         " and owner_id is null", (c.person.id, c.person.name, c.team_id, task))
         if secrets.randbelow(50) == 0:  # no cron on Vercel Hobby: every ~50th batch sweeps what's past retention
             conn.execute("delete from events where team_id = %s and received_at < now() - make_interval(days => %s)",
                          (c.team_id, RETENTION_DAYS))
@@ -1027,6 +1040,19 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             "select task, title, owner_name, state, to_char(due, 'YYYY-MM-DD') as due, extract(epoch from created_at) as at"
             " from tasks where team_id = %s", (team_id,))}
 
+    def claimers(conn, team_id: str) -> dict[str, str]:
+        """Who claimed each task by starting it first (its first task_start), while those events are kept: a claim lasts as
+        long as the sessions behind it, so a started task never lingers on the board as a plan nobody made."""
+        return {r["task"]: r["member"] for r in conn.execute(
+            "select distinct on (task) task, member from events where team_id = %s and kind = 'task_start' and task is not null"
+            " order by task, received_at", (team_id,))}
+
+    def owners_of(conn, team_id: str) -> dict[str, str]:
+        """Each open task's owner: the one it was given or handed (a plan's owner), else the one who started it first."""
+        plan = {r["task"]: r for r in conn.execute("select task, owner_name, state from tasks where team_id = %s", (team_id,))}
+        out = {**claimers(conn, team_id), **{t: r["owner_name"] for t, r in plan.items() if r["owner_name"]}}
+        return {t: m for t, m in out.items() if not (t in plan and plan[t]["state"] == "closed")}
+
     def build_board(conn, team_id: str, team_name: str) -> dict:
         now = time.time()
         tasks = conn.execute("select task, extract(epoch from max(received_at)) as last, count(*) as n from events"
@@ -1042,13 +1068,14 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         touch = cards.touching([{**r["body"], "_at": float(r["at"])} for r in conn.execute(
             "select body, extract(epoch from received_at) as at from events where team_id = %s and kind = 'tool'"
             " and received_at > now() - make_interval(secs => %s)", (team_id, cards.EDITING_SECONDS))], now)
+        claimed = claimers(conn, team_id)
         out = []
         for t in tasks:  # tasks with session events: live progress; a plan adds its owner, and closing marks it done
             card = cards.card(t["task"], task_events(conn, team_id, t["task"], 200), snaps.get(t["task"]), float(t["last"]), t["n"])
             card["usage"] = spent.get(t["task"])
             card["editing"] = cards.editing(touch, t["task"])
             p = plan.pop(t["task"], None)
-            card["owner"] = p["owner_name"] if p else None
+            card["owner"] = (p["owner_name"] if p else None) or claimed.get(t["task"])
             card["due"] = p["due"] if p else None
             if p:  # a name the team gave it (a rename) beats the session's; a task id stored as a title isn't a name
                 card["title"] = (p["title"] if p["title"] != t["task"] else "") or card["title"]
@@ -1452,20 +1479,38 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                                           (team_id, c.person.id, my_name(c), via, u, n, task, text)).fetchone()) for u, n in recipients]
         return {"messages": sent, "skipped": skipped}
 
+    def warnings_for(conn, team_id: str, me: str) -> dict:
+        """What a connector warns its sessions about at their next step: files the person edited in the last half hour that
+        another person's session edited too, and files of a task someone else claimed (cards.claimed)."""
+        now = time.time()
+        recent = [{**r["body"], "_at": float(r["at"])} for r in conn.execute(
+            "select body, extract(epoch from received_at) as at from events where team_id = %s and kind = 'tool'"
+            " and received_at > now() - make_interval(secs => %s)", (team_id, cards.EDITING_SECONDS))]
+        mine = [t for t in cards.touching(recent, now) if any(w["member"] == me for w in t["who"])]
+        owners = {t: m for t, m in owners_of(conn, team_id).items() if m != me} if mine else {}
+        claims = cards.claimed([{**r["body"], "_at": float(r["at"])} for r in conn.execute(
+            "select body, extract(epoch from received_at) as at from events where team_id = %s and kind = 'tool' and task = any(%s)"
+            " and received_at > now() - make_interval(secs => %s)", (team_id, list(owners), cards.CLAIM_SECONDS))], owners, now) if owners else {}
+        return {"overlaps": [o for o in cards.overlaps(mine) if any(w["member"] != me for w in o["who"])],
+                "claims": [{**t, "who": [w for w in t["who"] if w["member"] == me]} for t in cards.trespass(mine, claims)
+                           if any(w["member"] == me for w in t["who"])]}
+
     @app.get("/v1/messages")
     def list_messages(team: Optional[str] = None, box: str = Query("in", pattern="^(in|all)$"), since: int = Query(0, ge=0),
-                      task: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+                      task: Optional[str] = None, warnings: bool = False, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         """box=in: new messages for me (to me or to everyone, not mine), oldest first after `since`; a connector fetches these
-        for its sessions. box=all: the record, newest first (a lead's whole, a member's own part); task= narrows it."""
+        for its sessions, with warnings=1 adding the board's warnings for my sessions (warnings_for) in the same poll.
+        box=all: the record, newest first (a lead's whole, a member's own part); task= narrows it."""
         team_id, _, role = team_scope(c, team, conn)
         me = c.person.id
         if box == "in":
+            extra = warnings_for(conn, team_id, c.person.name) if warnings else {}
             if access_of(conn, team_id, me)["messages"] == "off":
-                return {"messages": []}
+                return {"messages": [], **extra}
             rows = conn.execute("select * from messages where team_id = %s and id > %s and from_user <> %s and (to_user = %s or to_user"
                                 " is null) and created_at > now() - make_interval(days => %s) order by id limit 100",
                                 (team_id, since, me, me, MESSAGE_DAYS)).fetchall()
-            return {"messages": [message_view(r) for r in rows]}
+            return {"messages": [message_view(r) for r in rows], **extra}
         sql, args = "select * from messages where team_id = %s", [team_id]
         if role != "lead":
             sql, args = sql + " and (from_user = %s or to_user = %s or to_user is null)", args + [me, me]
@@ -1473,6 +1518,34 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             sql, args = sql + " and task = %s", args + [task.strip().upper()]
         rows = conn.execute(sql + " order by id desc limit 100", args).fetchall()
         return {"messages": [message_view(r) for r in rows]}
+
+    @app.post("/v1/tasks/{task}/handoff")
+    def handoff(task: str, body: HandoffIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """Hand a task to a teammate, from the app or a coding agent: they own it now, its branch waits for them in Super
+        Team → Files (checked out in one step), and a note tells their live sessions."""
+        team_id, name, _ = team_scope(c, team, conn)
+        if task not in task_ids(conn, team_id):
+            raise HTTPException(404, "No such task")
+        to_id, to_name = member_named(conn, team_id, body.to)
+        if to_id == c.person.id:
+            raise HTTPException(400, "That's you")
+        row = planned(conn, team_id).get(task)
+        title = (row["title"] if row else None) or next(
+            (t["title"] for t in build_board(conn, team_id, name)["tasks"] if t["task"] == task), "") or task
+        conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, created_by) values (%s, %s, %s, %s, %s, %s)"
+                     " on conflict (team_id, task) do update set owner_id = excluded.owner_id, owner_name = excluded.owner_name,"
+                     " updated_at = now()", (team_id, task, title[:120], to_id, to_name, c.person.id))
+        note = peer_text(body.note)
+        share = conn.execute("insert into shares (team_id, from_user, from_name, to_user, to_name, kind, note, repo, branch, task, status,"
+                             " expires_at) values (%s, %s, %s, %s, %s, 'branch', %s, %s, %s, %s, 'ready', now() + make_interval(days => %s))"
+                             " returning *", (team_id, c.person.id, my_name(c), to_id, to_name, note, body.repo, body.branch, task,
+                                              SHARE_DAYS)).fetchone()
+        text = f"Handed {task} over to you: branch {body.branch} of {body.repo} (Super Team → Files)." + (f" {note}" if note else "")
+        msg = conn.execute("insert into messages (team_id, from_user, from_name, via, to_user, to_name, task, body) values"
+                           " (%s, %s, %s, %s, %s, %s, %s, %s) returning *", (team_id, c.person.id, my_name(c),
+                                                                               "agent" if c.kind == "connector" else "person",
+                                                                               to_id, to_name, task, text[:2000])).fetchone()
+        return {"task": task, "owner": to_name, "share": share_view(share, c.person.id), "message": message_view(msg)}
 
     @app.post("/v1/prompts")
     def send_prompt(body: PromptIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
