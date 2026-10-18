@@ -4,6 +4,39 @@ from __future__ import annotations
 
 from agent_s import progress
 
+EDITING_SECONDS = 1800  # who's touching what: the files each session edited in the last half hour
+
+
+def touching(evs: list[dict], now: float, window: float = EDITING_SECONDS) -> list[dict]:
+    """Files edited in the last half hour, newest first: [{repo, file, who: [{member, tool, session, task, at}]}], with each
+    session's latest edit. `evs` are tool events with `_at`, when the hub got them. A failed edit doesn't count."""
+    files: dict[tuple, dict] = {}
+    for e in evs:
+        f = e.get("facts") or {}
+        if e.get("kind") != "tool" or f.get("ok") is False or now - e["_at"] > window:
+            continue
+        for path in dict.fromkeys([f.get("file"), *(f.get("files") or [])]):
+            if not isinstance(path, str) or not path:
+                continue
+            who = files.setdefault((e.get("repo") or "", path), {})
+            key = (e.get("member"), e.get("session"))
+            if key not in who or who[key]["at"] < e["_at"]:
+                who[key] = {"member": e.get("member"), "tool": e.get("tool"), "session": e.get("session"),
+                            "task": e.get("task"), "at": e["_at"]}
+    out = [{"repo": r, "file": p, "who": sorted(w.values(), key=lambda x: -x["at"])} for (r, p), w in files.items()]
+    return sorted(out, key=lambda t: -t["who"][0]["at"])
+
+
+def overlaps(touch: list[dict]) -> list[dict]:
+    """The files more than one session edited in that half hour: where merge conflicts start."""
+    return [t for t in touch if len(t["who"]) > 1]
+
+
+def editing(touch: list[dict], task: str) -> list[dict]:
+    """A task's files being edited now, for its card."""
+    return [{"repo": t["repo"], "file": t["file"], "member": w["member"], "tool": w["tool"]}
+            for t in touch for w in t["who"] if w["task"] == task][:6]
+
 
 def title_for(task: str, evs: list[dict]) -> str:
     titles = [e["facts"].get("title") for e in evs if e.get("kind") == "task_start" and (e.get("facts") or {}).get("title")]

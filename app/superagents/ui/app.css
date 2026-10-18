@@ -631,6 +631,9 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 /* tags: quiet labels, no outlines */
 .tag{display:inline-flex;align-items:center;font:500 12px/1.5 var(--fb);padding:1px 7px;border-radius:5px;background:var(--tint);color:var(--muted);white-space:nowrap}
 .tag.pr{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.tag.editing{color:var(--text)}
+.overlap{display:flex;gap:10px;align-items:flex-start;margin:0 0 14px;padding:10px 12px;border-radius:10px;font-size:13.5px;line-height:1.45;color:var(--text);background:color-mix(in srgb,var(--warn) 13%,transparent)}
+.overlap .ic{color:var(--warn);flex:none;margin-top:1px}
 .tag.faint{color:var(--faint);background:none;padding-inline:0}
 .empty{display:grid;justify-items:center;gap:10px;text-align:center;padding:64px 20px;color:var(--muted)}
 .empty img{width:72px;height:94px;object-fit:contain}

@@ -99,3 +99,9 @@ def test_team_status_text_is_framed_and_compact():
     text = mcp_server.team_status_text(board)
     assert text.startswith(mcp_server.FRAME) and "Active now: yang" in text
     assert "- T-22 Snapshots migration: blocked, Agent S 40%; sourabh" in text and "blockers: DB user is read-only" in text
+    who = [{"member": "asha", "tool": "cursor", "task": "T-19"}, {"member": "yang", "tool": "codex", "task": None}]
+    board.update(overlaps=[{"repo": "acme-web", "file": "src/auth.py", "who": who}],
+                 touching=[{"repo": "acme-web", "file": "src/auth.py", "who": who}])
+    text = mcp_server.team_status_text(board)
+    assert "Overlap: acme-web/src/auth.py was edited by more than one session in the last half hour: asha (Cursor, T-19), yang (Codex)." in text
+    assert "Being edited now: acme-web/src/auth.py (asha)" in text

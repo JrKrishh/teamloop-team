@@ -182,8 +182,11 @@ def board_view(b: dict) -> dict:
                       "members": t.get("members") or [], "tools": t.get("tools") or [], "due": t.get("due"),
                       "percent": p.get("percent"), "says": p.get("agent_says_percent"), "confidence": p.get("confidence"),
                       "blockers": texts(p.get("blockers"), 3), "doing": texts(p.get("doing"), 1), "next": texts(p.get("next"), 2),
-                      "pr": pr and {k: pr.get(k) for k in ("number", "state", "draft", "checks")}, "last": t.get("last_activity")})
-    return {"room": b.get("room"), "tasks": tasks}
+                      "pr": pr and {k: pr.get(k) for k in ("number", "state", "draft", "checks")}, "last": t.get("last_activity"),
+                      "editing": [e.get("file") for e in (t.get("editing") or [])[:3]]})
+    overlaps = [{"file": f"{o.get('repo')}/{o.get('file')}", "who": [w.get("member") for w in o.get("who") or []]}
+                for o in (b.get("overlaps") or [])[:5]]  # two sessions in one file: where merge conflicts start
+    return {"room": b.get("room"), "tasks": tasks, "overlaps": overlaps}
 
 
 class Remote:

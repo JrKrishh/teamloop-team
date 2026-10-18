@@ -1028,10 +1028,14 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             "select task, count(*) as turns, sum(coalesce((u->>'in')::bigint, 0) + coalesce((u->>'cw')::bigint, 0)"
             " + coalesce((u->>'out')::bigint, 0)) as tokens from (select task, body->'facts'->'usage' as u from events"
             " where team_id = %s and kind = 'turn_end' and task is not null) x where u is not null group by task", (team_id,))}
+        touch = cards.touching([{**r["body"], "_at": float(r["at"])} for r in conn.execute(
+            "select body, extract(epoch from received_at) as at from events where team_id = %s and kind = 'tool'"
+            " and received_at > now() - make_interval(secs => %s)", (team_id, cards.EDITING_SECONDS))], now)
         out = []
         for t in tasks:  # tasks with session events: live progress; a plan adds its owner, and closing marks it done
             card = cards.card(t["task"], task_events(conn, team_id, t["task"], 200), snaps.get(t["task"]), float(t["last"]), t["n"])
             card["usage"] = spent.get(t["task"])
+            card["editing"] = cards.editing(touch, t["task"])
             p = plan.pop(t["task"], None)
             card["owner"] = p["owner_name"] if p else None
             card["due"] = p["due"] if p else None
@@ -1045,14 +1049,15 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                 out.append({"task": p["task"], "title": p["title"], "events": 0, "owner": p["owner_name"],
                             "members": [p["owner_name"]] if p["owner_name"] else [], "tools": [], "pr": None,
                             "last_activity": float(p["at"]), "status": "todo", "progress": None, "recent": [], "usage": None,
-                            "due": p["due"]})
+                            "due": p["due"], "editing": []})
         people = conn.execute(
             "select m.name, extract(epoch from max(e.received_at)) as last from memberships m left join events e"
             " on e.team_id = m.team_id and e.user_id = m.user_id where m.team_id = %s and m.removed_at is null"
             " group by m.name", (team_id,)).fetchall()
         return {"room": team_name, "generated_at": now, "tasks": out, "demo": False, "rules": rules_of(conn, team_id),
                 "members": [{"name": p["name"], "last_activity": float(p["last"] or 0),
-                             "active": bool(p["last"]) and now - float(p["last"]) < ACTIVE_SECONDS} for p in people]}
+                             "active": bool(p["last"]) and now - float(p["last"]) < ACTIVE_SECONDS} for p in people],
+                "touching": touch[:40], "overlaps": cards.overlaps(touch)}
 
     @app.get("/v1/board")
     def board(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:

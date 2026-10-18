@@ -80,6 +80,12 @@ fun BoardScreen(onChat: (ChatOpen) -> Unit) {
                 }
             }
         }
+        items(b.overlaps, key = { "overlap-" + it.file }) { o ->  // two sessions in one file: where merge conflicts start
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.warn.copy(alpha = 0.13f)).padding(12.dp)) {
+                Text(buildString { append(o.file); append(" was edited by "); append(o.who.joinToString(" and ")); append(" in the last half hour.") },
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         items(groups[only].second, key = { it.task }) { t -> TaskCard(t) { open = t } }
         if (groups[only].second.isEmpty()) item { Text(if (only == 0) "Nothing in progress." else "Nothing here.", color = p.muted, modifier = Modifier.padding(8.dp)) }
     }
@@ -93,6 +99,10 @@ fun BoardScreen(onChat: (ChatOpen) -> Unit) {
                     for (line in lines) Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 3.dp))
                 }
                 if (t.blockers.isEmpty() && t.doing.isEmpty() && t.next.isEmpty()) Text("Agent S hasn't seen work on this yet.", color = p.muted)
+                if (t.editing.isNotEmpty()) {
+                    Label("Editing now")
+                    for (f in t.editing) Text(f, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 3.dp))
+                }
                 Spacer(Modifier.height(18.dp))
                 Button(onClick = { open = null; onChat(ChatOpen(prefill = "What's the status of ${t.task}${if (t.title.isNotEmpty()) " (${t.title})" else ""}?")) },
                     modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp),

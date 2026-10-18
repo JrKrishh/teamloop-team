@@ -1199,6 +1199,9 @@ function card(t, members, i) {
   for (const tool of t.tools) if (TOOLS[tool]) foot.append(el("span", "tag", TOOLS[tool]));
   if (t.pr) foot.append(el("span", "tag pr", [`PR #${t.pr.number}`, t.pr.draft ? "draft" : t.pr.state, t.pr.checks ? `CI ${t.pr.checks}` : ""].filter(Boolean).join(" · ")));
   if (t.usage && t.usage.tokens) { const u = el("span", "tag", `${fmtTok(t.usage.tokens)} tokens`); u.title = `${t.usage.turns} turns of AI coding on ${t.task}`; foot.append(u); }
+  for (const e of (t.editing || []).slice(0, 3)) {  // the files its sessions are editing now
+    const g = el("span", "tag editing", `editing ${e.file.split("/").pop()}`); g.title = `${e.member} is editing ${e.repo}/${e.file}`; foot.append(g);
+  }
   foot.append(el("span", null, `${ago(t.last_activity)} · ${t.events} events`));
   c.append(foot); return c;
 }
@@ -1240,6 +1243,12 @@ function renderBoard() {
     e.append(mascot(S.user.name, "sleep"), el("h3", null, "No task activity yet"),
       el("p", "sub", "Connect a repo on this laptop, then start a Claude Code or Codex session. Tasks show up here as you work."), go2);
     root.append(e); return;
+  }
+  for (const o of b.overlaps || []) {  // two sessions in one file: where merge conflicts start
+    const w = el("div", "overlap"), msg = el("span");
+    const who = o.who.map(x => `${x.member} (${TOOLS[x.tool] || x.tool}${x.task ? `, ${x.task}` : ""})`).join(" and ");
+    msg.append(el("b", null, `${o.repo}/${o.file}`), ` was edited by ${who} in the last half hour.`);
+    w.append(ic("flag"), msg); root.append(w);
   }
   let i = 0;
   for (const [key, label, statuses] of SECTIONS) {

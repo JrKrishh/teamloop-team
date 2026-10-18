@@ -313,11 +313,15 @@ def install(app: FastAPI, chat: Optional[Callable] = None, debounce: float = 30.
             members = conn.execute("SELECT member, MAX(received_at) AS last FROM events WHERE room = ? AND member != 'github'"
                                    " GROUP BY member",
                                    (room,)).fetchall()
-        out = [cards.card(t["task"], events_for(room, t["task"], 200), latest_snapshot(room, t["task"]), t["last"], t["n"])
-               for t in tasks]
+            recent = conn.execute("SELECT body, received_at FROM events WHERE room = ? AND kind = 'tool' AND received_at > ?",
+                                  (room, now - cards.EDITING_SECONDS)).fetchall()
+        touch = cards.touching([{**json.loads(r["body"]), "_at": r["received_at"]} for r in recent], now)
+        out = [{**cards.card(t["task"], events_for(room, t["task"], 200), latest_snapshot(room, t["task"]), t["last"], t["n"]),
+                "editing": cards.editing(touch, t["task"])} for t in tasks]
         return {"room": room, "generated_at": now, "tasks": out, "demo": room == demo_room,
                 "members": [{"name": m["member"], "last_activity": m["last"], "active": now - m["last"] < ACTIVE_SECONDS}
-                            for m in members]}
+                            for m in members],
+                "touching": touch[:40], "overlaps": cards.overlaps(touch)}
 
     @app.get("/v1/board")
     def board(room: str = Depends(board_room)) -> dict:

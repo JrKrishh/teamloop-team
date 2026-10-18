@@ -221,7 +221,9 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
                                             "tools": ["claude_code"], "due": "2026-10-30", "last_activity": 1.0, "pr": None,
                                             "progress": {"percent": 55, "agent_says_percent": 100, "confidence": "high",
                                                          "blockers": [], "doing": [{"text": "Committing", "evidence_ids": ["e1"]}],
-                                                         "next": [{"text": "Push", "evidence_ids": []}], "done": [{"text": "x"}] * 6}}]}
+                                                         "next": [{"text": "Push", "evidence_ids": []}], "done": [{"text": "x"}] * 6},
+                                            "editing": [{"repo": "acme-web", "file": "src/a.py", "member": "Yang", "tool": "codex"}]}],
+             "overlaps": [{"repo": "acme-web", "file": "src/a.py", "who": [{"member": "Yang"}, {"member": "Asha"}]}]}
     live = [{"turn": "turn-0001", "chat": "c-1", "agent": "agent-s", "message": "Push it", "asking": True, "now": None,
              "ask": {"id": "c9", "name": "write_file", "args": {"path": "a.py", "content": "x" * 9000}}}]
     def call(method, path, body=None):  # the stand-in API, plus the board and a turn waiting on a question
@@ -243,6 +245,7 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
     [t] = got["b1"]["tasks"]
     assert got["b1"]["room"] == "Loopers" and t["percent"] == 55 and t["says"] == 100 and t["doing"] == ["Committing"] and t["next"] == ["Push"]
     assert "done" not in t and "progress" not in t  # a phone needs the gist, not the evidence ids
+    assert t["editing"] == ["src/a.py"] and got["b1"]["overlaps"] == [{"file": "acme-web/src/a.py", "who": ["Yang", "Asha"]}]
     ask = got["h1"]["live"][0]["ask"]
     assert ask["id"] == "c9" and len(ask["args"]["content"]) < 4100  # what waits, cut for a phone
     assert got["h1"]["asks"] == [{"id": "a1", "from": "Asha", "what": "Close T-3", "detail": "", "rule": "board"}]

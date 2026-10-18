@@ -234,6 +234,24 @@ def test_summaries_for_connectors_keep_nothing(app, env):
     assert used == [("progress", True)] and stored == 0  # counted for the person; the message itself isn't kept
 
 
+def test_the_board_says_who_is_editing_what_and_where_sessions_overlap(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha = join(app, yang, team, "asha")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    def edit(n, file, session, task, tool):
+        return {"v": 1, "id": f"{n:032x}", "ts": ts, "tool": tool, "session": session, "kind": "tool", "task": task, "repo": "acme-web",
+                "facts": {"tool": "Edit", "ok": True, "file": file}}
+    TestClient(app).post("/v1/events", json={"events": [edit(1, "src/auth.py", "s1", "T-21", "codex")]}, headers=connect(app, yang, team))
+    TestClient(app).post("/v1/events", json={"events": [edit(2, "src/auth.py", "s2", "T-19", "cursor")]}, headers=connect(app, asha, team))
+    board = yang.get("/v1/board", params={"team": team}).json()
+    [o] = board["overlaps"]
+    assert (o["file"], sorted((w["member"], w["tool"]) for w in o["who"])) == ("src/auth.py", [("asha", "cursor"), ("yang", "codex")])
+    cards = {t["task"]: t for t in board["tasks"]}
+    assert cards["T-19"]["editing"] == [{"repo": "acme-web", "file": "src/auth.py", "member": "asha", "tool": "cursor"}]
+
+
 def test_teams_are_invite_only(app, monkeypatch):
     monkeypatch.setenv("HUB_TEAM_CREATORS", "Yang@Example.com")
     yang = signin(app, "yang")
