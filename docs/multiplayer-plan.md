@@ -1,7 +1,7 @@
 # Plan: multiplayer agents, with Claude Code, Codex and Cursor bridged in
 
-Status (19 Oct 2026, branch `T-57-multiplayer`): Phases 2, 3 and 4 built and tested. Phase 1 waits on real Cursor
-payloads (the capture kit is ready); Phase 5 waits on Phase 1 and `cursor-agent`. Built differently from the plan:
+Status (19 Oct 2026, branch `T-57-multiplayer`): Phases 2, 3 and 4 built and tested; Phase 5's spike came back
+negative (below). Phase 1 waits on real Cursor payloads (the capture kit is ready). Built differently from the plan:
 the board's warnings ride on the connector's message poll (one call every 15 s, not two), and need the hosted hub.
 
 ## The idea
@@ -79,6 +79,18 @@ Each step ends in a check that proves it works.
 **Phase 5: Super Team prompts into Cursor sessions** (1-day spike)
 Only if Cursor's CLI (`cursor-agent`) can answer headless against an existing chat, read-only. Otherwise Cursor
 sessions get messages (Phase 3) but not prompts.
+
+*Spike result, 19 Oct 2026, from Cursor's CLI docs (the CLI isn't installed here, so not run): **no prompts into Cursor
+sessions for now.*** Headless answers exist (`agent -p --resume <chatId> --output-format stream-json`, with a `session_id`
+on every event), but the three things Super Team relies on aren't there. (1) No fork: `--resume` continues the chat and
+nothing copies it, so a teammate's prompt would land in the owner's own chat; Claude Code's `--fork-session` keeps it
+untouched. (2) Read-only isn't guaranteed: without `--force` file changes in `-p` are only proposed, but Ask mode isn't
+documented as enforced in `-p`, what happens to a shell command there isn't documented, and the sandbox is described for
+macOS and Linux only; deny rules (`Write(...)`, `Shell(...)` in a project's `.cursor/cli.json`) are the one hard control.
+(3) Nothing says the editor's chats, where our hooks fire, can be resumed from the CLI. Cursor sessions get notes,
+warnings and handoffs (Phases 3 and 4). Look again when Cursor documents a fork or a read-only headless mode.
+Sources: cursor.com/docs/cli/reference/parameters, /docs/cli/headless, /docs/cli/reference/permissions,
+/docs/cli/reference/output-format, /docs/agent/security/run-modes.
 
 About 10–13 working days in all, one person.
 
