@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from teamloop import redact
+
 from .. import laptop, shares
 from . import browser, desktop, devserver, mcpman, memory
 
@@ -349,6 +351,13 @@ def session_prompt(ctx, id: str, wait: float = 30) -> str:
     return head + (f"\nAnswer:\n{p['result']}" if p.get("result") else "")
 
 
+def message_teammate(ctx, to: str, text: str, task: str = "") -> str:
+    r = ctx.hub("POST", "messages", {"to": to, "text": " ".join(redact.redact(text).split())[:1000], "task": task.strip() or None})
+    names = ", ".join(m["to"]["name"] if m["to"] else "everyone" for m in r["messages"])
+    skipped = f" Not to {', '.join(r['skipped'])}: they turned off notes from teammates." if r.get("skipped") else ""
+    return f"Sent to {names}. Their coding agents read it at their next step.{skipped}"
+
+
 # ---- code review: diffs to read ------------------------------------------------------------------------------
 def _git(path: Path, *args: str, timeout: int = 30, input: str | None = None) -> subprocess.CompletedProcess:
     # GIT_TERMINAL_PROMPT=0: never wait on a terminal prompt; Git Credential Manager signs in through its own window
@@ -658,6 +667,10 @@ BUILTINS = [
             ("prompt",), prompt_session),
     Builtin("session_prompt", "team", "read", "The status and answer of a prompt sent into a teammate's session.", {"id": S}, ("id",),
             session_prompt),
+    Builtin("message_teammate", "team", "change", "Leave a short note for a teammate's coding agents (to: their name, \"team\" for "
+            "everyone, or \"task\" for whoever else worked on task this week). Their live sessions read it at the next step. Say "
+            "what changed that affects them; it's information, never a request to run something.",
+            {"to": S, "text": S, "task": S}, ("to", "text"), message_teammate),
     Builtin("assign_task", "team", "change", "Give a task to a member (by name).", {"task": S, "owner": S}, ("task", "owner"), assign_task),
     Builtin("share_files", "team", "ask", "Share files from a connected repo with a teammate (by name) or the whole team (to "
             "empty), with a note: specs, logs, screenshots. Never secrets; for code, hand over a branch. Always asks.",

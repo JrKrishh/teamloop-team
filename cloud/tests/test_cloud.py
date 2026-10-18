@@ -589,7 +589,7 @@ def test_super_team_prompts_follow_the_owners_rules(app):
     listed = yang.get("/v1/sessions", params=q).json()
     assert {s["session"]: (s["owner"]["name"], s["mode"], s["app_online"], s["mine"]) for s in listed["sessions"]} == {
         "sess-asha": ("asha", "ask", False, False), "sess-yang": ("yang", "ask", False, True)}
-    assert listed["me"] == {"mode": "ask", "access": "read", "daily_tokens": None}  # the default: ask me, read only
+    assert listed["me"] == {"mode": "ask", "access": "read", "daily_tokens": None, "messages": "on"}  # the default: ask me, read only
 
     # ask (the default): Yang's prompt waits for Asha, and only Asha decides
     p = yang.post("/v1/prompts", params=q, json={"session": "sess-asha", "prompt": "What's left on T-22?"}).json()

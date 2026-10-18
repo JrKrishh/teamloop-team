@@ -35,6 +35,13 @@ data class Overlap(val file: String, val who: List<String>)
 
 data class Board(val room: String, val tasks: List<Task>, val overlaps: List<Overlap> = emptyList())
 
+/** A note about a task between the people and coding agents on it. [to]: one person, or null for everyone on it. */
+data class Note(val from: String, val mine: Boolean, val agent: Boolean, val to: String?, val text: String, val at: Double)
+
+fun parseNotes(a: JSONArray?): List<Note> = a.objects().map {
+    Note(it.optString("from"), it.optBoolean("mine"), it.optBoolean("agent"), it.text("to"), it.optString("text"), it.optDouble("at", 0.0))
+}
+
 enum class Link { NotPaired, Connecting, Online, Offline }
 
 open class RemoteError(message: String) : Exception(message)

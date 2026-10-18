@@ -256,6 +256,39 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
     assert [m["t"] for m in pushed] == ["live"] and pushed[0]["asks"][0]["what"] == "Close T-3"
 
 
+def test_the_phone_reads_a_tasks_notes_and_leaves_one(home):
+    pid, key = paired()
+    api, posted = Api(), []
+    stored = [{"id": 1, "from": {"id": "u2", "name": "Asha"}, "via": "agent", "to": None, "task": "T-3", "text": "Renamed /v1/session", "at": 1.0},
+              {"id": 0, "from": {"id": "u2", "name": "Asha"}, "via": "person", "to": {"id": "u1", "name": "Yang"}, "task": "T-3",
+               "text": "Mine until 5", "at": 0.5}]
+    def call(method, path, body=None):
+        if path == "/api/boot":
+            return {"signed_in": True, "user": {"id": "u1", "name": "Yang"}}
+        if path == f"/api/cloud/messages?team={TEAM}" and method == "POST":
+            posted.append(body)
+            stored.insert(0, {"id": 2, "from": {"id": "u1", "name": "Yang"}, "via": "person", "to": {"id": "u2", "name": "Asha"},
+                              "task": "T-3", "text": body["text"], "at": 2.0})
+            return {"messages": stored[:1], "skipped": []}
+        if path == f"/api/cloud/messages?team={TEAM}&box=all&task=T-3":
+            return {"messages": stored}  # newest first, as the hub gives them
+        return api(method, path, body)
+    r = remote.Remote(call, relay=lambda: "wss://relay", team=lambda: TEAM, relay_cls=FakeRelay)
+    r.sync()
+    relay = FakeRelay.made[0]
+    relay.on_message(phone(key, pid, {"t": "notes", "task": "T-3"}, id="n1"))
+    assert wait_for(lambda: len(relay.sent) == 1)
+    relay.on_message(phone(key, pid, {"t": "note", "task": "T-3", "to": "Asha", "text": "Thanks, rebasing"}, id="n2"))
+    relay.on_message(phone(key, pid, {"t": "notes", "task": "../board"}, id="n3"))
+    assert wait_for(lambda: len(relay.sent) == 3)
+    got = {m["re"]: m for m in heard(relay, key, pid)}
+    assert got["n1"]["notes"] == [{"from": "Asha", "mine": False, "agent": False, "to": "you", "text": "Mine until 5", "at": 0.5},
+                                  {"from": "Asha", "mine": False, "agent": True, "to": None, "text": "Renamed /v1/session", "at": 1.0}]
+    assert posted == [{"to": "Asha", "text": "Thanks, rebasing", "task": "T-3"}]
+    assert [(n["from"], n["mine"], n["to"]) for n in got["n2"]["notes"]] == [("Asha", False, "you"), ("Asha", False, None), ("Yang", True, "Asha")]
+    assert got["n3"]["t"] == "error"
+
+
 def test_long_output_is_cut_for_the_phone():
     e = remote.slim({"kind": "tool", "result": "x" * 5000, "args": {"content": "y" * 9000, "path": "a.py"}})
     assert len(e["result"]) < 1600 and len(e["args"]["content"]) < 4100 and e["args"]["path"] == "a.py"

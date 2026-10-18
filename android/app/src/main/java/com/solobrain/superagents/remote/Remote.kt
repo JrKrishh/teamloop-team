@@ -283,6 +283,15 @@ class Remote(private val app: Context) {
     suspend fun chat(id: String): JSONObject = request(JSONObject().put("t", "chat").put("chat", id)).getJSONObject("chat")
 
     suspend fun loadBoard() { board.value = parseBoard(request(JSONObject().put("t", "board"), 25_000)) }
+
+    suspend fun notes(task: String): List<Note> = parseNotes(request(JSONObject().put("t", "notes").put("task", task), 15_000).optJSONArray("notes"))
+
+    /** Leaves a note for everyone else on the task ([to] "task") or one person; the task's notes after it, and who
+     *  turned notes off. */
+    suspend fun note(task: String, to: String, text: String): Pair<List<Note>, List<String>> {
+        val r = request(JSONObject().put("t", "note").put("task", task).put("to", to).put("text", text), 15_000)
+        return parseNotes(r.optJSONArray("notes")) to r.optJSONArray("skipped").strings()
+    }
 }
 
 /** Where phone and laptop meet: Supabase Realtime when the hub has it, else the hub's own socket. A hub from before the

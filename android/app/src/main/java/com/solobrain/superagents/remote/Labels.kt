@@ -21,6 +21,8 @@ object Labels {
         "prompt_session" to ("Prompt a session" to { a ->
             "${a.optString("member").ifEmpty { a.optString("session") }.ifEmpty { "latest" }}: “${a.optString("prompt").take(40)}”" }),
         "session_prompt" to ("Check a prompt" to { a -> a.optString("id").take(8) }),
+        "message_teammate" to ("Note for a teammate" to { a ->
+            "${if (a.optString("to") == "task") "everyone on ${a.optString("task")}" else a.optString("to")}: “${a.optString("text").take(40)}”" }),
         "share_files" to ("Share" to { a -> "${a.optJSONArray("paths").strings().joinToString(", ")} with ${a.optString("to").ifEmpty { "everyone" }}" }),
         "share_branch" to ("Hand over the branch" to { a -> "to ${a.optString("to").ifEmpty { "everyone" }}" + a.optString("repo").let { if (it.isEmpty()) "" else " · $it" } }),
         "team_files" to ("Read what's shared" to { _ -> "" }),

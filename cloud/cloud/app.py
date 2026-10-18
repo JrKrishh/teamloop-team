@@ -1376,7 +1376,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         threads = thread_counts(conn, team_id, role, c.person.id)
         mine = access_of(conn, team_id, c.person.id)
         return {"sessions": [session_card(r, rules, threads, c.person.id, conn, team_id, now) for r in rows], "role": role,
-                "me": {k: mine[k] for k in ("mode", "access", "daily_tokens")}}
+                "me": {k: mine[k] for k in ("mode", "access", "daily_tokens", "messages")}}
 
     @app.get("/v1/sessions/{session}/thread")
     def session_thread(session: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:

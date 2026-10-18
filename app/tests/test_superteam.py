@@ -210,6 +210,19 @@ def test_agents_see_and_prompt_teammates_sessions():
         tools.session_prompt(ctx, "../../etc")
 
 
+def test_agents_leave_notes_for_teammates_agents():
+    def sent(body):
+        to = [{"name": n} for n in ("Asha", "Ravi")] if body["to"] == "task" else [None if body["to"] == "team" else {"name": "Asha"}]
+        return {"messages": [{"to": t} for t in to], "skipped": ["Sourabh"] if body["to"] == "task" else []}
+    ctx, calls = ctx_with([("messages", sent)])
+    assert tools.message_teammate(ctx, "asha", "Renamed   /v1/session, key ghp_" + "Q" * 36) == \
+        "Sent to Asha. Their coding agents read it at their next step."
+    assert calls[-1][2]["text"].startswith("Renamed /v1/session, key ") and "ghp_" not in calls[-1][2]["text"] and calls[-1][2]["task"] is None
+    assert tools.message_teammate(ctx, "team", "Freeze at 5") == "Sent to everyone. Their coding agents read it at their next step."
+    said = tools.message_teammate(ctx, "task", "Rebase first", task="T-22")
+    assert said.startswith("Sent to Asha, Ravi.") and "Not to Sourabh: they turned off notes" in said and calls[-1][2]["task"] == "T-22"
+
+
 def test_deadlines_on_tasks():
     today = datetime.date.today()
     soon, late = (today + datetime.timedelta(days=3)).isoformat(), (today - datetime.timedelta(days=2)).isoformat()

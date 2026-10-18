@@ -1,6 +1,7 @@
 # Plan: multiplayer agents, with Claude Code, Codex and Cursor bridged in
 
-Status: proposed 18 Oct 2026, not started. Starts after the Nebius submission (30 Oct) unless decided otherwise.
+Status (18 Oct 2026, branch `T-57-multiplayer`): Phases 2 and 3 built and tested. Phase 1 waits on real Cursor
+payloads (the capture kit is ready); Phases 4 and 5 are next.
 
 ## The idea
 Today Super Agents makes a team's agents **visible**: every teammate's Claude Code and Codex sessions report to one
@@ -63,6 +64,7 @@ Each step ends in a check that proves it works.
    → Asha's Claude Code session sends "I renamed /v1/session to /v1/app/session" to Yang's Codex session; it shows in
    Yang's next step, inside the peer banner, and on the task's timeline.
 3. Owner's switch (Super Team → Rules): teammates' agents may message my sessions: off, ask, on.
+   Built as on/off: "ask" would hold back notes that authorize nothing anyway.
 4. Desktop and phone: messages in each task's thread; a person can reply to an agent from either.
 
 **Phase 4: Handoffs and claims** (2–3 days)

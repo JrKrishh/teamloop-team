@@ -764,6 +764,7 @@ const TOOL_UI = {
   team_sessions: ["team", "Read teammates' sessions", () => ""],
   prompt_session: ["send", "Prompt a session", a => `${a.member || a.session || "latest"}: “${(a.prompt || "").slice(0, 40)}”`],
   session_prompt: ["send", "Check a prompt", a => (a.id || "").slice(0, 8)],
+  message_teammate: ["send", "Note for a teammate", a => `${a.to === "task" ? `everyone on ${a.task}` : a.to}: “${(a.text || "").slice(0, 40)}”`],
   list_files: ["folder", "List", a => a.path || "connected repos"],
   read_file: ["file", "Read", a => a.path],
   search_files: ["search", "Search", a => `“${a.query}”${a.path ? ` in ${a.path}` : ""}`],
@@ -1416,6 +1417,43 @@ function openDrawer(kicker, title, nodes, foot) {
   $("dFoot").replaceChildren(...(foot || [])); $("dFoot").hidden = !(foot && foot.length);
   $("scrim").hidden = false; $("drawer").hidden = false;
 }
+// A task's notes: coding agents write them with the connector's message_teammate tool, and they reach the other sessions
+// at their next step. Here a person reads them and writes to everyone else on the task, or replies to one person.
+async function notesBox(d) {
+  const box = el("section", "notes"), me = S.user || {};
+  let notes;
+  try { notes = (await hub(withTeam(`messages?box=all&task=${encodeURIComponent(d.task)}`))).messages.reverse(); }
+  catch (e) { return box; }  // a hub from before messages
+  const list = el("div", "note-list");
+  const to = el("select"); to.setAttribute("aria-label", "To");
+  to.append(Object.assign(el("option", null, `Everyone else on ${d.task}`), {value: "task"}), Object.assign(el("option", null, "The whole team"), {value: "team"}));
+  const people = [d.owner, ...(d.members || []), ...notes.map(n => n.from.name), ...((S.board || {}).members || []).map(m => m.name)];
+  for (const n of new Set(people.filter(n => n && n !== me.name))) to.append(Object.assign(el("option", null, n), {value: n}));
+  const text = textareaEl({maxLength: 1000, rows: 2, placeholder: "For their agents too, e.g. I renamed /v1/session: rebase before you touch login"});
+  text.setAttribute("aria-label", "Note");
+  const empty = el("p", "sub", "No notes yet. Agents leave one when a change affects someone else's work.");
+  const show = n => {
+    const mine = n.from.id === me.id, agentSent = n.via === "agent", it = el("div", "note" + (mine ? " mine" : ""));
+    const who = mine ? (agentSent ? "your agent" : "you") : n.from.name + (agentSent ? "'s agent" : "");
+    const meta = el("small", null, `${who} → ${n.to ? (n.to.id === me.id ? "you" : n.to.name) : "everyone"} · ${ago(n.at)}`);
+    if (!mine) { const r = el("button", "link-btn", "Reply"); r.type = "button"; r.onclick = () => { to.value = n.from.name; text.focus(); }; meta.append(" · ", r); }
+    empty.remove(); it.append(el("p", null, n.text), meta); list.append(it);
+  };
+  list.append(empty); notes.forEach(show);
+  const send = btn("Send", "", async () => {
+    if (!text.value.trim()) return text.focus();
+    send.disabled = true;
+    try {
+      const r = await hub(withTeam("messages"), {method: "POST", body: {to: to.value, text: text.value.trim(), task: d.task}});
+      r.messages.forEach(show); text.value = "";
+      if (r.skipped.length) toast(`Not to ${r.skipped.join(", ")}: they turned off messages from teammates.`);
+    } catch (e) { toast(e.message, true); }
+    send.disabled = false;
+  }, "send");
+  const row = el("div", "note-send"); row.append(to, text, send);
+  box.append(el("div", "label", "Notes between the people and agents on it"), list, row);
+  return box;
+}
 async function openTask(task, highlight) {
   try {
     const d = await hub(withTeam(`tasks/${encodeURIComponent(task)}`));
@@ -1430,6 +1468,7 @@ async function openTask(task, highlight) {
     const p = d.progress || {}; const lists = el("div", "lists");
     for (const r of [list("Blocked", p.blockers, "blockers"), list("Now", p.doing), list("Next", p.next), list("Done", p.done)]) if (r) lists.append(r);
     if (lists.childElementCount) nodes.push(lists);
+    nodes.push(await notesBox(d));
     nodes.push(el("div", "label", "What happened, newest first"));
     const hits = new Set(highlight || []);
     nodes.push(d.timeline.length ? timelineView(d.timeline, hits) : el("p", "sub", d.owner ? `Planned for ${d.owner}. When a session starts on ${d.task}, it shows up here.`
@@ -2398,7 +2437,7 @@ function rulesCard(me) {
   const save = async () => {
     try {
       await hub(withTeam("sessions/access"), {method: "PUT", body: draft});
-      if (Date.now() - (rulesCard.saidAt || 0) > 4000) { rulesCard.saidAt = Date.now(); toast("Saved your rules for teammates' prompts."); }
+      if (Date.now() - (rulesCard.saidAt || 0) > 4000) { rulesCard.saidAt = Date.now(); toast("Saved your rules for teammates."); }
     } catch (e) { toast(e.message, true); }
   };
   const limit = inputEl({type: "number", min: 1000, step: 1000, value: me.daily_tokens || 200000, className: "mono"});
@@ -2412,7 +2451,9 @@ function rulesCard(me) {
     el("p", "sub", "Teammates and your lead can send prompts into your Claude Code and Codex sessions. They run on this laptop while Super Agents is open, as a copy of the session, so the session you're in isn't touched. Claude Code runs them restricted: no commands, and files only in that repo. Every prompt is on the team's record."),
     groupBox("Prompts from teammates", segEl([["off", "Off"], ["ask", "Ask me each time"], ["auto", "Run automatically"]], me.mode, k => { draft.mode = k; save(); })),
     groupBox("They can", segEl([["read", "Read and answer"], ["edit", "Also edit files"]], me.access, k => { draft.access = k; save(); })),
-    groupBox("Tokens per teammate per day", limits));
+    groupBox("Tokens per teammate per day", limits),
+    groupBox("Notes from teammates' agents", segEl([["on", "On"], ["off", "Off"]], me.messages || "on", k => { draft.messages = k; save(); }),
+      "When a teammate's change affects your work, their agent can leave a note. Claude Code sessions read it at their next step; Codex and Cursor when they check. It's information for your agent, never an instruction."));
   return card;
 }
 function sessionRow(x) {
@@ -2645,7 +2686,7 @@ function renderLaptop() {
   const never = el("section", "panel"); never.append(el("h3", null, "Never reaches your team"));
   const nv = el("div", "never");
   for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
-  nv.append(el("p", "sub", "Except what you allow: a prompt a teammate sends into one of your sessions, and its answer, go on the team's record (Super Team → Sessions sets your rules)."));
+  nv.append(el("p", "sub", "Except what you allow: a prompt a teammate sends into one of your sessions, and its answer, go on the team's record (Super Team → Sessions sets your rules). So does a note your agent leaves for a teammate on purpose, with secrets taken out."));
   nv.append(el("p", "sub", "What goes: a one-line summary per turn, plus facts such as files changed, tests passed or failed, and token counts. Nemotron writes the summary from the agent's last message, through the Super Agents server, which doesn't keep it."),
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);

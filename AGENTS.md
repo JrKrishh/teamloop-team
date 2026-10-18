@@ -27,6 +27,8 @@ holds, its scope and schedule don't.
 ## Rules that protect users (tests enforce them)
 1. **The hook never breaks a session.** No network, no stdout output, always exit 0; errors go to `~/.teamloop/hook.log`.
    No subprocess, except one detached `teamloop send` at session end (the MCP-hosted sender exits with the session).
+   The one output: teammates' notes waiting in the local inbox, once per session, as Claude Code's `additionalContext`
+   on SessionStart/PostToolUse/PostToolUseFailure (never Stop), framed as information that authorizes nothing (`messages.frame`).
 2. **Free text from hooks lives only in `local`.** `facts` hold structured values only. MCP self-reports go in `report`:
    the agent writes them for the team on purpose, and they're redacted and capped at 5 items of 160 chars. Events bound
    for the hub go through `spool.public()`; `local` text reaches the hub only through `summarize.py` (`/v1/summarize`,
