@@ -13,11 +13,12 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from teamloop import spool, summarize
+from teamloop import messages, spool, summarize
 
 BATCH = 50
 MAX_BATCH_BYTES = 48_000  # the hub (ccbridge relay) refuses bodies over 64 KB
 SUMMARIZED = ("turn_end", "subagent_end")
+PULL_EVERY = 15  # seconds between looks for teammates' notes
 
 
 def config() -> dict | None:
@@ -90,11 +91,19 @@ def my_turn(stale: float = 30.0) -> bool:
 def daemon(every: float = 5.0, log: Callable = print, stop: threading.Event | None = None) -> int:
     """Send until stopped. Runs as `teamloop daemon`, or as a thread inside the MCP server (see mcp_server.main)."""
     wait = stop.wait if stop else time.sleep
-    backoff, last_err = every, None
+    backoff, last_err, pulled = every, None, 0.0
     while not (stop and stop.is_set()):
         if not my_turn():
             wait(every)
             continue
+        if time.time() - pulled >= PULL_EVERY:  # teammates' notes for this person, into the inbox hooks read
+            pulled = time.time()
+            try:
+                cfg = config()
+                if cfg:
+                    messages.pull(cfg)
+            except Exception:  # noqa: BLE001 - the hub is away; next round
+                pass
         sent, err = send_once()
         if err and err != last_err:
             log(f"{time.strftime('%H:%M:%S')} {err}")

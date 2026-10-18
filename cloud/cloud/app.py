@@ -48,6 +48,7 @@ log = logging.getLogger("teamloop.cloud")  # Vercel keeps what reaches stderr
 ACTIVE_SECONDS = 300
 DEBOUNCE_SECONDS = 30
 RETENTION_DAYS = 30
+MESSAGE_DAYS = 14  # notes between teammates' agents are kept this long
 DAILY_TOKENS = 10_000_000  # each person's model use on the hub's key per 24 h (a busy development day was 2.9M)
 CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ23456789"  # no vowels: device codes never spell words
 
@@ -271,6 +272,13 @@ class AccessIn(BaseModel):
     mode: str = Field(pattern="^(off|ask|auto)$")
     access: str = Field(default="read", pattern="^(read|edit)$")
     daily_tokens: Optional[int] = Field(default=None, ge=1000, le=100_000_000)  # None: unlimited
+    messages: str = Field(default="on", pattern="^(on|off)$")  # teammates' notes into my sessions
+
+
+class MessageIn(BaseModel):
+    to: str = Field(min_length=1, max_length=64)  # a teammate's name; "team" for everyone; "task" for those working on `task`
+    text: str = Field(min_length=1, max_length=1000)
+    task: Optional[str] = Field(default=None, max_length=30)
 
 
 class PromptIn(BaseModel):
@@ -327,6 +335,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     asks = _Window(30, 600.0)
     llm_steps = _Window(150, 600.0)  # an agent turn is a few steps; this allows a busy person, not a script
     summaries = _Window(120, 600.0)  # one per coding turn: a turn every 5 s for 10 minutes is a script
+    notes = _Window(30, 600.0)  # messages to teammates' agents, per person
     signups = _Window(5, 600.0)  # the waitlist, per visitor
     digests: dict[str, tuple[float, dict]] = {}
     failed: dict[tuple[str, str], float] = {}
@@ -956,6 +965,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                          (c.team_id, RETENTION_DAYS))
             conn.execute("delete from session_prompts where team_id = %s and created_at < now() - make_interval(days => %s)",
                          (c.team_id, RETENTION_DAYS))
+            conn.execute("delete from messages where team_id = %s and created_at < now() - make_interval(days => %s)",
+                         (c.team_id, MESSAGE_DAYS))
             conn.execute("delete from shares where team_id = %s and status in ('expired', 'deleted')"
                          " and created_at < now() - make_interval(days => %s)", (c.team_id, RETENTION_DAYS))
             conn.execute("delete from hub_sessions where expires_at < now()")
@@ -1297,10 +1308,10 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     # off, ask each time, or automatic; read-only or edit; tokens per teammate per day. The owner's Super Agents runs
     # it as a fork of that session (their live session isn't touched) and reports back. Every prompt stays on record:
     # the lead sees all of them, a member the ones they sent or received.
-    ACCESS = {"mode": "ask", "access": "read", "daily_tokens": None, "app_seen_at": None}
+    ACCESS = {"mode": "ask", "access": "read", "daily_tokens": None, "app_seen_at": None, "messages": "on"}
 
     def access_of(conn, team_id: str, user_id: str) -> dict:
-        row = conn.execute("select mode, access, daily_tokens, app_seen_at from session_access where team_id = %s and user_id = %s",
+        row = conn.execute("select mode, access, daily_tokens, app_seen_at, messages from session_access where team_id = %s and user_id = %s",
                            (team_id, user_id)).fetchone()
         return {**ACCESS, **(row or {})}
 
@@ -1389,11 +1400,79 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     def set_access(body: AccessIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         """Your rules for teammates' prompts into your sessions."""
         team_id, _ = session_scope(c, team, conn)
-        conn.execute("insert into session_access (team_id, user_id, mode, access, daily_tokens) values (%s, %s, %s, %s, %s)"
+        conn.execute("insert into session_access (team_id, user_id, mode, access, daily_tokens, messages) values (%s, %s, %s, %s, %s, %s)"
                      " on conflict (team_id, user_id) do update set mode = excluded.mode, access = excluded.access,"
-                     " daily_tokens = excluded.daily_tokens, updated_at = now()",
-                     (team_id, c.person.id, body.mode, body.access, body.daily_tokens))
+                     " daily_tokens = excluded.daily_tokens, messages = excluded.messages, updated_at = now()",
+                     (team_id, c.person.id, body.mode, body.access, body.daily_tokens, body.messages))
         return body.model_dump()
+
+    # ---- Messages: notes between teammates' agents (and people), into live coding sessions --------------------
+    # A coding agent writes one with the connector's MCP tool, a person from the app. It reaches the recipient's live
+    # sessions at their next step (their connector fetches it and a hook adds it to the context), marked as a
+    # teammate's information that authorizes nothing. The record follows Super Team's: a lead sees all; a member what
+    # they sent, what's for them and what's for everyone. Each person can turn messages into their sessions off.
+    def message_view(r: dict) -> dict:
+        return {"id": int(r["id"]), "from": {"id": str(r["from_user"]), "name": r["from_name"]}, "via": r["via"],
+                "to": {"id": str(r["to_user"]), "name": r["to_name"]} if r["to_user"] else None, "task": r["task"],
+                "text": r["body"], "at": r["created_at"].timestamp()}
+
+    @app.post("/v1/messages")
+    def send_message(body: MessageIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id = team_scope(c, team, conn)[0]
+        if not notes.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Lots of messages just now; try again in a few minutes")
+        task = (body.task or "").strip().upper() or None
+        if task and not TASK_RE.match(task):
+            raise HTTPException(400, "That isn't a task id")
+        to = body.to.strip()
+        if to.lower() == "task":  # whoever else worked on the task this week
+            if not task:
+                raise HTTPException(400, "Name the task")
+            recipients = [(str(r["user_id"]), r["name"]) for r in conn.execute(
+                "select distinct e.user_id, m.name from events e join memberships m on m.team_id = e.team_id and m.user_id = e.user_id"
+                " and m.removed_at is null where e.team_id = %s and e.task = %s and e.received_at > now() - interval '7 days'"
+                " and e.user_id <> %s", (team_id, task, c.person.id))]
+            if not recipients:
+                raise HTTPException(404, f"Nobody else has worked on {task} this week")
+        elif to.lower() in ("team", "everyone"):
+            recipients = [(None, None)]
+        else:
+            recipients = [member_named(conn, team_id, to)]
+            if recipients[0][0] == c.person.id:
+                raise HTTPException(400, "That's you")
+        off = {r["user_id"] for r in conn.execute("select user_id::text as user_id from session_access where team_id = %s"
+                                                  " and messages = 'off'", (team_id,))}
+        skipped = [n for u, n in recipients if u in off]
+        recipients = [(u, n) for u, n in recipients if u not in off]
+        if not recipients:
+            raise HTTPException(403, f"{', '.join(skipped)} turned off messages from teammates")
+        text, via = peer_text(body.text), "agent" if c.kind == "connector" else "person"
+        sent = [message_view(conn.execute("insert into messages (team_id, from_user, from_name, via, to_user, to_name, task, body)"
+                                          " values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
+                                          (team_id, c.person.id, my_name(c), via, u, n, task, text)).fetchone()) for u, n in recipients]
+        return {"messages": sent, "skipped": skipped}
+
+    @app.get("/v1/messages")
+    def list_messages(team: Optional[str] = None, box: str = Query("in", pattern="^(in|all)$"), since: int = Query(0, ge=0),
+                      task: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """box=in: new messages for me (to me or to everyone, not mine), oldest first after `since`; a connector fetches these
+        for its sessions. box=all: the record, newest first (a lead's whole, a member's own part); task= narrows it."""
+        team_id, _, role = team_scope(c, team, conn)
+        me = c.person.id
+        if box == "in":
+            if access_of(conn, team_id, me)["messages"] == "off":
+                return {"messages": []}
+            rows = conn.execute("select * from messages where team_id = %s and id > %s and from_user <> %s and (to_user = %s or to_user"
+                                " is null) and created_at > now() - make_interval(days => %s) order by id limit 100",
+                                (team_id, since, me, me, MESSAGE_DAYS)).fetchall()
+            return {"messages": [message_view(r) for r in rows]}
+        sql, args = "select * from messages where team_id = %s", [team_id]
+        if role != "lead":
+            sql, args = sql + " and (from_user = %s or to_user = %s or to_user is null)", args + [me, me]
+        if task:
+            sql, args = sql + " and task = %s", args + [task.strip().upper()]
+        rows = conn.execute(sql + " order by id desc limit 100", args).fetchall()
+        return {"messages": [message_view(r) for r in rows]}
 
     @app.post("/v1/prompts")
     def send_prompt(body: PromptIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:

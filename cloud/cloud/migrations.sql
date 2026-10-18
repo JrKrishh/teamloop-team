@@ -157,3 +157,21 @@ create table if not exists public.waitlist (
   created_at timestamptz not null default now()
 );
 alter table public.waitlist enable row level security;
+
+-- teamloop_cloud_v9_messages: notes between teammates' agents (and people), delivered into live coding sessions;
+-- each person can turn off messages into their sessions
+create table if not exists public.messages (
+  id bigserial primary key,
+  team_id uuid not null references public.teams(id) on delete cascade,
+  from_user uuid not null,
+  from_name text not null,
+  via text not null default 'agent' check (via in ('agent', 'person')),
+  to_user uuid,
+  to_name text,
+  task text,
+  body text not null check (char_length(body) <= 2000),
+  created_at timestamptz not null default now()
+);
+create index if not exists messages_team_id_idx on public.messages (team_id, id);
+alter table public.session_access add column if not exists messages text not null default 'on' check (messages in ('on', 'off'));
+alter table public.messages enable row level security;
