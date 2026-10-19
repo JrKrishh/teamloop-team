@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,8 +29,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,6 +62,7 @@ import com.solobrain.superagents.remote.Labels
 import com.solobrain.superagents.remote.Laptop
 import com.solobrain.superagents.remote.Link
 import com.solobrain.superagents.remote.LiveTurn
+import com.solobrain.superagents.remote.Note
 import com.solobrain.superagents.remote.TeamAsk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -71,8 +76,20 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
     val live = laptop?.live.orEmpty()
     val asks = live.filter { it.ask != null }
     val working = live.filter { it.ask == null }
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     if (laptop == null) return Waiting(link)
-    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.imePadding(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (laptop.notes.isNotEmpty()) item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("Notes for you")
+                Spacer(Modifier.weight(1f))
+                Text("Mark read", color = p.brick, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 10.dp)
+                    .clickable { scope.launch { runCatching { ctx.remote.markNotesRead(laptop.notes.maxOf { it.id }) }
+                        .onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() } } }.padding(6.dp).testTag("notes-read"))
+            }
+        }
+        items(laptop.notes, key = { "note-" + it.id }) { n -> NoteCard(n) }
         items(laptop.asks, key = { it.id }) { a -> TeamAskCard(a) }
         items(asks, key = { it.ask!!.id }) { t -> AskCard(t, laptop.agent(t.agent).name, laptop.agent(t.agent).color, onOpen = { onChat(ChatOpen(t.chat, t)) }) }
         if (working.isNotEmpty()) item { Label("Working now") }
@@ -88,7 +105,7 @@ fun NeedsYou(laptop: Laptop?, link: Link, onChat: (ChatOpen) -> Unit) {
                 }
             }
         }
-        if (live.isEmpty() && laptop.asks.isEmpty()) item {
+        if (live.isEmpty() && laptop.asks.isEmpty() && laptop.notes.isEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Mascot(size = 96.dp, mood = if (link == Link.Online) Mood.Idle else Mood.Sleep, interactive = true)
                 Spacer(Modifier.height(18.dp))
@@ -120,6 +137,39 @@ fun Waiting(link: Link) {
 @Composable
 fun Label(text: String) = Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.faint,
     modifier = Modifier.padding(top = 10.dp, start = 2.dp))
+
+/** An unread note from a teammate or their coding agent, as in Super Team → Inbox on the desk; Reply answers the sender
+ *  (about the same task) and counts as read. */
+@Composable
+private fun NoteCard(n: Note) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var replying by remember(n.id) { mutableStateOf(false) }
+    var draft by remember(n.id) { mutableStateOf("") }
+    var sending by remember(n.id) { mutableStateOf(false) }
+    val shape = RoundedCornerShape(20.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(p.panel).border(1.dp, p.brick.copy(alpha = 0.45f), shape).padding(16.dp).testTag("note-card")) {
+        Text("${n.from}${if (n.agent) "'s agent" else ""} → ${n.to ?: "everyone"}${n.task?.let { " · $it" } ?: ""} · ${ago(n.at)}",
+            style = MaterialTheme.typography.bodySmall, color = p.faint)
+        Spacer(Modifier.height(6.dp))
+        Text(n.text, style = MaterialTheme.typography.bodyLarge)
+        if (!replying) Text("Reply", color = p.brick, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(top = 8.dp).clickable { replying = true }.padding(vertical = 6.dp))
+        else OutlinedTextField(draft, { draft = it.take(1000) }, Modifier.fillMaxWidth().padding(top = 10.dp), maxLines = 4, shape = RoundedCornerShape(14.dp),
+            placeholder = { Text("To ${n.from}") },
+            trailingIcon = {
+                IconButton(enabled = draft.isNotBlank() && !sending, onClick = {
+                    sending = true
+                    scope.launch {
+                        runCatching { ctx.remote.note(n.task ?: "", n.from, draft.trim()); ctx.remote.markNotesRead(n.id) }
+                            .onSuccess { Toast.makeText(ctx, "Sent to ${n.from}.", Toast.LENGTH_SHORT).show() }
+                            .onFailure { Toast.makeText(ctx, it.message ?: "Couldn't reach your laptop.", Toast.LENGTH_LONG).show(); sending = false }
+                    }
+                }) { Icon(Glyph.Up, "Send the reply") }
+            })
+    }
+}
 
 /** A lead's: a step of a member's agent that the team's rules give to a lead. It goes ahead on Allow. */
 @Composable

@@ -150,7 +150,8 @@ class Remote(private val app: Context) {
             waiting != null -> waiting.complete(m)
             m.optString("t") == "events" -> onEvents(m.optString("turn"), m.optJSONArray("events").objects())
             m.optString("t") == "live" -> laptop.value?.let {
-                laptop.value = it.copy(live = parseLive(m.optJSONArray("live")), asks = parseAsks(m.optJSONArray("asks"))); liveChanged()
+                laptop.value = it.copy(live = parseLive(m.optJSONArray("live")), asks = parseAsks(m.optJSONArray("asks")),
+                    notes = parseNotes(m.optJSONArray("notes"))); liveChanged()
             } ?: hello()  // the laptop is there but this phone has no answer to its hello yet: ask again now
         }
     }
@@ -227,8 +228,10 @@ class Remote(private val app: Context) {
                 if (told.add(ask.id)) { Log.d(TAG, "a question, in the background"); Notifications.ask(app, t, ask, lp.agent(t.agent).name) }
             }
             for (a in lp.asks) if (told.add(a.id)) Notifications.teamAsk(app, a)  // a member's agent wants this lead's yes
+            for (n in lp.notes) if (told.add("note-${n.id}")) Notifications.note(app, n)  // a teammate or their agent wrote
         }
         Notifications.keepAsks(app, lp.live.mapNotNull { it.ask?.id }.toSet() + lp.asks.map { it.id })
+        Notifications.keepNotes(app, lp.notes.map { it.id }.toSet())  // read at the desk: gone here too
     }
 
     suspend fun send(chat: String?, agent: String, mode: String, model: String, effort: String, message: String): Pair<String, String> {
@@ -283,6 +286,13 @@ class Remote(private val app: Context) {
     suspend fun chat(id: String): JSONObject = request(JSONObject().put("t", "chat").put("chat", id)).getJSONObject("chat")
 
     suspend fun loadBoard() { board.value = parseBoard(request(JSONObject().put("t", "board"), 25_000)) }
+
+    /** Read on the phone, through the laptop to the hub: the desktop's badge clears too. */
+    suspend fun markNotesRead(upTo: Long) {
+        request(JSONObject().put("t", "notes_read").put("up_to", upTo))
+        laptop.value?.let { lp -> laptop.value = lp.copy(notes = lp.notes.filter { it.id > upTo }) }
+        Notifications.cancelNotes(app)
+    }
 
     suspend fun notes(task: String): List<Note> = parseNotes(request(JSONObject().put("t", "notes").put("task", task), 15_000).optJSONArray("notes"))
 

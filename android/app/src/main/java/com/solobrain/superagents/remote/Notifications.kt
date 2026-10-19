@@ -26,6 +26,7 @@ object Notifications {
     private const val LINK = "link"
     private const val ASKS = "asks"
     private const val ANSWERS = "answers"
+    private const val NOTES = "notes"
     private const val BRICK = 0xFFA8443D.toInt()
 
     fun channels(ctx: Context) {
@@ -37,6 +38,9 @@ object Notifications {
                 description = "A command or a change waiting for your yes or no"
             },
             NotificationChannel(ANSWERS, "When an agent answers", NotificationManager.IMPORTANCE_DEFAULT),
+            NotificationChannel(NOTES, "Notes from teammates", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A teammate or their coding agent left you a note"
+            },
         ))
     }
 
@@ -112,6 +116,26 @@ object Notifications {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.activeNotifications.filter { it.tag == "ask" && it.id !in keep }.forEach { nm.cancel("ask", it.id) }
     }
+
+    /** A note from a teammate or their agent; it leaves the shade once read anywhere (the desk or the phone). */
+    fun note(ctx: Context, n: Note) {
+        if (!may(ctx)) return
+        val title = n.from + (if (n.agent) "'s agent" else "") + (n.task?.let { " · $it" } ?: "")
+        val public = NotificationCompat.Builder(ctx, NOTES).setSmallIcon(R.drawable.ic_stat_icon).setColor(BRICK).setContentTitle("A note from ${n.from}").build()
+        val nb = NotificationCompat.Builder(ctx, NOTES).setSmallIcon(R.drawable.ic_stat_icon).setColor(BRICK)
+            .setContentTitle(title).setContentText(n.text).setStyle(NotificationCompat.BigTextStyle().bigText(n.text))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
+            .setContentIntent(open(ctx, ("note" + n.id).hashCode())).setAutoCancel(true).build()
+        runCatching { NotificationManagerCompat.from(ctx).notify("note", n.id.toInt(), nb) }
+    }
+
+    fun keepNotes(ctx: Context, unread: Set<Long>) {
+        val keep = unread.map { it.toInt() }.toSet()
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        nm.activeNotifications.filter { it.tag == "note" && it.id !in keep }.forEach { nm.cancel("note", it.id) }
+    }
+
+    fun cancelNotes(ctx: Context) = keepNotes(ctx, emptySet())
 
     fun answered(ctx: Context, agent: String, chat: String?) {
         if (!may(ctx)) return

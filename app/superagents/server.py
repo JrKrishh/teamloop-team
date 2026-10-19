@@ -45,7 +45,7 @@ UI = Path(__file__).parent / "ui"
 CLOUD_PATHS = re.compile(r"^(teams|board|team|digest|refresh|events|usage"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)|shares|shares/[0-9a-f-]{36}"
                          r"|invites/[A-Za-z0-9_-]{8,80}/accept|tasks/[A-Za-z0-9_.-]{1,40}"
-                         r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread|messages"
+                         r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread|messages|messages/read"
                          r"|prompts|prompts/[0-9a-f-]{36}/(decide|cancel)"
                          r"|rules|decisions|decisions/[0-9a-f-]{36}|approvals|approvals/[0-9a-f-]{36}/decide)$")
 

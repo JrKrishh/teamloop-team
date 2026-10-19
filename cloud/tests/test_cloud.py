@@ -286,6 +286,32 @@ def test_messages_between_teammates_agents(app):
     assert [x["task"] for x in yang.get("/v1/messages", params={**q, "box": "all", "task": "t-22"}).json()["messages"]] == ["T-22"]
 
 
+def test_the_inbox_and_whats_unread(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha, ravi = join(app, yang, team, "asha"), join(app, yang, team, "ravi")
+    q = {"team": team}
+
+    def inbox(who):
+        return who.get("/v1/messages", params={**q, "box": "inbox"}).json()
+    assert inbox(ravi)["unread"] == 0
+    TestClient(app, headers=connect(app, asha, team)).post("/v1/messages", json={"to": "ravi", "text": "Rebase before login.ts", "task": "T-19"})
+    yang.post("/v1/messages", params=q, json={"to": "team", "text": "Freeze at 5"})
+    asha.post("/v1/messages", params=q, json={"to": "yang", "text": "Only for the lead"})
+    got = inbox(ravi)
+    assert got["unread"] == 2 and [(m["text"][:6], m["unread"]) for m in got["messages"]] == [("Freeze", True), ("Rebase", True)]
+    lead = inbox(yang)  # what involves the lead, not the team's whole record; their own note is never unread
+    assert {m["text"][:4] for m in lead["messages"]} == {"Free", "Only"} and lead["unread"] == 1
+    ravi.post("/v1/messages", params=q, json={"to": "asha", "text": "On it"})
+    top = max(m["id"] for m in inbox(ravi)["messages"])
+    assert ravi.post("/v1/messages/read", params=q, json={"up_to": top + 1000}).json() == {"read_up_to": top, "unread": 0}  # not past the newest
+    assert ravi.post("/v1/messages/read", params=q, json={"up_to": 1}).json()["read_up_to"] == top  # never back
+    asha.post("/v1/messages", params=q, json={"to": "ravi", "text": "One more"})
+    assert inbox(ravi)["unread"] == 1 and inbox(ravi)["messages"][0]["unread"] is True
+    assert ravi.put("/v1/sessions/access", params=q, json={"mode": "auto", "messages": "on"}).status_code == 200
+    assert inbox(ravi)["read_up_to"] == top  # saving the rules keeps how far they've read
+
+
 def test_claims_warnings_and_handoffs(app, env):
     yang = signin(app, "yang")
     team = new_team(yang)

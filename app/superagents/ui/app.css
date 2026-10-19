@@ -710,6 +710,19 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .tl-parts{font:500 12px var(--fm);color:var(--faint)}
 .tl-fold .sh-bad{font:600 11.5px var(--fm);color:var(--bad)}
 .tl-steps .timeline{padding:0 0 4px}
+/* Super Team → Inbox */
+.tab-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--brick-strong);color:var(--on-brick);font:700 10.5px/18px var(--fm);text-align:center}
+#team-inbox{display:grid;gap:16px}
+#team-inbox .note-send{max-width:880px}
+.inbox{display:grid;gap:18px;max-width:880px}
+.inbox-group{display:grid;gap:6px}
+.inbox-head{font-size:13px;color:var(--muted);padding-bottom:4px;border-bottom:1px solid var(--line)}
+.inbox-note{display:grid;gap:2px;padding:8px 10px 8px 12px;border-radius:0;border-left:2px solid transparent;overflow-wrap:anywhere}
+.inbox-note.unread{border-left-color:var(--brick);background:color-mix(in srgb,var(--brick) 6%,transparent)}
+.inbox-note small{font:500 11.5px var(--fm);color:var(--faint)}
+.inbox-note p{margin:0;font-size:14px;white-space:pre-wrap}
+.inbox-note .link-btn{justify-self:start;padding-left:0}
+.inbox-note.mine p{color:var(--muted)}
 /* handing a task to a teammate */
 .handoff-form{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px}
 .handoff-form .btn{justify-self:start}

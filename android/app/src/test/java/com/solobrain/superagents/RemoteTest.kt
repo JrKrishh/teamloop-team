@@ -4,6 +4,7 @@ import com.solobrain.superagents.remote.Labels
 import com.solobrain.superagents.remote.Note
 import com.solobrain.superagents.remote.Pairings
 import com.solobrain.superagents.remote.Seal
+import com.solobrain.superagents.remote.parseLaptop
 import com.solobrain.superagents.remote.parseNotes
 import com.solobrain.superagents.remote.relayUrlFrom
 import com.solobrain.superagents.ui.ChatModel
@@ -92,5 +93,13 @@ class RemoteTest {
             {"from": "Yang", "mine": true, "agent": false, "to": "Asha", "text": "Thanks", "at": 2.0}]"""))
         assertEquals(Note("Asha", false, true, null, "Renamed /v1/session", 1.5), notes[0])
         assertEquals("Asha", notes[1].to)
+    }
+
+    @Test fun hearsUnreadNotesFromTheLaptop() {
+        // as remote.py's team_notes sends them in hello and in each live push
+        val lp = parseLaptop(JSONObject("""{"laptop": "DESK", "user": "Yang", "agents": [], "chats": [], "live": [], "asks": [],
+            "notes": [{"id": 7, "from": "Asha", "mine": false, "agent": true, "to": "you", "task": "T-3", "text": "Rebase first", "at": 1.0}]}"""))
+        assertEquals(Note("Asha", false, true, "you", "Rebase first", 1.0, 7, "T-3"), lp.notes.single())
+        assertEquals(emptyList<Note>(), parseLaptop(JSONObject("""{"laptop": "DESK", "agents": [], "chats": [], "live": []}""")).notes)  // an older laptop
     }
 }

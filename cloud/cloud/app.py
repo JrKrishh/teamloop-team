@@ -282,6 +282,10 @@ class HandoffIn(BaseModel):
     branch: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._/-]+$")
 
 
+class ReadIn(BaseModel):
+    up_to: int = Field(ge=0)  # the newest note id read
+
+
 class MessageIn(BaseModel):
     to: str = Field(min_length=1, max_length=64)  # a teammate's name; "team" for everyone; "task" for those working on `task`
     text: str = Field(min_length=1, max_length=1000)
@@ -1335,10 +1339,11 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     # off, ask each time, or automatic; read-only or edit; tokens per teammate per day. The owner's Super Agents runs
     # it as a fork of that session (their live session isn't touched) and reports back. Every prompt stays on record:
     # the lead sees all of them, a member the ones they sent or received.
-    ACCESS = {"mode": "ask", "access": "read", "daily_tokens": None, "app_seen_at": None, "messages": "on"}
+    ACCESS = {"mode": "ask", "access": "read", "daily_tokens": None, "app_seen_at": None, "messages": "on", "notes_read": 0}
 
     def access_of(conn, team_id: str, user_id: str) -> dict:
-        row = conn.execute("select mode, access, daily_tokens, app_seen_at, messages from session_access where team_id = %s and user_id = %s",
+        row = conn.execute("select mode, access, daily_tokens, app_seen_at, messages, notes_read from session_access where team_id = %s"
+                           " and user_id = %s",
                            (team_id, user_id)).fetchone()
         return {**ACCESS, **(row or {})}
 
@@ -1495,12 +1500,19 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                 "claims": [{**t, "who": [w for w in t["who"] if w["member"] == me]} for t in cards.trespass(mine, claims)
                            if any(w["member"] == me for w in t["who"])]}
 
+    def unread_of(conn, team_id: str, me: str, marker: int) -> int:
+        """Notes to me or to everyone, not mine, after how far I've read."""
+        return int(conn.execute("select count(*) as n from messages where team_id = %s and id > %s and from_user <> %s"
+                                " and (to_user = %s or to_user is null)", (team_id, marker, me, me)).fetchone()["n"])
+
     @app.get("/v1/messages")
-    def list_messages(team: Optional[str] = None, box: str = Query("in", pattern="^(in|all)$"), since: int = Query(0, ge=0),
-                      task: Optional[str] = None, warnings: bool = False, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+    def list_messages(team: Optional[str] = None, box: str = Query("in", pattern="^(in|all|inbox)$"), since: int = Query(0, ge=0),
+                      task: Optional[str] = None, warnings: bool = False, limit: int = Query(100, ge=1, le=100),
+                      c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         """box=in: new messages for me (to me or to everyone, not mine), oldest first after `since`; a connector fetches these
         for its sessions, with warnings=1 adding the board's warnings for my sessions (warnings_for) in the same poll.
-        box=all: the record, newest first (a lead's whole, a member's own part); task= narrows it."""
+        box=all: the record, newest first (a lead's whole, a member's own part); task= narrows it. box=inbox: what involves
+        me (to me, to everyone, or mine) for Super Team → Inbox, each marked unread or not, with the unread count."""
         team_id, _, role = team_scope(c, team, conn)
         me = c.person.id
         if box == "in":
@@ -1512,12 +1524,27 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                                 (team_id, since, me, me, MESSAGE_DAYS)).fetchall()
             return {"messages": [message_view(r) for r in rows], **extra}
         sql, args = "select * from messages where team_id = %s", [team_id]
-        if role != "lead":
+        if role != "lead" or box == "inbox":
             sql, args = sql + " and (from_user = %s or to_user = %s or to_user is null)", args + [me, me]
         if task:
             sql, args = sql + " and task = %s", args + [task.strip().upper()]
-        rows = conn.execute(sql + " order by id desc limit 100", args).fetchall()
-        return {"messages": [message_view(r) for r in rows]}
+        rows = conn.execute(sql + " order by id desc limit %s", args + [limit]).fetchall()
+        if box != "inbox":
+            return {"messages": [message_view(r) for r in rows]}
+        marker = access_of(conn, team_id, me)["notes_read"]
+        return {"messages": [{**message_view(r), "unread": int(r["id"]) > marker and str(r["from_user"]) != me} for r in rows],
+                "unread": unread_of(conn, team_id, me, marker), "read_up_to": marker}
+
+    @app.post("/v1/messages/read")
+    def mark_read(body: ReadIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """How far I've read the notes to me, from the desktop or the phone: never back, never past the newest note."""
+        team_id, _, _ = team_scope(c, team, conn)
+        top = int(conn.execute("select coalesce(max(id), 0) as n from messages where team_id = %s", (team_id,)).fetchone()["n"])
+        conn.execute("insert into session_access (team_id, user_id, notes_read) values (%s, %s, %s) on conflict (team_id, user_id)"
+                     " do update set notes_read = greatest(session_access.notes_read, excluded.notes_read)",
+                     (team_id, c.person.id, min(body.up_to, top)))
+        marker = access_of(conn, team_id, c.person.id)["notes_read"]
+        return {"read_up_to": marker, "unread": unread_of(conn, team_id, c.person.id, marker)}
 
     @app.post("/v1/tasks/{task}/handoff")
     def handoff(task: str, body: HandoffIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:

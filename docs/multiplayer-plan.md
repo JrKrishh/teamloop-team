@@ -102,8 +102,8 @@ and stop re-reading the codebase (or pulling blind) to learn what the other one 
 Phases 2–4; three pieces don't. Checked 19 Oct: the hub takes Super Team prompts only from signed-in people (not a
 coding agent's connector); the git hook only adds the task trailer (nothing records a push); notes have no unread state.
 
-**Phase 6: Team inbox with unread** (1–2 days)
-1. Hub: a read marker per person (`session_access.notes_read`, in migration v10 since v10 isn't on production yet);
+**Phase 6: Team inbox with unread** (1–2 days) *Built 19 Oct (branch `T-58-inbox`).*
+1. Hub: a read marker per person (`session_access.notes_read`, migration v11);
    `POST /v1/messages/read`; the record's answer carries `unread` (notes to me or to everyone, not mine, after the marker).
 2. Desktop: Super Team → Inbox: every note to me or to everyone, newest first, by task, reply in place; an unread badge on
    Super Team and a toast per new note, as prompts have today. Phone: the same list in Needs you, a badge, a notification

@@ -97,7 +97,7 @@ fun Home(activity: MainActivity, tab: Tab, onTab: (Tab) -> Unit, onChat: (ChatOp
     val board by r.board.collectAsState()
     val haptic = LocalHapticFeedback.current
     var settings by remember { mutableStateOf(false) }
-    val waiting = (laptop?.live?.count { it.ask != null } ?: 0) + (laptop?.asks?.size ?: 0)
+    val waiting = (laptop?.live?.count { it.ask != null } ?: 0) + (laptop?.asks?.size ?: 0) + (laptop?.notes?.size ?: 0)
     LaunchedEffect(tab) { if (tab == Tab.Chats) runCatching { r.refresh() } }  // chats started since, here or at the desk
 
     Scaffold(
