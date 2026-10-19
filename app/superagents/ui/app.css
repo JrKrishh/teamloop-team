@@ -723,6 +723,9 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .inbox-note p{margin:0;font-size:14px;white-space:pre-wrap}
 .inbox-note .link-btn{justify-self:start;padding-left:0}
 .inbox-note.mine p{color:var(--muted)}
+/* This laptop: teammates' agents' commits a repo doesn't have yet */
+.repo .behind{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:4px 0 0 32px}
+.repo .behind small{font-size:12.5px;color:var(--warn)}
 /* handing a task to a teammate */
 .handoff-form{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px}
 .handoff-form .btn{justify-self:start}

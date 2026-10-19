@@ -1496,9 +1496,44 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         claims = cards.claimed([{**r["body"], "_at": float(r["at"])} for r in conn.execute(
             "select body, extract(epoch from received_at) as at from events where team_id = %s and kind = 'tool' and task = any(%s)"
             " and received_at > now() - make_interval(secs => %s)", (team_id, list(owners), cards.CLAIM_SECONDS))], owners, now) if owners else {}
+        repos = [r["repo"] for r in conn.execute("select distinct body->>'repo' as repo from events where team_id = %s and member = %s"
+                                                 " and received_at > now() - interval '7 days' and body->>'repo' is not null", (team_id, me))]
+        pushes = [push_view(r) for r in conn.execute(
+            "select body, member, extract(epoch from received_at) as at from events where team_id = %s and kind = 'push' and member <> %s"
+            " and body->>'repo' = any(%s) and received_at > now() - make_interval(secs => %s) order by received_at desc limit 20",
+            (team_id, me, repos, cards.EDITING_SECONDS))] if repos else []
         return {"overlaps": [o for o in cards.overlaps(mine) if any(w["member"] != me for w in o["who"])],
                 "claims": [{**t, "who": [w for w in t["who"] if w["member"] == me]} for t in cards.trespass(mine, claims)
-                           if any(w["member"] == me for w in t["who"])]}
+                           if any(w["member"] == me for w in t["who"])],
+                "pushes": pushes}  # teammates' agents' pushes to repos I work in: the laptop checks which it lacks
+
+    def push_view(r: dict) -> dict:
+        b = r["body"]
+        return {"id": b["id"], "member": r["member"], "repo": b.get("repo"), "branch": (b.get("push") or {}).get("branch"),
+                "at": float(r["at"]), "commits": (b.get("push") or {}).get("commits") or []}
+
+    @app.get("/v1/changes")
+    def changes(repo: str = Query(min_length=1, max_length=200), team: Optional[str] = None, days: int = Query(14, ge=1, le=30),
+                mine: bool = False, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """The shared workspace: what teammates' agents pushed to a repo (commits, files, line counts; never code), newest
+        first, with each task's title and the pusher's latest session summary on it, the why. A laptop joins this with its
+        own checkout to say what it doesn't have yet."""
+        team_id, _, _ = team_scope(c, team, conn)
+        rows = conn.execute("select body, member, extract(epoch from received_at) as at from events where team_id = %s and kind = 'push'"
+                            " and body->>'repo' = %s and received_at > now() - make_interval(days => %s)" + ("" if mine else " and member <> %s")
+                            + " order by received_at desc limit 50", (team_id, repo, days) + (() if mine else (c.person.name,))).fetchall()
+        pushes = [push_view(r) for r in rows]
+        tasks = sorted({cm["task"] for p in pushes for cm in p["commits"] if cm.get("task")})
+        titles = {r["task"]: r["title"] for r in conn.execute(
+            "select distinct on (task) task, body->'facts'->>'title' as title from events where team_id = %s and kind = 'task_start'"
+            " and task = any(%s) and body->'facts'->>'title' is not null order by task, received_at desc", (team_id, tasks))}
+        titles.update({t: p["title"] for t, p in planned(conn, team_id).items() if t in tasks and p["title"] != t})
+        why: dict = {}
+        for r in conn.execute("select distinct on (task, member) task, member, body->>'summary' as summary from events where team_id = %s"
+                              " and kind = 'turn_end' and task = any(%s) and body->>'summary' is not null order by task, member, received_at desc",
+                              (team_id, tasks)):
+            why.setdefault(r["task"], {})[r["member"]] = r["summary"]
+        return {"repo": repo, "pushes": pushes, "tasks": {t: {"title": titles.get(t), "why": why.get(t, {})} for t in tasks}}
 
     def unread_of(conn, team_id: str, me: str, marker: int) -> int:
         """Notes to me or to everyone, not mine, after how far I've read."""

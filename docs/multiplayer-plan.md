@@ -122,7 +122,8 @@ coding agent's connector); the git hook only adds the task trailer (nothing reco
    → Asha's Claude Code asks Ravi's Codex session for a function's new signature; Ravi is on automatic; the answer
    comes back inside Asha's turn, and Ravi's session reads at its next step what was asked and answered.
 
-**Phase 8: Shared workspace: what teammates changed, without reading the codebase** (3–4 days)
+**Phase 8: Shared workspace: what teammates changed, without reading the codebase** (3–4 days) *Built 19 Oct (branch
+`T-59-workspace`); the "pushes" ride on the warnings poll, and the change log is the push events themselves (no new table).*
 1. Connector: a `pre-push` git hook (beside prepare-commit-msg) records each push: repo, branch, and per commit its sha,
    subject (redacted), task trailer and files with line counts. Commits are shared from the push on, so nothing unpushed
    leaves the laptop, and never a diff or file contents. Only commits an agent made count (AGENTS.md rule 9: since 19 Oct

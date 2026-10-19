@@ -88,6 +88,9 @@ def describe(e: dict) -> str | None:
         return f"CI {f.get('name') or 'checks'}: {f.get('conclusion')}"
     if kind == "commit":
         return f"commit {f.get('sha')}: {f.get('message', '')}"
+    if kind == "push":  # an agent's commits, as the push shared them (subjects only, no code)
+        cs = (e.get("push") or {}).get("commits") or []
+        return f"pushed {len(cs)} commit{'' if len(cs) == 1 else 's'} to {(e.get('push') or {}).get('branch')}: " + "; ".join(c.get("subject", "") for c in cs[:3])
     return f"{kind}: {f}"  # future kinds still show up
 
 

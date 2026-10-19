@@ -14,7 +14,7 @@ import sys
 import time
 import traceback
 
-from teamloop import messages, redact, repo, spool, usage
+from teamloop import messages, redact, repo, spool, usage, workspace
 from teamloop.normalize import NORMALIZERS
 
 # Claude Code and Codex add these hooks' `additionalContext` to what the model reads next (each checked in its own hook
@@ -28,6 +28,11 @@ def handle(tool: str, raw: bytes) -> dict | None:
         return None
     payload = json.loads(raw.decode("utf-8") or "{}")
     found = repo.find(payload.get("cwd") or os.getcwd())
+    if found:
+        try:
+            workspace.remember(found.root)  # where this repo lives, for teammates' pushes to it (a file, no git here)
+        except Exception:  # noqa: BLE001 - never at the cost of the event
+            log(tool)
     event = NORMALIZERS[tool](payload, found.root if found else None)
     if event is None:
         return None
