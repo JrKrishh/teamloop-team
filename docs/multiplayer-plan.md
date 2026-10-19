@@ -95,6 +95,50 @@ Sources: cursor.com/docs/cli/reference/parameters, /docs/cli/headless, /docs/cli
 
 About 10–13 working days in all, one person.
 
+## Next: one team workspace (proposed 19 Oct 2026)
+Yang's scenario (from building NeatHack with Sourabh): two people on one product, each in their own tool, should see
+each other's work, hand instructions across with an unread marker, let a trusted teammate's prompts run without a yes,
+and stop re-reading the codebase (or pulling blind) to learn what the other one changed. Most of it exists after
+Phases 2–4; three pieces don't. Checked 19 Oct: the hub takes Super Team prompts only from signed-in people (not a
+coding agent's connector); the git hook only adds the task trailer (nothing records a push); notes have no unread state.
+
+**Phase 6: Team inbox with unread** (1–2 days)
+1. Hub: a read marker per person (`session_access.notes_read`, in migration v10 since v10 isn't on production yet);
+   `POST /v1/messages/read`; the record's answer carries `unread` (notes to me or to everyone, not mine, after the marker).
+2. Desktop: Super Team → Inbox: every note to me or to everyone, newest first, by task, reply in place; an unread badge on
+   Super Team and a toast per new note, as prompts have today. Phone: the same list in Needs you, a badge, a notification
+   while the app is in the background.
+   → Asha's agent leaves Ravi a note; his desktop and phone show 1 unread within 15 s; reading it on one clears both.
+
+**Phase 7: Agents asking agents, from the coding session** (2–3 days)
+1. Hub: a connector may send a Super Team prompt, under the owner's same rules (off, ask, automatic; read only or edit;
+   daily tokens), on the record as "Asha's agent".
+2. Connector MCP tools: `ask_teammate(member, question, task)` into their latest session on that task, waiting up to a
+   minute for an automatic run's answer (else an id), and `ask_status(id)`. Claude Code subagents get the session's MCP
+   tools, so they can ask too; a teammate's agent addresses a session, not a subagent (those live for one task).
+3. "Automatic" can't mean typing into the live session: neither Claude Code nor Codex takes input from outside while
+   someone is in it, and a second writer on one session file breaks it. A run stays a copy of the session, and the owner's
+   live session gets a note of what ran in its name and which files it changed.
+   → Asha's Claude Code asks Ravi's Codex session for a function's new signature; Ravi is on automatic; the answer
+   comes back inside Asha's turn, and Ravi's session reads at its next step what was asked and answered.
+
+**Phase 8: Shared workspace: what teammates changed, without reading the codebase** (3–4 days)
+1. Connector: a `pre-push` git hook (beside prepare-commit-msg) records each push: repo, branch, and per commit its sha,
+   subject (redacted), task trailer and files with line counts. Commits are shared from the push on, so nothing unpushed
+   leaves the laptop, and never a diff or file contents.
+2. Hub: a change log per repo from those pushes, kept 30 days (`GET /v1/changes?repo=&since=`).
+3. Laptop: joins it with local git, without the network: which of those commits this checkout lacks, which touch files
+   you changed or are editing, whether a pull is a fast-forward.
+4. Delivery: (a) at session start and in the warnings poll, "Asha pushed 3 commits to main (T-19, rename the session API)
+   touching src/auth/session.py, which you're editing: pull first"; (b) an MCP tool `team_changes(repo)` that gives an
+   agent those commits, files and the sessions' summaries (the why) in a few dozen lines instead of exploring the code;
+   (c) desktop: "acme-web: 3 commits from Asha you don't have · Pull" (fast-forward only).
+   → Asha pushes to main; Ravi's live session gets the note at its next step; `team_changes` lists the commits with
+   files and why; Pull fast-forwards. The privacy panel names what's new: pushed commits' subjects, files, line counts.
+
+Order: 6 (a day or two, and it makes the notes already built hard to miss), then 8 (the biggest new value), then 7.
+About 7–9 working days.
+
 ## What stays out
 - A shared cloud sandbox, cloud workers, CRDT canvases: they cost money and move code off the laptops (see multiplayer.md).
 - Agents acting on teammates' messages by themselves: a message is information; anything it leads to goes through the
