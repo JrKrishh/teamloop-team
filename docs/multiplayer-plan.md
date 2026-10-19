@@ -62,6 +62,7 @@ Each step ends in a check that proves it works.
    rate limited, kept 14 days; `POST /v1/messages` and `GET /v1/messages?since=`; migration v9.
 2. Connector: MCP tools `message_teammate(to, text, task?)` and `read_messages()`; the sender thread fills the inbox;
    hooks add it to context (Claude Code first; Codex and Cursor where their hooks can).
+   Built: Claude Code and Codex both (Codex's hooks take Claude Code's `additionalContext`; its hook schema, 19 Oct).
    → Asha's Claude Code session sends "I renamed /v1/session to /v1/app/session" to Yang's Codex session; it shows in
    Yang's next step, inside the peer banner, and on the task's timeline.
 3. Owner's switch (Super Team → Rules): teammates' agents may message my sessions: off, ask, on.
@@ -101,7 +102,7 @@ About 10–13 working days in all, one person.
 
 ## Risks
 - **Hooks differ per tool:** if Codex's or Cursor's hooks can't add context, those sessions get messages only through
-  `read_messages`. Check this first in Phase 1's captures.
+  `read_messages`. Check this first in Phase 1's captures. (Codex's can: checked 19 Oct. Cursor's: still to see.)
 - **Agents prompting agents:** a hostile or careless teammate's text could try to steer another person's agent. Keep
   ccbridge's two layers (sanitized at the hub, banner on delivery), and messages never authorize anything.
 - **Cursor's hook format is young** and may change: fixtures, tests and `teamloop doctor` catch it.

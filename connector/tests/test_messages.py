@@ -56,16 +56,17 @@ def test_a_live_claude_code_session_gets_waiting_notes_at_its_next_step(tmp_path
                                                             "text": "Rebase before touching login.ts", "at": time.time()}) + "\n")
     env = {**os.environ, "TEAMLOOP_HOME": str(teamloop_home)}
 
-    def hook(tool, event):
-        payload = {"hook_event_name": event, "session_id": "s-1", "cwd": str(tmp_path), "tool_name": "Bash", "tool_input": {}}
+    def hook(tool, event, session="s-1"):
+        payload = {"hook_event_name": event, "session_id": session, "cwd": str(tmp_path), "tool_name": "Bash", "tool_input": {}}
         r = subprocess.run([sys.executable, "-m", "teamloop", "hook", tool], input=json.dumps(payload).encode(), capture_output=True,
                            env=env, cwd=tmp_path)
         assert r.returncode == 0 and r.stderr == b""
         return r.stdout.decode()
-    assert hook("codex", "PostToolUse") == "" and hook("claude_code", "SessionEnd") == ""  # no context there
-    out = json.loads(hook("claude_code", "PostToolUse"))["hookSpecificOutput"]
-    assert out["hookEventName"] == "PostToolUse" and "Rebase before touching login.ts" in out["additionalContext"]
-    assert hook("claude_code", "PostToolUse") == ""  # given once
+    assert hook("claude_code", "SessionEnd") == "" and hook("codex", "Stop") == ""  # no context there
+    for tool, session in (("claude_code", "s-1"), ("codex", "s-2")):  # Codex takes Claude Code's hook output too
+        out = json.loads(hook(tool, "PostToolUse", session))["hookSpecificOutput"]
+        assert out["hookEventName"] == "PostToolUse" and "Rebase before touching login.ts" in out["additionalContext"]
+        assert hook(tool, "PostToolUse", session) == ""  # given once
 
 
 def test_the_mcp_tools_send_and_read_notes(monkeypatch):

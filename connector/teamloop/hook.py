@@ -17,9 +17,10 @@ import traceback
 from teamloop import messages, redact, repo, spool, usage
 from teamloop.normalize import NORMALIZERS
 
-# Claude Code adds these hooks' `additionalContext` to what the model reads next (checked in its own schema, 18 Oct).
-# Not Stop: context there could set a finished agent going again.
+# Claude Code and Codex add these hooks' `additionalContext` to what the model reads next (each checked in its own hook
+# schema: Claude Code's 18 Oct, Codex's 19 Oct, the same shape). Not Stop: context there could set a finished agent going again.
 CONTEXT_EVENTS = {"SessionStart", "PostToolUse", "PostToolUseFailure"}
+CONTEXT_TOOLS = {"claude_code", "codex"}
 
 
 def handle(tool: str, raw: bytes) -> dict | None:
@@ -81,10 +82,10 @@ def flush_detached() -> None:
 
 
 def deliver(tool: str, payload: dict) -> str | None:
-    """Teammates' notes this live session hasn't had, as the hook's answer for Claude Code to add to what the model reads
-    next. Other tools' sessions read notes with the MCP tool `read_messages`."""
+    """Teammates' notes this live session hasn't had, as the hook's answer for Claude Code or Codex to add to what the
+    model reads next. Other tools' sessions read notes with the MCP tool `read_messages`."""
     name = payload.get("hook_event_name")
-    if tool != "claude_code" or name not in CONTEXT_EVENTS or not payload.get("session_id"):
+    if tool not in CONTEXT_TOOLS or name not in CONTEXT_EVENTS or not payload.get("session_id"):
         return None
     notes = messages.take(payload["session_id"])
     if not notes:

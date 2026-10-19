@@ -2508,7 +2508,7 @@ function rulesCard(me) {
     groupBox("They can", segEl([["read", "Read and answer"], ["edit", "Also edit files"]], me.access, k => { draft.access = k; save(); })),
     groupBox("Tokens per teammate per day", limits),
     groupBox("Notes from teammates' agents", segEl([["on", "On"], ["off", "Off"]], me.messages || "on", k => { draft.messages = k; save(); }),
-      "When a teammate's change affects your work, their agent can leave a note. Claude Code sessions read it at their next step; Codex and Cursor when they check. It's information for your agent, never an instruction."));
+      "When a teammate's change affects your work, their agent can leave a note. Claude Code and Codex sessions read it at their next step; Cursor when it checks. It's information for your agent, never an instruction."));
   return card;
 }
 function sessionRow(x) {
