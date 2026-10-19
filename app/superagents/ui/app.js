@@ -2530,7 +2530,7 @@ async function checkInbox() {
       if (S.view === "team" && teamTab === "inbox") loadInbox();  // open: show them now
     }
     const fresh = waiting.filter(p => !INBOX.has(p.id)); fresh.forEach(p => INBOX.add(p.id));
-    if (fresh.length) toast(fresh.length === 1 ? `${fresh[0].from.name} wants to prompt your ${TOOL_LABEL[fresh[0].tool]} session. Super Team → Prompts.`
+    if (fresh.length) toast(fresh.length === 1 ? `${fresh[0].from.name}${fresh[0].via === "agent" ? "'s agent" : ""} wants to prompt your ${TOOL_LABEL[fresh[0].tool]} session. Super Team → Prompts.`
       : `${fresh.length} prompts are waiting for you. Super Team → Prompts.`);
     const newAsks = asks.filter(a => !INBOX.has(a.id)); newAsks.forEach(a => INBOX.add(a.id));
     if (newAsks.length) toast(newAsks.length === 1 ? `${newAsks[0].from.name}'s agent needs your yes: ${newAsks[0].what}. Super Team → Prompts.`
@@ -2606,7 +2606,7 @@ async function openThread(session) {
   const rules = x.mode === "off" ? `${owner} isn't taking prompts now` : `${x.mode === "ask" ? `${owner} allows each prompt` : "Runs by their rules"} · ${x.access === "read" ? "read only" : "can edit"}`;
   const list = el("div", "thread");
   for (const p of t.prompts) {
-    const q = el("div", "turn-q", p.prompt); q.append(el("small", null, `${p.yours ? "you" : p.from.name} · ${ago(p.created_at)}`));
+    const q = el("div", "turn-q", p.prompt); q.append(el("small", null, `${p.yours ? (p.via === "agent" ? "your agent" : "you") : p.from.name + (p.via === "agent" ? "'s agent" : "")} · ${ago(p.created_at)}`));
     const a = el("div", "turn-a");
     if (p.result) { const md = el("div", "md"); renderMd(md, p.result); a.append(md); }
     else a.append(el("span", "wait", p.status === "approved" && !x.app_online ? `queued: runs when ${owner}'s Super Agents is back`
@@ -2658,7 +2658,7 @@ async function loadPrompts() {
 function promptCard(p, decide) {
   const c = el("article", `pcard ${p.status}`);
   const head = el("div", "phead");
-  head.append(el("b", null, `${p.from.name} → ${p.to.name}'s ${TOOL_LABEL[p.tool] || p.tool}`), el("span", "sub small", [p.task, p.repo].filter(Boolean).join(" · ")),
+  head.append(el("b", null, `${p.from.name}${p.via === "agent" ? "'s agent" : ""} → ${p.to.name}'s ${TOOL_LABEL[p.tool] || p.tool}`), el("span", "sub small", [p.task, p.repo].filter(Boolean).join(" · ")),
     el("span", "grow"), el("span", "pstatus", P_STATUS[p.status] || p.status));
   const meta = el("div", "pmeta");
   meta.append(el("span", null, ago(p.created_at)), el("span", null, p.access === "read" ? "read only" : "can edit"));

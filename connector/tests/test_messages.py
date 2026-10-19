@@ -150,3 +150,27 @@ def test_handing_a_task_over_from_a_coding_session(tmp_path, monkeypatch):
     monkeypatch.setattr(send, "config", lambda: {"url": "http://hub", "room": "teamloop", "token": "t"})  # self-hosted
     assert mcp_server.handoff("T-22", "ravi", "over to you").startswith("Told ravi on your hub's message bus")
     assert asked[-1] == ("POST", "/v1/send", {"to": "ravi", "text": "Handing T-22 to you: branch T-22-snap of acme/web. over to you"})
+
+
+def test_a_coding_agent_asks_a_teammates_session(monkeypatch):
+    from teamloop import mcp_server
+
+    states, asked = iter(["running", "done"]), []
+    base = {"id": "0" * 8 + "-0000-0000-0000-" + "0" * 12, "to": {"name": "asha"}, "tool": "codex", "result": None}
+
+    def request(cfg, method, path, body=None):
+        asked.append((method, path, body))
+        if method == "POST":
+            return {**base, "status": "pending" if "decide" in body["prompt"] else "approved"}
+        status = next(states)
+        return {**base, "status": status, "result": "migrations/003_snapshots.sql" if status == "done" else None}
+    monkeypatch.setattr(login, "request", request)
+    monkeypatch.setattr(send, "config", lambda: CLOUD)
+    monkeypatch.setattr(mcp_server.time, "sleep", lambda s: None)
+    said = mcp_server.ask_teammate("Asha", "Which file has the migration? key ghp_" + "Q" * 36, "T-22")
+    assert asked[0][2]["member"] == "Asha" and asked[0][2]["task"] == "T-22" and "ghp_" not in asked[0][2]["prompt"]
+    assert said.startswith("asha's Codex session answered") and said.endswith("\nmigrations/003_snapshots.sql")
+    assert "decides first" in mcp_server.ask_teammate("asha", "please decide")
+    assert "ask_teammate gives one" in mcp_server.ask_status("../x")
+    monkeypatch.setattr(send, "config", lambda: {"url": "http://hub", "room": "r", "token": "t"})
+    assert "hosted hub" in mcp_server.ask_teammate("asha", "x")

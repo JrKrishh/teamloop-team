@@ -110,7 +110,8 @@ coding agent's connector); the git hook only adds the task trailer (nothing reco
    while the app is in the background.
    → Asha's agent leaves Ravi a note; his desktop and phone show 1 unread within 15 s; reading it on one clears both.
 
-**Phase 7: Agents asking agents, from the coding session** (2–3 days)
+**Phase 7: Agents asking agents, from the coding session** (2–3 days) *Built 19 Oct (branch `T-60-agents-ask`), migration v12;
+the owner's note comes with every run that finishes, a person's prompts too.*
 1. Hub: a connector may send a Super Team prompt, under the owner's same rules (off, ask, automatic; read only or edit;
    daily tokens), on the record as "Asha's agent".
 2. Connector MCP tools: `ask_teammate(member, question, task)` into their latest session on that task, waiting up to a

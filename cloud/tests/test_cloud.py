@@ -679,6 +679,33 @@ def a_session(n, session, tool="claude_code", task="T-22", repo="acme-web"):
              "repo": repo, "facts": {}}]
 
 
+def test_coding_agents_ask_teammates_sessions_and_the_owners_session_hears_of_it(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha = join(app, yang, team, "asha")
+    q = {"team": team}
+    asha_agent, yang_agent = TestClient(app, headers=connect(app, asha, team)), TestClient(app, headers=connect(app, yang, team))
+    asha_agent.post("/v1/events", json={"events": a_session(100, "sess-old", task="T-7") + a_session(110, "sess-t22")})
+    asha_agent.post("/v1/events", json={"events": a_session(120, "sess-newest", task="T-9")})
+    # by teammate and task: her latest session on that task, not her newest
+    p = yang_agent.post("/v1/prompts", json={"member": "Asha", "task": "t-22", "prompt": "What's the new create_snapshot signature?"}).json()
+    assert (p["session"], p["status"], p["via"], p["from"]["name"]) == ("sess-t22", "pending", "agent", "yang")
+    assert yang_agent.post("/v1/prompts", json={"member": "asha", "prompt": "x"}).json()["session"] == "sess-newest"  # no task: newest
+    assert yang_agent.post("/v1/prompts", json={"member": "yang", "prompt": "x"}).status_code == 404  # no session of his own to ask
+    assert yang_agent.post("/v1/prompts", json={"prompt": "x"}).status_code == 400
+    # Asha runs prompts automatically: a copy of her session answers, and her live sessions hear what was asked in its name
+    asha.put("/v1/sessions/access", params=q, json={"mode": "auto", "access": "read", "messages": "on"})
+    auto = yang_agent.post("/v1/prompts", json={"member": "asha", "task": "T-22", "prompt": "Which file has the migration?"}).json()
+    assert auto["status"] == "approved"
+    asha.post(f"/v1/prompts/{auto['id']}/claim", params=q)
+    asha.post(f"/v1/prompts/{auto['id']}/finish", params=q, json={"status": "done", "result": "migrations/003_snapshots.sql", "tokens": 900})
+    got = yang_agent.get(f"/v1/prompts/{auto['id']}").json()  # the asking agent reads the answer
+    assert (got["status"], got["result"]) == ("done", "migrations/003_snapshots.sql")
+    [note] = [m for m in asha_agent.get("/v1/messages").json()["messages"] if m["text"].startswith("Asked a copy")]
+    assert note["text"] == ('Asked a copy of your Claude Code session: "Which file has the migration?" It answered: '
+                            "migrations/003_snapshots.sql") and (note["from"]["name"], note["via"], note["task"]) == ("yang", "agent", "T-22")
+
+
 def test_super_team_prompts_follow_the_owners_rules(app):
     yang = signin(app, "yang")
     team = new_team(yang)
