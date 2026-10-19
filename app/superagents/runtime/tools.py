@@ -129,12 +129,18 @@ def write_file(ctx, path: str, content: str) -> str:
 
 
 # ---- terminal --------------------------------------------------------------------------------------------------
+def AGENT_ENV() -> dict:
+    """The environment for commands an agent here runs: TEAMLOOP_AGENT tells the repo's commit hook that a commit is an
+    agent's (as CLAUDECODE does for Claude Code's), so it's tagged; a person's own commits are left alone."""
+    return {**os.environ, "TEAMLOOP_AGENT": "superagents"}
+
+
 def run_command(ctx, command: str, cwd: str = "") -> str:
     where = resolve(cwd) if cwd.strip() else (next(iter(roots().values()), Path.home()))
     shell = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command] if sys.platform == "win32" else ["bash", "-lc", command]
     try:
         r = subprocess.run(shell, cwd=where, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
-                           encoding="utf-8", errors="replace")
+                           encoding="utf-8", errors="replace", env=AGENT_ENV())
     except subprocess.TimeoutExpired:
         return "Timed out after 120 s."
     out = (r.stdout or "") + (("\n[stderr]\n" + r.stderr) if r.stderr else "")
@@ -363,7 +369,7 @@ def _git(path: Path, *args: str, timeout: int = 30, input: str | None = None) ->
     # GIT_TERMINAL_PROMPT=0: never wait on a terminal prompt; Git Credential Manager signs in through its own window
     return subprocess.run(["git", *args], cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
                           timeout=timeout, input=input, stdin=None if input is not None else subprocess.DEVNULL,
-                          env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+                          env={**AGENT_ENV(), "GIT_TERMINAL_PROMPT": "0"})
 
 
 def _repo(repo: str) -> Path:

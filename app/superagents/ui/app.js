@@ -2807,7 +2807,7 @@ function renderLaptop() {
 
   const never = el("section", "panel"); never.append(el("h3", null, "Never reaches your team"));
   const nv = el("div", "never");
-  for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
+  for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Code you write and commit yourself", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
   nv.append(el("p", "sub", "Except what you allow: a prompt a teammate sends into one of your sessions, and its answer, go on the team's record (Super Team → Sessions sets your rules). So does a note your agent leaves for a teammate on purpose, with secrets taken out."));
   nv.append(el("p", "sub", "What goes: a one-line summary per turn, plus facts such as files changed, tests passed or failed, and token counts. Nemotron writes the summary from the agent's last message, through the Super Agents server, which doesn't keep it."),
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));

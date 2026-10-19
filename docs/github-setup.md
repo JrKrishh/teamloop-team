@@ -26,8 +26,9 @@ HUB_GITHUB_REPOS=owner/repo=teamloop,owner/other=teamloop
 4. Subscribe to the same events, then install it on the repos you want.
 
 ## How tasks are matched
-1. A `TeamLoop-Task: T-14` trailer on a commit. `teamloop git-hook install` adds it.
-2. Otherwise, a task id in the branch name, e.g. `T-14-github-webhooks`.
+1. A `TeamLoop-Task: T-14` trailer on a commit. `teamloop git-hook install` adds it to the commits a coding agent makes,
+   and only those: a pushed commit without it was made by hand and isn't shown, since Super Team follows agents' work.
+2. For pull requests, reviews and checks: a task id in the branch name, e.g. `T-14-github-webhooks`.
 3. Otherwise, a task id in the PR title.
 
 Events with no task are ignored. Redeliveries are safe, because ids come from `X-GitHub-Delivery`. GitHub's own `ping` gets a pong.

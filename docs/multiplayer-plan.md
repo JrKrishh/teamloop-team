@@ -125,7 +125,8 @@ coding agent's connector); the git hook only adds the task trailer (nothing reco
 **Phase 8: Shared workspace: what teammates changed, without reading the codebase** (3–4 days)
 1. Connector: a `pre-push` git hook (beside prepare-commit-msg) records each push: repo, branch, and per commit its sha,
    subject (redacted), task trailer and files with line counts. Commits are shared from the push on, so nothing unpushed
-   leaves the laptop, and never a diff or file contents.
+   leaves the laptop, and never a diff or file contents. Only commits an agent made count (AGENTS.md rule 9: since 19 Oct
+   the commit hook links only those); a person's own commits stay out of it.
 2. Hub: a change log per repo from those pushes, kept 30 days (`GET /v1/changes?repo=&since=`).
 3. Laptop: joins it with local git, without the network: which of those commits this checkout lacks, which touch files
    you changed or are editing, whether a pull is a fast-forward.
