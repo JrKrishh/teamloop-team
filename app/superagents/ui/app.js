@@ -2737,6 +2737,24 @@ $("inviteBtn").onclick = async () => {
 };
 
 // ---- this laptop --------------------------------------------------------------------------------------------
+// The shared workspace on This laptop: per repo, the commits teammates' agents pushed that this checkout doesn't have,
+// worked out here from the hub's change log (never code) and the repo's own git; Pull fast-forwards.
+async function fillBehind(rows) {
+  let d;
+  try { d = await api(`/api/laptop/changes?team=${encodeURIComponent(S.team)}`); } catch (e) { return; }  // a hub from before it
+  for (const c of d.repos) {
+    const li = rows.get(c.repo);
+    if (!li || !c.lacking || !li.isConnected) continue;
+    const line = el("div", "behind"), who = c.from.map(n => `${n}'s agent`).join(", ");
+    line.append(el("small", null, `${c.lacking} commit${c.lacking === 1 ? "" : "s"} from ${who} you don't have${c.tasks.length ? ` (${c.tasks.join(", ")})` : ""}`));
+    const pull = btn("Pull", "", async () => {
+      pull.disabled = true;
+      try { const r = await api("/api/laptop/pull", {method: "POST", body: {repo: c.repo}}); toast(`${c.repo}: ${(r.result || "").split("\n")[0]}`); refreshLaptop(true); }
+      catch (e) { toast(e.message, true); pull.disabled = false; }
+    });
+    line.append(pull); li.append(line);
+  }
+}
 function renderLaptop() {
   const L = S.laptop || {}; const grid = $("laptopGrid"); grid.replaceChildren();
   const left = el("div", "stack"), right = el("div", "stack");
@@ -2766,7 +2784,7 @@ function renderLaptop() {
   left.append(rep);
 
   const repos = el("section", "panel"); repos.append(el("h3", null, "Repos"), el("p", "sub", "Each connected repo reports its Claude Code and Codex sessions. Hooks go in personal files, kept out of git."));
-  const ul = el("ul", "repos");
+  const ul = el("ul", "repos"), rows = new Map();
   for (const r of L.repos || []) {
     const li = el("li", "repo"); const f = el("span", "folder"); f.append(ic("folder"));
     const checks = el("div", "checks");
@@ -2774,8 +2792,9 @@ function renderLaptop() {
     if (r.codex !== null) checks.append(el("span", "ck " + (r.codex ? "ok" : "no"), r.codex ? "Codex ✓" : "Codex ✗"));
     if (r.task) checks.append(el("span", "ck", r.task));
     const name = el("b", null, r.name); name.title = r.path;
-    li.append(f, name, checks); ul.append(li);
+    li.append(f, name, checks); ul.append(li); rows.set(r.name, li);
   }
+  if (L.team) fillBehind(rows);
   if (!(L.repos || []).length) ul.append(el("li", "sub", "No repos connected yet."));
   const fromGitHub = btn("Connect from GitHub", "primary", githubRepos, "github"); fromGitHub.classList.remove("small");  // as big as the folder button
   const add = el("button", "btn", "Connect a folder"); add.type = "button";
@@ -2809,7 +2828,7 @@ function renderLaptop() {
   const nv = el("div", "never");
   for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Code you write and commit yourself", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
   nv.append(el("p", "sub", "Except what you allow: a prompt a teammate sends into one of your sessions, and its answer, go on the team's record (Super Team → Sessions sets your rules). So does a note your agent leaves for a teammate on purpose, with secrets taken out."));
-  nv.append(el("p", "sub", "What goes: a one-line summary per turn, plus facts such as files changed, tests passed or failed, and token counts. Nemotron writes the summary from the agent's last message, through the Super Agents server, which doesn't keep it."),
+  nv.append(el("p", "sub", "What goes: a one-line summary per turn, plus facts such as files changed, tests passed or failed, and token counts. Nemotron writes the summary from the agent's last message, through the Super Agents server, which doesn't keep it. When your agents' commits are pushed: their subject lines, file names and line counts."),
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
   never.append(nv); right.append(never);
   grid.append(left, right);

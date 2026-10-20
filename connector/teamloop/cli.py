@@ -71,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     g = sub.add_parser("git-hook", help="install the commit hook that links your coding agent's commits to their task")
     g.add_argument("action", choices=["install"])
     sub.add_parser("agent-of", help="(the commit hook calls this) prints 'codex' when Codex started this commit")
+    pu = sub.add_parser("pushed", help="(the pre-push hook calls this) tells the team which of its agents' commits a push shares")
+    pu.add_argument("remote")
+    pu.add_argument("url", nargs="?")
     sub.add_parser("pause", help="stop recording anything")
     sub.add_parser("resume", help="start recording again")
     sub.add_parser("status", help="show sharing state, spool and current task")
@@ -120,6 +123,10 @@ def main(argv: list[str] | None = None) -> int:
 
         print(githook.agent_of() or "")
         return 0
+    if args.cmd == "pushed":
+        from teamloop import pushed
+
+        return pushed.main(args.remote)
     if args.cmd in ("pause", "resume"):
         return _pause(args)
     if args.cmd == "init":

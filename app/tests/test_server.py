@@ -67,6 +67,29 @@ def env(tmp_path, monkeypatch):
     return client, hub, state, opened
 
 
+def test_this_laptop_says_which_of_teammates_agents_commits_it_lacks(env, monkeypatch, tmp_path):
+    import subprocess
+
+    client, hub, *_ = env
+    root = tmp_path / "web"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"], cwd=root, check=True)
+    have = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
+    monkeypatch.setattr(server.store, "repos", lambda: [str(root)])
+    pushes = [{"id": "e" * 32, "member": "Asha", "repo": "web", "branch": "main", "at": 1.0, "commits": [
+        {"sha": "a" * 12, "subject": "Rename the session API", "task": "T-19", "files": []},
+        {"sha": have[:12], "subject": "Already here", "task": "T-19", "files": []}]}]
+
+    def cloud(state, method, path, body=None, query=None, token=None):
+        return (200, {"repo": query["repo"], "pushes": pushes, "tasks": {}}) if path == "/v1/changes" else hub(state, method, path, body, query, token)
+    monkeypatch.setattr(server, "cloud", cloud)
+    got = client.get("/api/laptop/changes", params={"team": TEAM}).json()
+    assert got == {"repos": [{"repo": "web", "lacking": 1, "from": ["Asha"], "tasks": ["T-19"]}]}
+    r = client.post("/api/laptop/pull", json={"repo": "web"})  # no upstream here: said, not a crash
+    assert r.status_code == 400 and r.json()["detail"]
+
+
 def test_guard(env):
     client, *_ = env
     assert client.get("/api/boot").status_code == 200

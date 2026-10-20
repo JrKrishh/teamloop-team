@@ -13,6 +13,7 @@ import re
 import threading
 import time
 import urllib.error
+import urllib.parse
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -166,6 +167,29 @@ def read_messages() -> str:
             pass
     recent = [m for m in messages.inbox() if time.time() - float(m.get("at") or 0) < messages.FRESH]
     return messages.frame(recent) if recent else "No notes from teammates in the last two hours."
+
+
+@mcp.tool()
+def team_changes(repo_name: str = "") -> str:
+    """What teammates' coding agents pushed to this repo (or the one named) that this checkout doesn't have yet: their
+    commits, the files and line counts, and why, from their sessions, in a few lines. Read it instead of exploring the code
+    to learn what changed, and before editing files a teammate's agent may have changed. It never pulls."""
+    from teamloop import login, send, workspace
+
+    cfg = send.config()
+    if not cfg:
+        return "Not connected to a team hub yet. Ask your lead for an invite, then run `teamloop login <invite>`."
+    if cfg.get("mode") != "cloud":
+        return "The shared workspace needs the hosted hub; a self-hosted hub shows pushes on its board."
+    found = repo.find(os.getcwd())
+    root = workspace.known().get(repo_name) if repo_name else (found.root if found else None)
+    if root is None:
+        return f"No repo named {repo_name} on this laptop." if repo_name else "Run this inside a git repo, or name one."
+    try:
+        got = login.request(cfg, "GET", f"/v1/changes?repo={urllib.parse.quote(root.name)}")
+    except Exception as e:  # noqa: BLE001 - a tool answer, not a crash
+        return f"Couldn't reach the team hub ({type(e).__name__}). Try again in a minute."
+    return workspace.changes_text(root, got)
 
 
 def _not_handed(root, branch: str | None, to: str) -> str | None:

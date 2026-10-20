@@ -33,7 +33,8 @@ holds, its scope and schedule don't.
 2. **Free text from hooks lives only in `local`.** `facts` hold structured values only. MCP self-reports go in `report`:
    the agent writes them for the team on purpose, and they're redacted and capped at 5 items of 160 chars. Events bound
    for the hub go through `spool.public()`; `local` text reaches the hub only through `summarize.py` (`/v1/summarize`,
-   which keeps nothing), and the event carries the summary, never the text.
+   which keeps nothing), and the event carries the summary, never the text. A push event (`pushed.py`) carries agents'
+   pushed commits' subjects (redacted), file paths and line counts, in `push`: the push itself shares them; never a diff.
 3. **Redact before writing anything**, even to the local spool.
 4. **Agent transcripts are read only on the laptop:** the connector takes only numbers from them (token counts,
    `usage.py`), and the app's recall index over them stays local (what a search finds goes to the model like any tool

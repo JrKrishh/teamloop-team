@@ -274,6 +274,10 @@ class ShareTakeIn(BaseModel):
     repo: str = Field(default="", max_length=200)
 
 
+class PullIn(BaseModel):
+    repo: str = Field(min_length=1, max_length=200)
+
+
 class HandoffIn(BaseModel):
     team: str = Field(min_length=36, max_length=36)
     to: str = Field(min_length=1, max_length=120)
@@ -441,6 +445,30 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     @app.get("/api/laptop")
     def laptop_status() -> dict:
         return laptop.status()
+
+    @app.get("/api/laptop/changes")
+    def laptop_changes(team: str) -> dict:
+        """The shared workspace for each connected repo: how many of teammates' agents' pushed commits it doesn't have."""
+        from teamloop import workspace
+
+        out = []
+        for p in store.repos():
+            root = Path(p)
+            code, got = cloud(state, "GET", "/v1/changes", None, {"team": team, "repo": root.name})
+            if code != 200 or not root.is_dir():
+                continue
+            lacking = [(push["member"], c) for push in got["pushes"] for c in workspace.missing(push, root)]
+            out.append({"repo": root.name, "lacking": len(lacking), "from": sorted({m for m, _ in lacking}),
+                        "tasks": sorted({c["task"] for _, c in lacking if c.get("task")})})
+        return {"repos": out}
+
+    @app.post("/api/laptop/pull")
+    def laptop_pull(body: PullIn) -> dict:
+        """This laptop's checkout catches up with what teammates' agents pushed: fast-forward only, never a merge."""
+        try:
+            return {"result": runtime_tools.git_pull(None, body.repo)}
+        except (ValueError, RuntimeError, OSError) as e:
+            raise HTTPException(400, str(e)[:500]) from None
 
     @app.post("/api/laptop/team")
     def laptop_team(body: TeamIn) -> dict:

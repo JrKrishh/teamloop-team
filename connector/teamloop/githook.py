@@ -19,6 +19,25 @@ from pathlib import Path
 MARK = "# teamloop prepare-commit-msg"
 NAME = "prepare-commit-msg"
 KEPT = NAME + ".pre-teamloop"
+PUSH_MARK, PUSH_NAME = "# teamloop pre-push", "pre-push"
+PUSH_KEPT = PUSH_NAME + ".pre-teamloop"
+
+
+def push_script() -> str:
+    """pre-push: tells the team which of its agents' commits this push shares (`teamloop pushed`, see pushed.py). It never
+    stops a push; a hook that was there first still runs first, with the same input, and can."""
+    from teamloop import claude
+
+    exe, *rest = claude.launcher()
+    pushed = " ".join(shlex.quote(p) for p in [Path(exe).as_posix(), *rest, "pushed"])
+    return f"""#!/bin/sh
+{PUSH_MARK}: tells the team which of its agents' commits a push shares. Installed by `teamloop git-hook install`.
+KEPT="$(dirname "$0")/{PUSH_KEPT}"
+IN=$(cat)
+if [ -f "$KEPT" ]; then printf '%s\\n' "$IN" | "$KEPT" "$@" || exit $?; fi
+printf '%s\\n' "$IN" | {pushed} "$@" >/dev/null 2>&1
+exit 0
+"""
 
 
 def script() -> str:
@@ -53,28 +72,34 @@ def hooks_dir(cwd: str | os.PathLike = ".") -> Path:
     return d if d.is_absolute() else Path(cwd) / d
 
 
+def _put(d: Path, name: str, mark: str, kept: str, text: str) -> str:
+    hook = d / name
+    if hook.exists():
+        if mark in hook.read_text(encoding="utf-8", errors="replace"):
+            result = "already installed"
+        else:
+            hook.replace(d / kept)
+            result = f"installed; your existing hook was kept as {kept} and still runs first"
+    else:
+        result = "installed"
+    hook.write_text(text, encoding="utf-8", newline="\n")  # an older TeamLoop hook is brought up to date
+    hook.chmod(hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return result
+
+
 def install(cwd: str | os.PathLike = ".") -> str:
     d = hooks_dir(cwd)
     d.mkdir(parents=True, exist_ok=True)
-    hook = d / NAME
-    if hook.exists():
-        if MARK in hook.read_text(encoding="utf-8", errors="replace"):
-            result = "already installed"
-        else:
-            hook.replace(d / KEPT)
-            result = f"installed; your existing hook was kept as {KEPT} and still runs first"
-    else:
-        result = "installed"
-    hook.write_text(script(), encoding="utf-8", newline="\n")  # an older TeamLoop hook is brought up to date
-    hook.chmod(hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return f"{result}: {hook}"
+    result = _put(d, NAME, MARK, KEPT, script())
+    _put(d, PUSH_NAME, PUSH_MARK, PUSH_KEPT, push_script())
+    return f"{result}: {d / NAME} (and {PUSH_NAME})"
 
 
 def current(cwd: str | os.PathLike = ".") -> bool | None:
-    """Whether this repo's hook is TeamLoop's current one (None: not TeamLoop's), for `teamloop doctor`."""
-    hook = hooks_dir(cwd) / NAME
-    text = hook.read_text(encoding="utf-8", errors="replace") if hook.is_file() else ""
-    return None if MARK not in text else "CLAUDECODE" in text
+    """Whether this repo's hooks are TeamLoop's current ones (None: not TeamLoop's), for `teamloop doctor`."""
+    d = hooks_dir(cwd)
+    text, push = ((d / n).read_text(encoding="utf-8", errors="replace") if (d / n).is_file() else "" for n in (NAME, PUSH_NAME))
+    return None if MARK not in text else "CLAUDECODE" in text and PUSH_MARK in push
 
 
 def processes() -> dict[int, tuple[int, str]]:

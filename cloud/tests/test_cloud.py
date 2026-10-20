@@ -312,6 +312,32 @@ def test_the_inbox_and_whats_unread(app):
     assert inbox(ravi)["read_up_to"] == top  # saving the rules keeps how far they've read
 
 
+def test_the_shared_workspace_change_log(app):
+    yang = signin(app, "yang")
+    team = new_team(yang)
+    asha, ravi = join(app, yang, team, "asha"), join(app, yang, team, "ravi")
+    q = {"team": team, "repo": "acme-web"}
+    asha_agent, ravi_agent = TestClient(app, headers=connect(app, asha, team)), TestClient(app, headers=connect(app, ravi, team))
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    def ev(n, kind, task, **more):
+        return {"v": 1, "id": f"{n:032x}", "ts": ts, "tool": "claude_code", "session": "s", "kind": kind, "task": task,
+                "repo": "acme-web", "facts": {}, **more}
+    commit = {"sha": "a1b2c3d4e5f6", "subject": "Rename the session API", "task": "T-19", "files": [{"path": "src/session.py", "add": 5, "del": 1}]}
+    push = {**ev(3, "push", "T-19"), "tool": "git", "branch": "main", "push": {"branch": "main", "commits": [commit]}}
+    ravi_agent.post("/v1/events", json={"events": [{**ev(9, "tool", "T-22"), "facts": {"tool": "Edit", "ok": True, "file": "a.py"}}]})  # Ravi works here
+    r = asha_agent.post("/v1/events", json={"events": [{**ev(1, "task_start", "T-19"), "facts": {"title": "Session API"}},
+                                                       {**ev(2, "turn_end", "T-19"), "summary": "Renamed the session API; tests pass."}, push]})
+    assert r.status_code == 200, r.text
+    got = ravi.get("/v1/changes", params=q).json()
+    assert [(p["member"], p["branch"], p["commits"][0]["sha"]) for p in got["pushes"]] == [("asha", "main", "a1b2c3d4e5f6")]
+    assert got["tasks"]["T-19"] == {"title": "Session API", "why": {"asha": "Renamed the session API; tests pass."}}
+    assert asha.get("/v1/changes", params=q).json()["pushes"] == [] and len(asha.get("/v1/changes", params={**q, "mine": 1}).json()["pushes"]) == 1
+    # the connector's poll brings it to the people who work in that repo
+    assert [p["id"] for p in ravi_agent.get("/v1/messages", params={"warnings": 1}).json()["pushes"]] == [push["id"]]
+    assert TestClient(app, headers=connect(app, yang, team)).get("/v1/messages", params={"warnings": 1}).json()["pushes"] == []
+
+
 def test_claims_warnings_and_handoffs(app, env):
     yang = signin(app, "yang")
     team = new_team(yang)

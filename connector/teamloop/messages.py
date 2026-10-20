@@ -52,15 +52,19 @@ def send(cfg: dict, to: str, text: str, task: str | None = None) -> dict:
     return login.request(cfg, "POST", "/v1/send", {"to": None if everyone else to.strip(), "text": text})
 
 
-def poll(cfg: dict, since: int) -> tuple[list[dict], list[dict]]:
+def poll(cfg: dict, since: int, known: set[str] = frozenset()) -> tuple[list[dict], list[dict]]:
     """New notes for this person after `since`, oldest first ({key, id, from, via, task, to_all, text, at}), and the board's
-    warnings for their sessions, which only the hosted hub has."""
-    from teamloop import login
+    warnings for their sessions, which only the hosted hub has (`known`: keys already in the inbox, not worked out again)."""
+    from teamloop import login, workspace
 
     if cfg.get("mode") == "cloud":
         got = login.request(cfg, "GET", f"/v1/messages?since={int(since)}&warnings=1")
+        try:  # teammates' agents' pushes this checkout lacks (git, here); a broken repo mustn't cost the notes
+            pushed = workspace.notes(got.get("pushes"), known, BOARD)
+        except Exception:  # noqa: BLE001
+            pushed = []
         return [{"key": f"m{m['id']}", "id": m["id"], "from": m["from"]["name"], "via": m["via"], "task": m.get("task"),
-                 "to_all": m.get("to") is None, "text": m["text"], "at": m["at"]} for m in got["messages"]], warnings(got, cfg.get("name"))
+                 "to_all": m.get("to") is None, "text": m["text"], "at": m["at"]} for m in got["messages"]], warnings(got, cfg.get("name")) + pushed
     got = login.request(cfg, "GET", f"/v1/poll?since={int(since)}")["messages"]
     return [{"key": f"m{m['id']}", "id": m["id"], "from": m["from"], "via": "agent", "task": None, "to_all": m.get("to") is None,
              "text": m["text"], "at": m["at"]} for m in got], []
@@ -101,9 +105,9 @@ def pull(cfg: dict) -> int:
         since = int(_cursor().read_text().strip() or 0)
     except (OSError, ValueError):
         since = 0
-    new, warned = poll(cfg, since)
     have = inbox()
     known = {key(m) for m in have}
+    new, warned = poll(cfg, since, known)
     warned = [w for w in warned if w["key"] not in known]  # an overlap that's still there was already told
     if new or warned:
         _inbox().parent.mkdir(parents=True, exist_ok=True)

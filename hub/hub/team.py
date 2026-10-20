@@ -113,6 +113,8 @@ def clean(event: dict) -> dict:
         out["summary"] = _clean_text(out["summary"])
     if isinstance(out.get("report"), dict):
         out["report"] = {k: _clean_text(v) for k, v in out["report"].items()}
+    if isinstance(out.get("push"), dict):  # teammates' agents read these subjects too
+        out["push"] = {**out["push"], "commits": [{**c, "subject": _clean_text(c.get("subject"))} for c in out["push"].get("commits", [])]}
     return out
 
 
@@ -136,6 +138,21 @@ def bad_shape(e: dict) -> Optional[str]:
     if any(not isinstance(report.get(k, []), list) or not all(isinstance(x, str) for x in report.get(k, []))
            for k in ("done", "next")):
         return "report.done and report.next are lists of text"
+    if e["kind"] == "push" and push_shape(e.get("push")):
+        return push_shape(e.get("push"))
+    return None
+
+
+def push_shape(p) -> Optional[str]:
+    """What's wrong with a push event's commits (connector/teamloop/pushed.py), or None."""
+    if not isinstance(p, dict) or not isinstance(p.get("branch"), str) or not isinstance(p.get("commits"), list) or not 0 < len(p["commits"]) <= 50:
+        return "A push names its branch and 1 to 50 commits"
+    for c in p["commits"]:
+        if (not isinstance(c, dict) or not re.fullmatch(r"[0-9a-f]{7,40}", str(c.get("sha", ""))) or not isinstance(c.get("subject"), str)
+                or len(c["subject"]) > 200 or not isinstance(c.get("files"), list) or len(c["files"]) > 40
+                or not all(isinstance(f, dict) and isinstance(f.get("path"), str) and type(f.get("add")) is int and type(f.get("del")) is int
+                           for f in c["files"])):
+            return "Each pushed commit has a sha, a subject (200 characters at most) and up to 40 files with line counts"
     return None
 
 
