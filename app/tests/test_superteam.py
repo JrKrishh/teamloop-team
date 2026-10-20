@@ -126,9 +126,9 @@ def test_codex_continues_its_session_in_its_sandbox(tmp_path, repo):
 
 
 def test_a_copy_runs_on_the_model_its_session_is_on(tmp_path, repo, monkeypatch):
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    transcript = tmp_path / "claude/projects/E--acme-web/sess-asha.jsonl"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-home"))  # not "claude": off Windows that's the stand-in
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    transcript = tmp_path / "claude-home/projects/E--acme-web/sess-asha.jsonl"
     transcript.parent.mkdir(parents=True)
     transcript.write_text(json.dumps({"type": "assistant", "requestedModel": "claude-opus-5-5[1m]",
                                       "message": {"model": "claude-opus-5-5"}}) + "\n", encoding="utf-8")

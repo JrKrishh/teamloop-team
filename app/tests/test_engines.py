@@ -125,7 +125,7 @@ def fake_cli(tmp_path, body, name):
 
 
 def runs(tmp_path, tool):
-    return json.loads((tmp_path / f"{tool}-runs.json").read_text(encoding="utf-8"))
+    return json.loads((tmp_path / "bin" / f"{tool}-runs.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture
@@ -149,7 +149,9 @@ def lab(tmp_path, monkeypatch):
                  encoding="utf-8")
     (tmp_path / "codex").mkdir()
     (tmp_path / "codex/config.toml").write_text('model = "gpt-6-astra"\n', encoding="utf-8")
-    clis = {"claude_code": fake_cli(tmp_path, FAKE_CLAUDE, "claude"), "codex": fake_cli(tmp_path, FAKE_CODEX, "codex")}
+    bin_dir = tmp_path / "bin"  # its own folder: off Windows a stand-in is a file named claude, beside the claude/ home
+    bin_dir.mkdir()
+    clis = {"claude_code": fake_cli(bin_dir, FAKE_CLAUDE, "claude"), "codex": fake_cli(bin_dir, FAKE_CODEX, "codex")}
     monkeypatch.setattr(engines, "CLIS", {k: (lambda v=v: v) for k, v in clis.items()})
     return tmp_path, repo
 
