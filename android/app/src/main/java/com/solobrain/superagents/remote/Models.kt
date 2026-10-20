@@ -12,9 +12,12 @@ data class Step(val id: String, val name: String, val args: JSONObject)
 
 data class LiveTurn(val turn: String, val chat: String?, val agent: String?, val message: String, val ask: Step?, val now: Step?)
 
-/** [model] and [effort]: what the desktop is set to, where the phone starts. */
+/** A lead's: a step of a member's agent waiting for their yes, by the team's rules (Super Team → Rules). */
+data class TeamAsk(val id: String, val from: String, val what: String, val detail: String, val rule: String)
+
+/** [model] and [effort]: what the desktop is set to, where the phone starts. [asks]: what waits on this lead's yes. */
 data class Laptop(val host: String, val user: String?, val agents: List<Agent>, val chats: List<ChatItem>, val live: List<LiveTurn>,
-                  val model: String? = null, val effort: String? = null) {
+                  val model: String? = null, val effort: String? = null, val asks: List<TeamAsk> = emptyList()) {
     val name: String get() = user?.substringBefore(' ')?.let { "$it's laptop" } ?: "Your laptop"
     fun agent(id: String?): Agent = agents.firstOrNull { it.id == id }
         ?: Agent(id ?: "agent-s", if (id == null || id == "agent-s") "Agent S" else "Agent", null, null)
@@ -30,7 +33,9 @@ data class Board(val room: String, val tasks: List<Task>)
 
 enum class Link { NotPaired, Connecting, Online, Offline }
 
-class RemoteError(message: String) : Exception(message)
+open class RemoteError(message: String) : Exception(message)
+/** The message didn't get there, or no answer came back: the line, not the laptop, said no. */
+class LineDown(message: String) : RemoteError(message)
 
 fun JSONObject.text(key: String): String? = if (!has(key) || isNull(key)) null else optString(key)
 fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it) }
@@ -42,12 +47,17 @@ fun parseLive(a: JSONArray?): List<LiveTurn> = a.objects().map {
     LiveTurn(it.optString("turn"), it.text("chat"), it.text("agent"), it.optString("message"), step(it.optJSONObject("ask")), step(it.optJSONObject("now")))
 }
 
+fun parseAsks(a: JSONArray?): List<TeamAsk> = a.objects().map {
+    TeamAsk(it.optString("id"), it.optString("from"), it.optString("what"), it.optString("detail"), it.optString("rule"))
+}
+
 fun parseLaptop(o: JSONObject) = Laptop(
     host = o.optString("laptop"), user = o.text("user"),
     agents = o.optJSONArray("agents").objects().map { Agent(it.optString("id"), it.optString("name"), it.text("color"), it.text("mode"), it.text("model")) },
     chats = o.optJSONArray("chats").objects().map { ChatItem(it.optString("id"), it.optString("title"), it.text("agent"), it.optDouble("updated", 0.0), it.text("project")) },
     live = parseLive(o.optJSONArray("live")),
     model = o.optJSONObject("prefs")?.text("model"), effort = o.optJSONObject("prefs")?.text("effort"),
+    asks = parseAsks(o.optJSONArray("asks")),
 )
 
 fun parseBoard(o: JSONObject) = Board(

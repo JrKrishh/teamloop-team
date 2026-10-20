@@ -24,12 +24,21 @@ _SHAPES = [re.compile(p) for p in (
     r"tvly-[A-Za-z0-9\-]{20,}",                         # Tavily
     r"(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}",        # Stripe secret and restricted keys (pk_ is public)
     r"whsec_[A-Za-z0-9]{24,}",                          # Stripe webhook signing secrets
+    r"nvapi-[A-Za-z0-9_\-]{20,}",                       # NVIDIA
+    r"hf_[A-Za-z0-9]{30,}",                             # Hugging Face
+    r"glpat-[A-Za-z0-9_\-]{20,}",                       # GitLab
+    r"npm_[A-Za-z0-9]{36,}",                            # npm
+    r"sb_secret_[A-Za-z0-9_\-]{20,}",                   # Supabase secret keys
+    r"\btl_[A-Za-z0-9_\-]{40,}",                        # this hub's connector tokens
+    r"\bs_[A-Za-z0-9_\-]{43}\b",                        # and its app sessions
     r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",  # JWT
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-    r"(?i)(?<=bearer )[A-Za-z0-9._\-]{16,}",
+    r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)",                 # user:password in a URL (postgres://, redis://, https://)
 )]
-# NAME=value / NAME: value where NAME looks secret: keep the name, hide the value.
-_ASSIGN = re.compile(r"(?i)\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_]*)(\s*[=:]\s*)(['\"]?)[^\s'\"]{6,}\3")
+# NAME=value / NAME: value / "name": "value" where NAME looks secret, a --password value, a Bearer token: keep the name.
+_ASSIGN = re.compile(r"(?i)\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_]*)(['\"]?\s*[=:]\s*)(['\"]?)[^\s'\"]{6,}\3")
+_FLAG = re.compile(r"(?i)(--?(?:password|passwd|token|secret|api-?key)(?:=|\s+))(['\"]?)[^\s'\"]{4,}\2")
+_BEARER = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._\-~+/]{16,}=*")
 
 
 def _env_secrets() -> list[str]:
@@ -44,7 +53,9 @@ def redact(text: str) -> str:
         text = text.replace(secret, HIDDEN)
     for shape in _SHAPES:
         text = shape.sub(HIDDEN, text)
-    return _ASSIGN.sub(lambda m: f"{m.group(1)}{m.group(2)}{HIDDEN}", text)
+    text = _BEARER.sub(lambda m: m.group(1) + HIDDEN, text)
+    text = _FLAG.sub(lambda m: m.group(1) + HIDDEN, text)
+    return _ASSIGN.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{HIDDEN}{m.group(3)}", text)
 
 
 def redact_obj(value: Any) -> Any:

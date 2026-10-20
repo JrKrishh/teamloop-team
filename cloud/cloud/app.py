@@ -9,6 +9,7 @@ PUBLIC_URL (optional; used in invite and sign-in links), HUB_SECURE_COOKIE (defa
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import secrets
@@ -21,7 +22,7 @@ from typing import Callable, Optional
 
 import hub
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
@@ -30,10 +31,12 @@ from pydantic import BaseModel, Field
 
 from agent_s import agent, llm, progress, qa
 from agent_s import digest as agent_digest
+from agent_s import summary as agent_summary
 from hub import cards
 from hub import usage as usage_sum
 from hub.relay import _Window
-from hub.team import ID_RE, KIND_RE, MAX_EVENT_BYTES, TASK_RE, clean
+from hub.safety import sanitize
+from hub.team import ID_RE, MAX_EVENT_BYTES, TASK_RE, bad_shape, clean
 
 from . import __version__, auth
 from . import blobs as blobstore
@@ -41,9 +44,11 @@ from . import blobs as blobstore
 STATIC = Path(hub.__file__).parent / "static"
 SITE = Path(__file__).parent / "site"
 DEMO_FILE = Path(hub.__file__).parent / "demo" / "demo.json"
+log = logging.getLogger("teamloop.cloud")  # Vercel keeps what reaches stderr
 ACTIVE_SECONDS = 300
 DEBOUNCE_SECONDS = 30
 RETENTION_DAYS = 30
+DAILY_TOKENS = 10_000_000  # each person's model use on the hub's key per 24 h (a busy development day was 2.9M)
 CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ23456789"  # no vowels: device codes never spell words
 
 
@@ -128,6 +133,12 @@ def _uuid_or_400(value: str) -> str:
         raise HTTPException(400, "Not a team id") from None
 
 
+def peer_text(text: str) -> str:
+    """Text one person writes that teammates' agents read (decisions, task titles, share notes): cleaned the way
+    event summaries are, so it can't pose as the agent's own instructions."""
+    return sanitize(text.strip())[0]
+
+
 def team_scope(c: Caller, team: Optional[str], conn) -> tuple[str, str, str]:
     """(team_id, team name, role) for a team the caller belongs to, or an HTTP error."""
     if c.kind == "connector":
@@ -209,12 +220,29 @@ class EventsIn(BaseModel):
     events: list[dict] = Field(max_length=50)
 
 
+class SummaryIn(BaseModel):
+    text: str = Field(min_length=1, max_length=20_000)
+    facts: dict = Field(default_factory=dict)
+
+
 class AskIn(BaseModel):
     question: str = Field(min_length=1, max_length=500)
 
 
 class DeviceStartIn(BaseModel):
     label: str = Field(default="", max_length=60)
+
+
+class WaitlistIn(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    name: str = Field(default="", max_length=120)
+    team_size: str = Field(default="", pattern=r"^(|1|2-5|6-20|21\+)$")
+    note: str = Field(default="", max_length=1000)
+    source: str = Field(default="", max_length=40)
+    website: str = Field(default="", max_length=300)  # hidden on the page: only bots fill it in
+
+
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class DeviceApproveIn(BaseModel):
@@ -254,16 +282,31 @@ class DecideIn(BaseModel):
     approve: bool
 
 
+class DecisionIn(BaseModel):
+    text: str = Field(min_length=1, max_length=300)
+
+
+class RulesIn(BaseModel):
+    lead_approves: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ApprovalIn(BaseModel):
+    rule: str = Field(pattern="^(push|pr|share|board|shell)$")
+    tool: str = Field(min_length=1, max_length=64)
+    what: str = Field(min_length=1, max_length=300)
+    detail: str = Field(default="", max_length=4000)
+
+
+class ApprovalDecideIn(BaseModel):
+    approve: bool
+    note: str = Field(default="", max_length=500)
+
+
 class FinishIn(BaseModel):
     status: str = Field(pattern="^(done|failed|stopped)$")
     result: str = Field(default="", max_length=12000)
     tokens: int = Field(default=0, ge=0, le=10_000_000_000)
     run_session: Optional[str] = Field(default=None, max_length=80)
-
-
-class Attachment(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    text: str = Field(max_length=60_000)
 
 
 class LlmIn(BaseModel):
@@ -272,13 +315,6 @@ class LlmIn(BaseModel):
     messages: list[dict] = Field(min_length=1, max_length=200)
     tools: list[dict] = Field(default_factory=list, max_length=80)
     max_tokens: int = Field(default=2000, ge=16, le=8192)  # thinking counts against it: high effort needs room
-
-
-class AgentIn(BaseModel):
-    message: str = Field(min_length=1, max_length=2000)
-    mode: str = Field(default="manual", pattern="^(plan|manual|auto)$")
-    model: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
-    attachments: list[Attachment] = Field(default_factory=list, max_length=5)
 
 
 # ---- the app --------------------------------------------------------------------------------------
@@ -290,6 +326,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
     posts = _Window(60, 60.0)
     asks = _Window(30, 600.0)
     llm_steps = _Window(150, 600.0)  # an agent turn is a few steps; this allows a busy person, not a script
+    summaries = _Window(120, 600.0)  # one per coding turn: a turn every 5 s for 10 minutes is a script
+    signups = _Window(5, 600.0)  # the waitlist, per visitor
     digests: dict[str, tuple[float, dict]] = {}
     failed: dict[tuple[str, str], float] = {}
     demo = _Demo()
@@ -318,11 +356,30 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     app.add_api_route("/", landing, include_in_schema=False)
     app.add_api_route("/join/{token}", invite_page, include_in_schema=False)
+
+    @app.post("/v1/waitlist")
+    def join_waitlist(body: WaitlistIn, request: Request, conn=Depends(db)) -> dict:
+        """The website's waitlist: an email, once (a name, team size and note are optional). The answer is the same
+        whether the address was already there or a bot filled in the hidden field, in which case nothing is kept."""
+        ip = request.headers.get("x-vercel-forwarded-for") or request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
+        if not signups.allow(ip.split(",")[0].strip(), time.time()):
+            raise HTTPException(429, "Lots of sign-ups from here just now; try again in a few minutes")
+        email = body.email.strip().lower()
+        if not EMAIL.match(email):
+            raise HTTPException(400, "That doesn't look like an email address")
+        if not body.website:
+            conn.execute("insert into waitlist (email, name, team_size, note, source) values (%s, %s, %s, %s, %s)"
+                         " on conflict (email) do nothing",
+                         (email, body.name.strip() or None, body.team_size or None, body.note.strip() or None, body.source.strip() or None))
+        return {"ok": True}
     for path in ("/auth", "/device"):
         app.add_api_route(path, page, include_in_schema=False)
 
     @app.get("/healthz")
-    def healthz() -> dict:
+    def healthz(conn=Depends(db)) -> dict:
+        """Up, which version, and the database answering. The daily keep-alive (.github/workflows/keepalive.yml) reads
+        it, so a free Supabase project doesn't pause between visits (judging runs 1-15 Dec)."""
+        conn.execute("select 1")
         return {"ok": True, "version": __version__, "mode": "cloud"}
 
     @app.get("/v1/config")
@@ -425,10 +482,23 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         return {"user": user, "teams": teams, "demo": False}
 
     # ---- teams, invites, members -------------------------------------------------------------------
+    def may_start_team(conn, person: auth.Person) -> bool:
+        """Invite only for now: people already in a team, or listed in HUB_TEAM_CREATORS (emails, or * for anyone), start
+        teams; everyone else joins through a lead's invite. Without a team nothing reaches the model, so a new account
+        costs nothing until someone lets it in."""
+        listed = {e.strip().lower() for e in os.environ.get("HUB_TEAM_CREATORS", "").split(",") if e.strip()}
+        if "*" in listed or (person.email or "").lower() in listed:
+            return True
+        return conn.execute("select 1 from memberships where user_id = %s and removed_at is null limit 1",
+                            (person.id,)).fetchone() is not None
+
     @app.post("/v1/teams")
     def create_team(body: TeamIn, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
+        if not may_start_team(conn, c.person):
+            raise HTTPException(403, "Super Agents is invite only for now: join with your lead's invite link, or get on the "
+                                     "waitlist at teamloop.vercel.app")
         row = conn.execute("insert into teams (name, created_by) values (%s, %s) returning id",
                            (body.name.strip(), c.person.id)).fetchone()
         conn.execute("insert into memberships (team_id, user_id, email, name, role) values (%s, %s, %s, %s, 'lead')",
@@ -521,6 +591,120 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         conn.execute("delete from team_repos where team_id = %s and url = %s", (team_id, github_url(url)))
         return repos_of(conn, team_id, "lead", c)
 
+    # ---- Super Team → Rules: decisions every agent in the team follows (with who decided), and the steps of a
+    # member's agent that wait for a lead's yes instead of the member's own: push, pull request, share, board, shell ----
+    RULES = ("push", "pr", "share", "board", "shell")
+    APPROVAL_HOURS = 24  # a request nobody answered in a day is dropped: the agent has long moved on
+
+    def rules_of(conn, team_id: str) -> dict:
+        r = conn.execute("select lead_approves from team_rules where team_id = %s", (team_id,)).fetchone()
+        leads = [x["name"] for x in conn.execute("select name from memberships where team_id = %s and role = 'lead'"
+                                                 " and removed_at is null order by created_at", (team_id,))]
+        return {"lead_approves": [x for x in RULES if r and x in r["lead_approves"]], "leads": leads,
+                "decisions": [{"id": str(d["id"]), "text": d["text"], "by": {"id": str(d["by_user"]), "name": d["by_name"],
+                               "role": d["by_role"]}, "at": d["created_at"].timestamp()}
+                              for d in conn.execute("select * from decisions where team_id = %s order by created_at", (team_id,))]}
+
+    def my_name(c: Caller) -> str:
+        return c.person.name or (c.person.email or "").split("@")[0] or "A teammate"
+
+    @app.get("/v1/rules")
+    def team_rules(team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _, role = team_scope(c, team, conn)
+        return {**rules_of(conn, team_id), "role": role}
+
+    @app.put("/v1/rules")
+    def set_rules(body: RulesIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _ = lead_scope(c, team, conn)
+        conn.execute("insert into team_rules (team_id, lead_approves, updated_by) values (%s, %s, %s) on conflict (team_id)"
+                     " do update set lead_approves = excluded.lead_approves, updated_by = excluded.updated_by, updated_at = now()",
+                     (team_id, [x for x in RULES if x in body.lead_approves], c.person.id))
+        return {**rules_of(conn, team_id), "role": "lead"}
+
+    @app.post("/v1/decisions")
+    def pin_decision(body: DecisionIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        if conn.execute("select count(*) as n from decisions where team_id = %s", (team_id,)).fetchone()["n"] >= 40:
+            raise HTTPException(400, "A team can pin up to 40 decisions: remove one first")
+        conn.execute("insert into decisions (team_id, text, by_user, by_name, by_role) values (%s, %s, %s, %s, %s)",
+                     (team_id, peer_text(body.text), c.person.id, my_name(c), role))
+        return {**rules_of(conn, team_id), "role": role}
+
+    @app.delete("/v1/decisions/{did}")
+    def unpin_decision(did: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        mine = "" if role == "lead" else " and by_user = %s"  # a lead can remove any; a member, their own
+        gone = conn.execute(f"delete from decisions where team_id = %s and id = %s{mine}",
+                            (team_id, _uuid_or_400(did), *(() if role == "lead" else (c.person.id,)))).rowcount
+        if not gone:
+            raise HTTPException(404, "No such decision of yours (a lead can remove any)")
+        return {**rules_of(conn, team_id), "role": role}
+
+    def approval_view(r: dict, me: str) -> dict:
+        stale = r["status"] == "pending" and r["created_at"] < datetime.now(timezone.utc) - timedelta(hours=APPROVAL_HOURS)
+        return {"id": str(r["id"]), "from": {"id": str(r["from_user"]), "name": r["from_name"]}, "rule": r["rule"],
+                "tool": r["tool"], "what": r["what"], "detail": r["detail"], "status": "expired" if stale else r["status"],
+                "decided_by": r["decided_name"], "note": r["note"], "created_at": r["created_at"].timestamp(),
+                "mine": str(r["from_user"]) == me}
+
+    @app.post("/v1/approvals")
+    def ask_lead(body: ApprovalIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """A member's agent reached a step the team's rules give to the lead: it waits here for a lead's yes."""
+        team_id, role = session_scope(c, team, conn)
+        if role == "lead":
+            raise HTTPException(400, "You're a lead: your own yes is enough")
+        rules = rules_of(conn, team_id)
+        if body.rule not in rules["lead_approves"]:
+            raise HTTPException(400, "The team's rules don't send that to a lead")
+        row = conn.execute("insert into approvals (team_id, from_user, from_name, rule, tool, what, detail) values"
+                           " (%s, %s, %s, %s, %s, %s, %s) returning *", (team_id, c.person.id, my_name(c), body.rule, body.tool,
+                                                                         body.what.strip(), body.detail)).fetchone()
+        return {**approval_view(row, c.person.id), "leads": rules["leads"]}
+
+    @app.get("/v1/approvals")
+    def list_approvals(team: Optional[str] = None, box: str = "in", c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """box=in: what waits for a lead's yes now (a lead's list; a member's is empty). box=out: what your agents asked."""
+        team_id, role = session_scope(c, team, conn)
+        if box == "in" and role != "lead":
+            return {"approvals": []}
+        rows = conn.execute("select * from approvals where team_id = %s and status = 'pending' and created_at >"
+                            " now() - make_interval(hours => %s) order by created_at", (team_id, APPROVAL_HOURS)) if box == "in" \
+            else conn.execute("select * from approvals where team_id = %s and from_user = %s order by created_at desc limit 50",
+                              (team_id, c.person.id))
+        return {"approvals": [approval_view(r, c.person.id) for r in rows.fetchall()]}
+
+    @app.get("/v1/approvals/{aid}")
+    def get_approval(aid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        r = conn.execute("select * from approvals where team_id = %s and id = %s", (team_id, _uuid_or_400(aid))).fetchone()
+        if not r or (role != "lead" and str(r["from_user"]) != c.person.id):
+            raise HTTPException(404, "No such request")
+        return approval_view(r, c.person.id)
+
+    @app.post("/v1/approvals/{aid}/decide")
+    def decide_approval(aid: str, body: ApprovalDecideIn, team: Optional[str] = None, c: Caller = Depends(caller),
+                        conn=Depends(db)) -> dict:
+        team_id, role = session_scope(c, team, conn)
+        if role != "lead":
+            raise HTTPException(403, "Only a lead can decide")
+        row = conn.execute("update approvals set status = %s, decided_by = %s, decided_name = %s, note = %s, decided_at = now()"
+                           " where team_id = %s and id = %s and status = 'pending' and created_at > now() - make_interval(hours => %s)"
+                           " returning *", ("approved" if body.approve else "denied", c.person.id, my_name(c), body.note.strip() or None,
+                                            team_id, _uuid_or_400(aid), APPROVAL_HOURS)).fetchone()
+        if not row:
+            raise HTTPException(409, "Already decided, cancelled or expired")
+        return approval_view(row, c.person.id)
+
+    @app.post("/v1/approvals/{aid}/cancel")
+    def cancel_approval(aid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id, _ = session_scope(c, team, conn)
+        row = conn.execute("update approvals set status = 'cancelled', decided_at = now() where team_id = %s and id = %s"
+                           " and from_user = %s and status = 'pending' returning *",
+                           (team_id, _uuid_or_400(aid), c.person.id)).fetchone()
+        if not row:
+            raise HTTPException(409, "Only your own waiting request can be cancelled")
+        return approval_view(row, c.person.id)
+
     # ---- Super Team → Files: files and branches teammates share ---------------------------------------
     # The record (who shared what with whom, who saved it) is the team's, like prompts: the lead sees it all. The
     # files are only for the sender and the people they were shared with, through 5-minute links, for 14 days.
@@ -584,7 +768,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         r = conn.execute("insert into shares (id, team_id, from_user, from_name, to_user, to_name, kind, note, files, repo,"
                          " branch, status, expires_at) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now() + make_interval(days => %s))"
                          " returning *", (sid, team_id, c.person.id, c.person.name, to["user_id"] if to else None,
-                                          to["name"] if to else None, "files" if body.files else "branch", body.note.strip(),
+                                          to["name"] if to else None, "files" if body.files else "branch", peer_text(body.note),
                                           Jsonb(files), body.repo, body.branch, "uploading" if body.files else "ready",
                                           SHARE_DAYS)).fetchone()
         uploads = [{"name": f["name"], **store.upload(f["path"], f["size"], base_url(request))} for f in files] if files else []
@@ -752,8 +936,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         for e in body.events:
             if "local" in e:
                 raise HTTPException(400, "Events must not carry 'local': that text never leaves the laptop")
-            if not ID_RE.match(str(e.get("id", ""))) or not KIND_RE.match(str(e.get("kind", ""))):
-                raise HTTPException(422, "Each event needs a 32-hex id and a lowercase kind")
+            if bad_shape(e):
+                raise HTTPException(422, bad_shape(e))
             task = e.get("task") if TASK_RE.match(str(e.get("task") or "")) else None
             e = {**clean(e), "member": c.person.name, "task": task}
             if len(json.dumps(e, ensure_ascii=False).encode()) > MAX_EVENT_BYTES:
@@ -779,6 +963,10 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         return {"accepted": new, "duplicates": len(rows) - new}
 
     # ---- usage: Super Agents' own model calls, per team and person ------------------------------------
+    def spent_today(conn, user_id: str) -> int:
+        return int(conn.execute("select coalesce(sum(tokens_in + tokens_out), 0) as n from agent_usage where user_id = %s"
+                                " and at > now() - interval '1 day'", (user_id,)).fetchone()["n"])
+
     def record_usage(conn, team_id: str, person: Optional[auth.Person], source: str, used: dict) -> None:
         if used.get("calls"):
             conn.execute("insert into agent_usage (team_id, user_id, member, source, model, calls, tokens_in, tokens_out)"
@@ -813,6 +1001,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                 try:
                     snap = progress.estimate(row["task"], evs, cards.title_for(row["task"], evs), chat=chat)
                 except Exception:  # noqa: BLE001 - try again in a minute
+                    log.exception("progress for %s failed", row["task"])
                     failed[key] = time.time()
                     continue
                 conn.execute("insert into snapshots (team_id, task, created_at, body) values (%s, %s, greatest(now(), %s), %s)",
@@ -861,7 +1050,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             "select m.name, extract(epoch from max(e.received_at)) as last from memberships m left join events e"
             " on e.team_id = m.team_id and e.user_id = m.user_id where m.team_id = %s and m.removed_at is null"
             " group by m.name", (team_id,)).fetchall()
-        return {"room": team_name, "generated_at": now, "tasks": out, "demo": False,
+        return {"room": team_name, "generated_at": now, "tasks": out, "demo": False, "rules": rules_of(conn, team_id),
                 "members": [{"name": p["name"], "last_activity": float(p["last"] or 0),
                              "active": bool(p["last"]) and now - float(p["last"]) < ACTIVE_SECONDS} for p in people]}
 
@@ -921,7 +1110,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
         team_id, name, _ = team_scope(c, team, conn)
-        title = " ".join(body.title.split())
+        title = peer_text(" ".join(body.title.split()))
         same = next((t["task"] for t in build_board(conn, team_id, name)["tasks"]
                      if t["status"] != "done" and " ".join((t["title"] or "").split()).lower() == title.lower()), None)
         if same:  # asking an agent twice shouldn't put the same work on the board twice
@@ -932,8 +1121,8 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             task = agent.next_id(have)
         owner_id, owner = member_named(conn, team_id, body.owner)
         conn.execute("insert into tasks (team_id, task, title, owner_id, owner_name, created_by, due)"
-                     " values (%s, %s, %s, %s, %s, %s, %s)", (team_id, task, body.title.strip(), owner_id, owner, c.person.id, body.due))
-        return {"task": task, "title": body.title.strip(), "owner": owner, "state": "open", "due": body.due}
+                     " values (%s, %s, %s, %s, %s, %s, %s)", (team_id, task, title, owner_id, owner, c.person.id, body.due))
+        return {"task": task, "title": title, "owner": owner, "state": "open", "due": body.due}
 
     @app.patch("/v1/tasks/{task}")
     def update_task(task: str, body: TaskPatch, team: Optional[str] = None, c: Caller = Depends(caller),
@@ -945,7 +1134,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         if task not in task_ids(conn, team_id):
             raise HTTPException(404, "No such task")
         row = planned(conn, team_id).get(task)
-        title = body.title or (row["title"] if row else None) or next(
+        title = (peer_text(body.title) if body.title else None) or (row["title"] if row else None) or next(
             (t["title"] for t in build_board(conn, team_id, name)["tasks"] if t["task"] == task), "") or task
         owner_id, owner = member_named(conn, team_id, body.owner) if body.owner is not None else (None, None)
         state = body.state or (row["state"] if row else "open")
@@ -970,48 +1159,30 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
             raise HTTPException(404, "No planned task with that id")
         return {"ok": True}
 
-    @app.post("/v1/agent")
-    def agent_turn(body: AgentIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        """One turn of the Super Agents chat: an answer with citations, a plan (plan mode) and proposed board changes,
-        which the app applies by mode. The model picker pins a Nemotron tier; Auto uses Ultra for plans and imports."""
-        if c.kind != "session":
-            raise HTTPException(401, "Sign in first")
-        if not asks.allow(c.person.id, time.time()):
-            raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
-        team_id, name, _ = team_scope(c, team, conn)
-        board = [{k: t.get(k) for k in ("task", "title", "status", "owner")} for t in build_board(conn, team_id, name)["tasks"]]
-        members = [r["name"] for r in conn.execute("select name from memberships where team_id = %s and removed_at is null"
-                                                   " order by created_at", (team_id,))]
-        tier = body.model if body.model != "auto" else ("ultra" if body.mode == "plan" or body.attachments else None)
-        try:
-            with llm.pinned(tier), llm.meter() as used:
-                out = agent.turn(body.message, task_events(conn, team_id), board, members,
-                                 [a.model_dump() for a in body.attachments], body.mode, chat=chat)
-        except Exception:  # noqa: BLE001
-            raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
-        record_usage(conn, team_id, c.person, "agent", used)
-        return {**out, "mode": body.mode}
-
     @app.post("/v1/llm")
     def llm_step(body: LlmIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        """One step of an agent's tool loop for the Super Agents app, on the hub's Nemotron key: signed-in people
-        only, rate limited, size capped. The loop and the tools run on the person's laptop. With a team, the step's
-        tokens count toward that team's usage."""
+        """One step of an agent's tool loop for the Super Agents app, on the hub's Nemotron key: signed-in team
+        members only, rate limited, size capped, and within each person's daily tokens. The loop and the tools run
+        on the person's laptop. The step's tokens count toward the team's usage."""
         if c.kind != "session":
             raise HTTPException(401, "Sign in first")
-        team_id = team_scope(c, team, conn)[0] if team else None
+        team_id = team_scope(c, team, conn)[0]
         if not llm_steps.allow(c.person.id, time.time()):
             raise HTTPException(429, "Agents are busy; give it a minute")
+        if spent_today(conn, c.person.id) >= DAILY_TOKENS:  # 403, not 429: waiting a minute won't help
+            raise HTTPException(403, "You've used today's model allowance; it frees up over the next 24 hours")
         if len(json.dumps(body.messages)) + len(json.dumps(body.tools)) > 400_000:
             raise HTTPException(413, "That conversation is too long; start a new chat")
         try:
             with llm.pinned(body.tier), llm.effort(body.effort):
                 out = chat_step(body.messages, body.tools, body.max_tokens)
         except urllib.error.HTTPError as e:
+            log.warning("the model refused an app step: %s", e.code)
             raise HTTPException(502, f"The model refused the request ({e.code})") from None
         except Exception:  # noqa: BLE001
+            log.exception("app step failed")
             raise HTTPException(503, "The model didn't answer; try again in a moment") from None
-        if team_id and out.get("usage"):
+        if out.get("usage"):
             record_usage(conn, team_id, c.person, "app", {"calls": 1, "model": out.get("model"), **out["usage"]})
         return out
 
@@ -1056,43 +1227,63 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                             "tasks": [{"task": t, "last_activity": a} for t, a in sorted(p["tasks"].items(), key=lambda x: -x[1])]})
         return {"room": name, "demo": False, "role": role, "members": members}
 
-    @app.post("/v1/ask")
-    def ask(body: AskIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        who = c.person.id if c.person else "anon"
-        if not asks.allow(who, time.time()):
-            raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
-        team_id = None if (team == "demo" or (c.kind == "anon" and not team)) else team_scope(c, team, conn)[0]
-        evs = task_events(conn, team_id) if team_id else demo.events()
+    @app.post("/v1/summarize")
+    def summarize_turn(body: SummaryIn, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """A coding turn's one-line summary, by Nemotron Lightning from the agent's last message, for a team member's
+        connector. The message is only read for this answer, never stored; the connector sends the summary, with the
+        event, and nothing else of it."""
+        if c.kind != "connector":
+            raise HTTPException(401, "Summaries are for a signed-in connector (`teamloop login`)")
+        team_id = team_scope(c, None, conn)[0]
+        if len(json.dumps(body.facts)) > 8000:
+            raise HTTPException(413, "The turn's facts are too big to summarize")
+        if not summaries.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Lots of turns just now; the connector will retry")
+        if spent_today(conn, c.person.id) >= DAILY_TOKENS:
+            raise HTTPException(403, "You've used today's model allowance; it frees up over the next 24 hours")
         try:
             with llm.meter() as used:
-                out = qa.answer(body.question, evs, chat=chat)
+                out = agent_summary.summarize(body.text, body.facts, chat=chat)
         except Exception:  # noqa: BLE001
+            log.exception("summary failed")
+            raise HTTPException(503, "The summary didn't come; the connector will retry") from None
+        record_usage(conn, team_id, c.person, "progress", used)  # turn summaries feed the progress estimates
+        return out
+
+    @app.post("/v1/ask")
+    def ask(body: AskIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        """Agent S answers from the team's events. Model calls are for team members only: the demo has none."""
+        team_id = team_scope(c, team, conn)[0]
+        if not asks.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
+        try:
+            with llm.meter() as used:
+                out = qa.answer(body.question, task_events(conn, team_id), chat=chat)
+        except Exception:  # noqa: BLE001
+            log.exception("ask failed")
             raise HTTPException(503, "Agent S couldn't answer right now; try again in a minute") from None
-        if team_id:
-            record_usage(conn, team_id, c.person, "ask", used)
+        record_usage(conn, team_id, c.person, "ask", used)
         return out
 
     @app.get("/v1/digest")
-    def get_digest(team: Optional[str] = None, model: str = "auto", c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        is_demo = team == "demo" or (c.kind == "anon" and not team)
-        team_key = "demo" if is_demo else team_scope(c, team, conn)[0]
-        key = f"{team_key}:{model}"
+    def get_digest(team: Optional[str] = None, model: str = Query("auto", pattern="^(auto|lightning|super|ultra)$"),
+                   c: Caller = Depends(caller), conn=Depends(db)) -> dict:
+        team_id = team_scope(c, team, conn)[0]
+        key = f"{team_id}:{model}"
         hit = digests.get(key)
         if hit and time.time() - hit[0] < 600:
             return hit[1]
-        if is_demo:
-            evs = demo.events()
-        else:
-            rows = conn.execute("select body from events where team_id = %s and received_at > now() - interval '1 day'"
-                                " order by ts limit 400", (team_key,)).fetchall()
-            evs = [r["body"] for r in rows]
+        if not asks.allow(c.person.id, time.time()):
+            raise HTTPException(429, "Lots of questions just now; try again in a few minutes")
+        rows = conn.execute("select body from events where team_id = %s and received_at > now() - interval '1 day'"
+                            " order by ts limit 400", (team_id,)).fetchall()
         try:
             with llm.pinned(model), llm.meter() as used:
-                out = {**agent_digest.digest(evs, chat=chat), "generated_at": time.time()}
+                out = {**agent_digest.digest([r["body"] for r in rows], chat=chat), "generated_at": time.time()}
         except Exception:  # noqa: BLE001
+            log.exception("digest failed")
             raise HTTPException(503, "Agent S couldn't write the digest right now; try again in a minute") from None
-        if not is_demo:
-            record_usage(conn, team_key, None, "digest", used)
+        record_usage(conn, team_id, c.person, "digest", used)
         digests[key] = (time.time(), out)
         return out
 

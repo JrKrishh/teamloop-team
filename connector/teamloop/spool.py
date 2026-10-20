@@ -1,6 +1,7 @@
 """Local spool: one JSON file per event, written atomically, so parallel hooks never interleave.
 
-`local` holds text that never leaves the laptop. Anything bound for the hub goes through `public()`.
+`local` holds text that never reaches the team: only the summarizer reads it (summarize.py), and only its one-line
+summary is sent. Events bound for the hub go through `public()`.
 """
 
 from __future__ import annotations
@@ -47,5 +48,5 @@ def read(path: Path) -> dict:
 
 
 def public(record: dict) -> dict:
-    """The only shape that may leave the laptop: everything except `local`."""
+    """The only shape an event may have on its way to the hub: everything except `local`."""
     return {k: v for k, v in record.items() if k != "local"}

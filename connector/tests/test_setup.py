@@ -35,6 +35,17 @@ def test_merge_is_idempotent_and_keeps_other_hooks():
     assert settings["hooks"]["PostToolUse"][0]["matcher"] == "*"
 
 
+def test_installed_app_registers_the_console_exe(tmp_path, monkeypatch):
+    """SuperAgents.exe only runs the app; hooks, MCP and send must start teamloop.exe beside it."""
+    (tmp_path / "teamloop.exe").write_bytes(b"")
+    monkeypatch.setattr(claude.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(claude.sys, "executable", str(tmp_path / "SuperAgents.exe"))
+    assert claude.launcher() == [(tmp_path / "teamloop.exe").as_posix()]
+    assert claude.hook_command() == f'"{(tmp_path / "teamloop.exe").as_posix()}" {claude.TAG}'
+    monkeypatch.setattr(claude.sys, "executable", str(tmp_path / "other" / "teamloop.exe"))
+    assert claude.launcher() == [(tmp_path / "other" / "teamloop.exe").as_posix()]  # no sibling: the exe itself
+
+
 def test_init_writes_local_settings_kept_out_of_git(project):
     assert init.run("local") == 0
     settings = json.loads((project / ".claude" / "settings.local.json").read_text())

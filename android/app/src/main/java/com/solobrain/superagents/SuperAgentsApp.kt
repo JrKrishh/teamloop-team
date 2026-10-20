@@ -19,7 +19,7 @@ class SuperAgentsApp : Application() {
         // on screen or not: questions become notifications only when the app isn't in front of you
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) { remote.inForeground = true }
-            override fun onStop(owner: LifecycleOwner) { remote.inForeground = false }
+            override fun onStop(owner: LifecycleOwner) { remote.inForeground = false; remote.liveChanged() }  // left unanswered: notify
         })
     }
 }

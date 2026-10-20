@@ -1,0 +1,13 @@
+name: keep-alive
+# The hosted hub's database is a free Supabase project, which pauses after a week without activity, and judges may
+# come by any day from 1 to 15 Dec. /healthz reads the database, so this daily call keeps it awake; a red run also
+# says the hub is down.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS --retry 3 --retry-delay 30 https://teamloop.vercel.app/healthz

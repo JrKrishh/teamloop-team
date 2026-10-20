@@ -107,11 +107,37 @@ h2{font:800 clamp(34px,4.6vw,56px)/1.02 var(--ft);letter-spacing:-.04em;margin:0
 .open .ghost{color:var(--paper)}
 footer{padding:56px 0 64px;color:var(--faint);font-size:14.5px}
 footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+/* the waitlist: early access instead of a download */
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.btn:disabled{opacity:.65;cursor:default;transform:none}
+.wl-inline{display:flex;gap:8px;width:min(520px,100%);padding:6px;border-radius:18px;background:var(--card);border:1px solid var(--line);box-shadow:0 20px 40px -28px rgba(60,35,20,.45);transition:border-color .15s,box-shadow .15s}
+.wl-inline:focus-within{border-color:var(--brick);box-shadow:0 0 0 4px rgba(168,68,61,.12),0 20px 40px -28px rgba(60,35,20,.45)}
+.wl-inline input{flex:1;min-width:0;height:48px;border:0;background:transparent;padding:0 14px;font:500 16.5px var(--fb);color:var(--ink);outline:none}
+.wl-msg{min-height:22px;margin:0;font-size:15px;color:var(--muted)}
+.wl-msg.bad{color:var(--brick);font-weight:600}
+.wl-done{display:flex;align-items:center;gap:14px;padding:14px 22px 14px 16px;border-radius:18px;background:var(--card);border:1px solid var(--line);font-size:16px;text-align:left;animation:pop .45s var(--ease)}
+.wl-done svg{width:46px;height:46px;flex:none}
+.wl-done b{display:block;font:750 18px/1.25 var(--ft);letter-spacing:-.01em}
+.wl-done span{color:var(--muted)}
+.wl-done i{font-style:normal;color:var(--ink);font-weight:600}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+.wl-card{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:48px;align-items:start;padding:44px;border-radius:28px;background:var(--card);border:1px solid var(--line);box-shadow:0 40px 80px -50px rgba(60,35,20,.45)}
+.wl-form{display:grid;gap:16px}
+.wl-form label{display:grid;gap:7px}
+.wl-form label b{font-weight:650;font-size:15px}
+.wl-form label b span{font-weight:500;color:var(--faint);font-size:13px;margin-left:6px}
+.wl-form :is(input,select,textarea){width:100%;font:500 16px var(--fb);color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;outline:none;transition:border-color .15s,box-shadow .15s}
+.wl-form textarea{resize:vertical;min-height:88px}
+.wl-form :is(input,select,textarea):focus{border-color:var(--brick);box-shadow:0 0 0 4px rgba(168,68,61,.12)}
+.wl-form .btn{justify-self:start}
+#waitlist{scroll-margin-top:24px}
 .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
 .reveal.in{opacity:1;transform:none}
-@media (max-width:900px){.nav{display:none}.steps,.split,.split.flip,.privacy,.open{grid-template-columns:1fr}.open{padding:32px}.cast{top:-54px}.cast svg{transform:scale(.75)}
+@media (max-width:900px){.wl-card{grid-template-columns:1fr;gap:28px;padding:28px}.nav{display:none}.steps,.split,.split.flip,.privacy,.open{grid-template-columns:1fr}.open{padding:32px}.cast{top:-54px}.cast svg{transform:scale(.75)}
   .st-stage{height:auto;display:grid;gap:12px;order:2}.st-card{position:static;width:auto}.st-chip{display:none}
   .st-yes{flex-wrap:wrap}.st-btns{margin-left:56px}}
+@media (max-width:520px){.wl-inline{flex-direction:column}.wl-inline .btn{justify-content:center}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
 </style>
 </head>
@@ -120,7 +146,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
   <div class="wrap">
     <a class="brand" href="/" aria-label="Super Agents home"><svg viewBox="0 0 100 100" aria-hidden="true"><path fill="#A8443D" d="M50 95C30 95 14 93 11 86C8.5 80 9 68 9.5 56C11 31 27 14 48 12.5C56 12 63 9.5 70 3.5C71.2 9.5 69.8 14.5 66.5 17.8C81 25 90 39 90.5 56C91 68 91.5 80 89 86C86 93 70 95 50 95Z"/><ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/><ellipse fill="#18171B" cx="38.5" cy="62" rx="6.2" ry="7.8"/><ellipse fill="#18171B" cx="61.5" cy="62" rx="6.2" ry="7.8"/></svg>Super Agents</a>
     <nav class="nav"><a href="#how">How it works</a><a href="#agent">Agent S</a><a href="#team">Super Team</a><a href="#privacy">Privacy</a><a href="https://github.com/JrKrishh/teamloop-team">GitHub</a></nav>
-    <a class="btn small dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-Setup.exe">Download</a>
+    <a class="btn small" href="#waitlist">Join the waitlist</a>
   </div>
 </header>
 
@@ -131,8 +157,14 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
       <h1>Your team's AI agents, on one page.</h1>
       <p class="lede">Every teammate's Claude Code and Codex sessions, turned into live progress per task. Ask Agent S what's done, what's next and what's stuck, and see the sessions behind every answer.</p>
       <div class="cta">
-        <a class="btn dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-Setup.exe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>Download for Windows</a>
-        <div class="meta">Free · Open source (MIT) · Windows 10 and 11 · <a href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-android.apk">Android app</a></div>
+        <form class="wl-inline" data-source="hero" novalidate>
+          <label class="sr" for="wl-email">Work email</label>
+          <input id="wl-email" name="email" type="email" required autocomplete="email" placeholder="you@company.com">
+          <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <button class="btn" type="submit">Join the waitlist</button>
+        </form>
+        <p class="wl-msg" role="status" aria-live="polite"></p>
+        <div class="meta">Early access for teams · Windows 10 and 11 · Android</div>
       </div>
       <div class="stage">
         <div class="cast" id="cast" aria-hidden="true"></div>
@@ -147,9 +179,9 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
       <h2 class="reveal">Nobody types a status update.</h2>
       <p class="sub reveal">Super Agents sits on each laptop next to the coding agents you already use. It notices the work as it happens and keeps everyone's board current.</p>
       <div class="steps">
-        <div class="step reveal"><span class="n">01</span><h3>Install and sign in</h3><p>Download the app and continue with GitHub. Create your team, or join with the link your lead sends.</p></div>
+        <div class="step reveal"><span class="n">01</span><h3>Get early access</h3><p>Join the waitlist. We let teams in a few at a time and email you when your team's spot opens.</p></div>
         <div class="step reveal"><span class="n">02</span><h3>Connect your repos</h3><p>Pick a folder. Super Agents wires Claude Code and Codex hooks into personal files that stay out of git.</p></div>
-        <div class="step reveal"><span class="n">03</span><h3>Code as usual</h3><p>Each session reports a one-line summary and facts: files changed, tests passed or failed, commits, PRs.</p></div>
+        <div class="step reveal"><span class="n">03</span><h3>Code as usual</h3><p>Each session reports a one-line summary and facts: files changed, tests passed or failed, commits.</p></div>
       </div>
     </div>
   </section>
@@ -162,7 +194,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
         <p class="sub reveal">Agent S runs on NVIDIA Nemotron. It answers only from your team's session events, and every answer points to the events it comes from.</p>
         <ul class="ticks reveal">
           <li><span><b>"What's blocked?"</b> Blockers, with the sessions that show them.</span></li>
-          <li><span><b>Progress you can trust.</b> "Done" needs a merged PR, passing tests or a commit, not just the agent's word.</span></li>
+          <li><span><b>Progress you can trust.</b> "Done" needs passing tests or a commit, not just the agent's word.</span></li>
           <li><span><b>A daily digest</b> for the lead: shipped, in progress, blocked, at risk.</span></li>
         </ul>
       </div>
@@ -204,11 +236,33 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
   <section class="block" id="privacy">
     <div class="wrap">
       <div class="kicker">Privacy</div>
-      <h2 class="reveal">Summaries leave the laptop. Code never does.</h2>
-      <p class="sub reveal">The summary is written on each laptop. You can pause sharing with one switch, and leads see work, not people: no rankings, no time tracking.</p>
+      <h2 class="reveal">Summaries leave the laptop. Code stays, unless you share it.</h2>
+      <p class="sub reveal">NVIDIA Nemotron writes each summary from the agent's last message, which the server doesn't keep. You can pause sharing with one switch, and leads see work, not people: no rankings, no time tracking.</p>
       <div class="privacy">
-        <div class="col reveal"><h3>What's shared</h3><ul><li>A one-line summary of each agent turn</li><li>Facts: files changed, test results, commits, PRs</li><li>The task you're on and which coding tool</li></ul></div>
-        <div class="col never reveal"><h3>Never shared</h3><ul><li>Your prompts and the agent's replies</li><li>Tool output, file contents and diffs</li><li>Keystrokes, screenshots, time tracking</li></ul></div>
+        <div class="col reveal"><h3>What's shared</h3><ul><li>A one-line summary of each agent turn</li><li>Facts: files changed, test results, commits, token counts</li><li>The task you're on and which coding tool</li><li>What you choose: files you send a teammate, and prompts teammates send into your sessions, by your rules</li></ul></div>
+        <div class="col never reveal"><h3>Never shared with the team</h3><ul><li>Your prompts and the agent's replies in your coding sessions</li><li>Tool output, file contents and diffs</li><li>Keystrokes, screenshots, time tracking</li></ul></div>
+      </div>
+      <p class="sub reveal">Chats with the app's own agents are answered by NVIDIA Nemotron through the Super Agents server; they aren't stored there.</p>
+    </div>
+  </section>
+
+  <section class="block" id="waitlist">
+    <div class="wrap">
+      <div class="wl-card reveal">
+        <div>
+          <div class="kicker">Early access</div>
+          <h2>Get your team on the list.</h2>
+          <p class="sub">We're letting teams in a few at a time. Leave your email and we'll write when your spot opens.</p>
+        </div>
+        <form class="wl-form" data-source="section" novalidate>
+          <label><b>Work email</b><input name="email" type="email" required autocomplete="email" placeholder="you@company.com"></label>
+          <label><b>Your name <span>optional</span></b><input name="name" autocomplete="name" maxlength="120"></label>
+          <label><b>Team size <span>optional</span></b><select name="team_size"><option value="">Choose one</option><option value="1">Just me</option><option value="2-5">2 to 5</option><option value="6-20">6 to 20</option><option value="21+">More than 20</option></select></label>
+          <label><b>What should your agents do? <span>optional</span></b><textarea name="note" rows="3" maxlength="1000" placeholder="For example: Claude Code and Codex across three repos, and I want to see what's blocked without asking"></textarea></label>
+          <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <button class="btn" type="submit">Join the waitlist</button>
+          <p class="wl-msg" role="status" aria-live="polite"></p>
+        </form>
       </div>
     </div>
   </section>
@@ -220,7 +274,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-con
         <h2>Built in the open, on NVIDIA Nemotron.</h2>
         <p class="sub">MIT licensed. Made for the Nebius × NVIDIA Global AI Hackathon; Agent S runs on Nemotron through Nebius Token Factory.</p>
       </div>
-      <div class="cta"><a class="btn dl" href="https://github.com/JrKrishh/teamloop-team/releases/latest/download/SuperAgents-Setup.exe">Download for Windows</a><a class="ghost" href="https://github.com/JrKrishh/teamloop-team">Read the source →</a></div>
+      <div class="cta"><a class="btn" href="#waitlist">Join the waitlist</a><a class="ghost" href="https://github.com/JrKrishh/teamloop-team">Read the source →</a></div>
     </div>
   </section>
 </main>
@@ -238,6 +292,36 @@ const bar = document.getElementById("top");
 addEventListener("scroll", () => bar.classList.toggle("scrolled", scrollY > 8), {passive: true});
 const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), {threshold: .15});
 document.querySelectorAll(".reveal").forEach(n => io.observe(n));
+
+// The waitlist: both forms post to the hub; a person sees the same thanks whether or not they were already on it
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+function said(msg, text, bad) { msg.textContent = text; msg.classList.toggle("bad", !!bad); }
+function joined(form, email) {
+  const done = document.createElement("div"); done.className = "wl-done"; done.setAttribute("role", "status");
+  done.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true"><path fill="#C2554C" d="${HOOD}"/><ellipse fill="#F4E6D8" cx="50" cy="61" rx="30" ry="27"/><path d="M32.5 64Q38.5 55 44.5 64M55.5 64Q61.5 55 67.5 64" fill="none" stroke="#18171B" stroke-width="3.4" stroke-linecap="round"/></svg><div><b>You're on the list.</b><span>We'll write to <i></i> when your spot opens.</span></div>`;
+  done.querySelector("i").textContent = email;
+  form.replaceWith(done);
+}
+document.querySelectorAll("form[data-source]").forEach(form => {
+  const msg = form.querySelector(".wl-msg") || form.nextElementSibling;
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form));
+    data.email = (data.email || "").trim(); data.source = form.dataset.source;
+    if (!EMAIL.test(data.email)) { said(msg, "That doesn't look like an email address.", true); form.elements.email.focus(); return; }
+    const btn = form.querySelector("button"), label = btn.textContent;
+    btn.disabled = true; btn.textContent = "Joining…"; said(msg, "");
+    try {
+      const r = await fetch("/v1/waitlist", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof out.detail === "string" ? out.detail : "Check the form and try again.");
+      joined(form, data.email);
+    } catch (err) {
+      said(msg, err.message && err.message !== "Failed to fetch" ? err.message : "Couldn't reach us just now. Try again in a moment.", true);
+      btn.disabled = false; btn.textContent = label;
+    }
+  });
+});
 </script>
 </body>
 </html>

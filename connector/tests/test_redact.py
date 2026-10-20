@@ -14,7 +14,25 @@ CANARIES = [
     "sk_live_" + "i" * 24,
     "rk_test_" + "j" * 24,
     "whsec_" + "k" * 32,
+    "nvapi-" + "l" * 40,
+    "hf_" + "m" * 34,
+    "glpat-" + "n" * 20,
+    "npm_" + "o" * 36,
+    "sb_secret_" + "q" * 30,
+    "tl_" + "r" * 43,
+    "s_" + "t" * 43,
 ]
+
+
+def test_secrets_in_json_flags_urls_and_headers():
+    cases = {'{"api_key": "abcdef123456"}': '{"api_key": "[hidden]"}',
+             "psql postgres://app:hunter2hunter2@db.example.com:5432/main": "psql postgres://[hidden]@db.example.com:5432/main",
+             "mysql --password hunter2hunter2 -u root": "mysql --password [hidden] -u root",
+             "login --token=abcd1234efgh": "login --token=[hidden]",
+             "Authorization: Bearer  abcdefghijklmnop1234": "Authorization: Bearer  [hidden]"}
+    for raw, want in cases.items():
+        assert redact(raw) == want, raw
+    assert redact("see https://example.com/a@b and email me@example.com") == "see https://example.com/a@b and email me@example.com"
 
 
 def test_known_shapes_are_hidden():

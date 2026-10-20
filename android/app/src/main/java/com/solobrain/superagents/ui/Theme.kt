@@ -25,21 +25,21 @@ import com.solobrain.superagents.R
 data class Palette(
     val bg: Color, val bg2: Color, val panel: Color, val panel2: Color, val line: Color, val line2: Color,
     val text: Color, val muted: Color, val faint: Color,
-    val brick: Color, val brickStrong: Color, val onBrick: Color, val ok: Color, val bad: Color, val warn: Color, val plan: Color, val bubble: Color,
+    val brick: Color, val onBrick: Color, val ok: Color, val bad: Color, val warn: Color, val plan: Color, val bubble: Color,
     val face: Color = Color(0xFFF4E6D8), val ink: Color = Color(0xFF18171B), val hoodBrick: Color = Color(0xFFA8443D),
 )
 
 val Dark = Palette(
     bg = Color(0xFF111013), bg2 = Color(0xFF161519), panel = Color(0xFF1C1B20), panel2 = Color(0xFF24222A),
     line = Color(0xFF2A2830), line2 = Color(0xFF38353F), text = Color(0xFFF3ECE0), muted = Color(0xFFA39B90), faint = Color(0xFF6F6960),
-    brick = Color(0xFFD9675C), brickStrong = Color(0xFFC2554C), onBrick = Color(0xFF1A0E0C), ok = Color(0xFF4CC38A),
+    brick = Color(0xFFD9675C), onBrick = Color(0xFF1A0E0C), ok = Color(0xFF4CC38A),
     bad = Color(0xFFF07A70), warn = Color(0xFFF2B32B), plan = Color(0xFF7FA6F0), bubble = Color(0xFF27252D),
 )
 
 val Light = Palette(
     bg = Color(0xFFF6F1E8), bg2 = Color(0xFFEFE8DC), panel = Color(0xFFFFFCF6), panel2 = Color(0xFFF3ECE1),
     line = Color(0xFFE6DDCF), line2 = Color(0xFFD6CBBB), text = Color(0xFF18171B), muted = Color(0xFF6B655D), faint = Color(0xFF9C948A),
-    brick = Color(0xFFA8443D), brickStrong = Color(0xFFA8443D), onBrick = Color(0xFFFFF8F2), ok = Color(0xFF2C8A57),
+    brick = Color(0xFFA8443D), onBrick = Color(0xFFFFF8F2), ok = Color(0xFF2C8A57),
     bad = Color(0xFFB84A40), warn = Color(0xFF9A6400), plan = Color(0xFF3D68B8), bubble = Color(0xFFEAE2D4),
 )
 

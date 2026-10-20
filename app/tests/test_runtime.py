@@ -119,12 +119,61 @@ def test_the_answer_carries_the_turns_usage_and_agents_can_read_the_teams(home):
     assert loop.load_chat(t.chat["id"])["view"][0]["usage"]["calls"] == 2
 
 
+def test_bigger_tool_groups_come_when_an_answer_needs_them(home):
+    hub_calls = []
+    llm, sent = script(call("more_tools", {"group": "files"}, "m1"), call("more_tools", {"group": "nonsense"}, "m2"),
+                       call("browser_snapshot", {}, "b1"), answer("Done."))
+    t = run_turn("manual", llm, hub_calls, message="what does the board say?")
+    first = sent[0]["tools"]
+    assert {"team_board", "create_task", "remember", "run_command", "more_tools"} <= set(first)  # every step: the small groups
+    assert "read_file" not in first and "browser_open" not in first  # the big ones wait to be asked for
+    assert "read_file" in sent[1]["tools"] and "browser_open" not in sent[1]["tools"]
+    results = [m["content"] for m in sent[2]["messages"] if m["role"] == "tool"]
+    assert results[0].startswith("Added the files tools") and "no tool group called 'nonsense'" in results[1]
+    assert "browser_open" in sent[3]["tools"]  # called by name before it was added: added from then on
+    assert not [e for e in t.events if e["kind"] == "tool" and e["name"] == "more_tools"]  # plumbing, not a step on screen
+
+
 def test_declining_stops_the_change(home):
     hub_calls = []
     llm, sent = script(call("close_task", {"task": "T-3"}), answer("Left it open."))
     t = run_turn("manual", llm, hub_calls, approve=lambda e: False)
     assert statuses(t, "close_task") == ["asking", "declined"] and not any(c[0] == "PATCH" for c in hub_calls)
     assert "declined" in [m for m in sent[1]["messages"] if m["role"] == "tool"][0]["content"]
+
+
+def start_waiting(mode, llm, hub_calls):
+    """A turn started in `mode`, running until its first call waits for a yes."""
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="plan it", attachments=[], mode=mode,
+                  model="auto", hub=fake_hub(hub_calls), llm=llm, mcp=NoMcp(), person="Yang")
+    th = threading.Thread(target=t.run, daemon=True)
+    th.start()
+    deadline = time.time() + 10
+    while not any(e["kind"] == "tool" and e["status"] == "asking" for e in t.events) and time.time() < deadline:
+        time.sleep(0.02)
+    return t, th
+
+
+def test_switching_to_auto_while_it_runs(home):
+    hub_calls = []
+    llm, sent = script(call("create_task", {"title": "Rate limits"}, "w1"), call("create_task", {"title": "Retries"}, "w2"), answer("Added both."))
+    t, th = start_waiting("manual", llm, hub_calls)
+    t.set_mode("auto")  # the person switches while the first change waits for a yes
+    th.join(10)
+    assert statuses(t, "create_task") == ["asking", "running", "done", "running", "done"]  # that one ran; the next didn't ask
+    assert sum(c[1] == "tasks" for c in hub_calls) == 2 and t.mode == "auto"
+    assert {"kind": "mode", "mode": "auto"}.items() <= next(e for e in t.events if e["kind"] == "mode").items()
+    assert sent[1]["messages"][-1] == {"role": "user", "content": f"(The person switched this chat to auto mode. {loop.MODE_RULES['auto']})"}
+
+
+def test_switching_to_plan_queues_what_waits(home):
+    hub_calls = []
+    llm, sent = script(call("create_task", {"title": "Rate limits"}, "w1"), answer("1. Add the rate limits task"))
+    t, th = start_waiting("manual", llm, hub_calls)
+    t.set_mode("plan")
+    th.join(10)
+    assert statuses(t, "create_task") == ["asking", "planned"] and not any(c[1] == "tasks" for c in hub_calls)
+    assert len(t.planned) == 1 and "switched to plan mode" in [m for m in sent[1]["messages"] if m["role"] == "tool"][0]["content"]
 
 
 def test_plan_queues_changes_until_run_plan(home):
@@ -156,6 +205,169 @@ def test_a_plan_in_prose_is_asked_once_for_its_calls(home):
     llm, sent = script(answer("Done already."))
     run_turn("manual", llm, [])
     assert len(sent) == 1  # only plan mode asks again
+
+
+def test_a_long_turn_keeps_working_with_a_small_context(home):
+    """Like Claude Code: no stop after a couple of dozen steps; old tool output is cut and the oldest steps fold, so every
+    step stays inside the hub's limits (200 messages, 400k characters)."""
+    boards = []
+
+    def hub(method, path, body=None):
+        boards.append(1)
+        return {"room": f"Loopers {len(boards)}", "members": [],
+                "tasks": [{"task": f"T-{i}", "status": "todo", "title": "x" * 120} for i in range(80)]}  # ~10k characters
+
+    sent = []
+
+    def llm(messages, tools, tier):
+        sent.append(json.loads(json.dumps(messages)))  # as sent: compact() changes older messages in place afterwards
+        n = len(sent)
+        return call("team_board", {}, f"c{n}") if n <= 150 else answer("Finished.")
+
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="check the board a lot", attachments=[],
+                  mode="auto", model="auto", hub=hub, llm=llm, mcp=NoMcp(), person="Yang")
+    t.run()
+    assert t.events[-2]["text"] == "Finished." and len(sent) == 151
+    assert max(len(m) for m in sent) <= 200 and max(len(json.dumps(m)) for m in sent) < 250_000
+    last = sent[-1]
+    results = [m["content"] for m in last if m["role"] == "tool"]
+    assert all(len(r) > 9000 for r in results[-loop.KEEP_WHOLE:]) and all(r.endswith(loop.CUT) for r in results[:-loop.KEEP_WHOLE])
+    head = 2  # the system prompt and the person's message (a new chat has no history)
+    assert last[head]["role"] == "user" and last[head]["content"].startswith(loop.FOLDED.strip())
+    assert "- team_board {} → Team Loopers 2." in last[head]["content"]  # the first step (1 was the prompt's), folded to a line
+    ids = {c["id"] for m in last if m.get("tool_calls") for c in m["tool_calls"]}
+    assert all(m["tool_call_id"] in ids for m in last if m["role"] == "tool")  # every result still follows its call
+
+
+def test_at_the_step_limit_it_says_where_it_got_to(home, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_STEPS", 4)
+    llm, sent = script(*[call("team_board", {}, f"c{i}") for i in range(4)], answer("Read the board 4 times; T-3 still needs review."))
+    t = run_turn("auto", llm, [])
+    assert len(sent) == 5 and sent[-1]["messages"][-1] == {"role": "user", "content": loop.WRAP_UP.format(n=4)}
+    assert t.events[-2]["text"] == "Read the board 4 times; T-3 still needs review."
+    llm, sent = script(*[call("team_board", {}, f"d{i}") for i in range(5)])  # it still only calls tools: said for it
+    t = run_turn("auto", llm, [])
+    assert t.events[-2]["text"] == "I took 4 steps on this and stopped there. Ask me to continue."
+
+
+def test_the_same_call_with_the_same_result_is_named_a_loop(home):
+    llm, sent = script(*[call("team_board", {}, f"r{i}") for i in range(3)], answer("ok"))
+    run_turn("auto", llm, [])
+    results = [m["content"] for m in sent[-1]["messages"] if m["role"] == "tool"]
+    assert not results[1].endswith(loop.REPEAT_NUDGE.format(n=2)) and results[2].endswith(loop.REPEAT_NUDGE.format(n=3))
+
+
+def steered_turn(llm_steps, mode="auto"):
+    """A turn whose fake model is handed the turn itself, so a step can stand for a note typed while it worked."""
+    sent, holder = [], {}
+
+    def llm(messages, tools, tier):
+        sent.append(json.loads(json.dumps(messages)))
+        return llm_steps[len(sent) - 1](holder["t"])
+
+    holder["t"] = t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="how's T-3?", attachments=[],
+                                mode=mode, model="auto", hub=fake_hub([]), llm=llm, mcp=NoMcp(), person="Yang")
+    return t, sent
+
+
+def test_a_note_typed_while_it_works_is_read_before_its_next_step(home):
+    def first(t):
+        assert t.steer("Use the Q3 numbers, not Q2")  # typed at the desk while step 1 ran
+        return call("team_board", {}, "s1")
+
+    t, sent = steered_turn([first, lambda t: answer("Done, with Q3.")])
+    t.run()
+    assert sent[1][-1] == {"role": "user", "content": loop.STEER.format(who="Yang", text="Use the Q3 numbers, not Q2")}
+    assert sent[1][-2]["role"] == "tool"  # after the step it was on, not instead of it
+    assert {"kind": "steer", "text": "Use the Q3 numbers, not Q2", "via": "desk"}.items() <= next(e for e in t.events if e["kind"] == "steer").items()
+    assert t.events[-2]["text"] == "Done, with Q3." and not t.steer("too late")  # once it's done, a note is a new message
+
+
+def test_a_note_that_arrives_as_it_answers_gets_answered_too(home):
+    def first(t):
+        t.steer("Also say who owns it", "phone")  # sent from the phone while it wrote its answer
+        return answer("T-3 is blocked.")
+
+    t, sent = steered_turn([first, lambda t: answer("T-3 is blocked; Asha owns it.")])
+    t.run()
+    assert len(sent) == 2 and sent[1][-2] == {"role": "assistant", "content": "T-3 is blocked."}
+    assert sent[1][-1]["content"] == loop.STEER.format(who="Yang (from their phone)", text="Also say who owns it")
+    assert t.events[-2]["text"] == "T-3 is blocked; Asha owns it."
+    assert any(e["kind"] == "steer" for e in loop.load_chat(t.chat["id"])["view"][0]["events"])  # kept with the chat
+
+
+def rules_hub(statuses_seen, role="member"):
+    """A hub whose team gives board changes to its lead (Yang) and has one pinned decision; a lead's answers to the
+    request come from statuses_seen, one per look (the last one stays)."""
+    calls = []
+
+    def hub(method, path, body=None):
+        calls.append((method, path, body))
+        if path == "board":
+            return {"room": "Loopers", "role": role, "members": [{"name": "Yang"}, {"name": "Asha"}], "tasks": [],
+                    "rules": {"lead_approves": ["board"], "leads": ["Yang"],
+                              "decisions": [{"text": "Deploys go out on Fridays only", "by": {"name": "Yang", "role": "lead"}}]}}
+        if path == "approvals":
+            return {"id": "a1", "status": "pending", "leads": ["Yang"]}
+        if path == "approvals/a1":
+            return statuses_seen.pop(0) if len(statuses_seen) > 1 else statuses_seen[0]
+        if path.startswith("tasks/"):
+            return {"task": "T-3"}
+        return {}
+    return hub, calls
+
+
+def lead_turn(hub, llm):
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="close T-3", attachments=[], mode="manual",
+                  model="auto", hub=hub, llm=llm, mcp=NoMcp(), person="Asha")
+    th = threading.Thread(target=t.run, daemon=True)
+    th.start()
+    deadline = time.time() + 10
+    while not any(e.get("lead") for e in t.events) and time.time() < deadline:
+        time.sleep(0.02)
+    return t, th
+
+
+def test_a_step_the_teams_rules_give_to_a_lead_waits_for_their_yes(home, monkeypatch):
+    monkeypatch.setattr(loop, "LEAD_POLL", 0.05)
+    hub, calls = rules_hub([{"status": "pending"}, {"status": "approved", "decided_by": "Yang"}])
+    llm, sent = script(call("close_task", {"task": "T-3"}, "x1"), answer("Closed T-3."))
+    t, th = lead_turn(hub, llm)
+    t.decide("x1", True)  # the member's own yes doesn't count for this one
+    th.join(10)
+    assert ("POST", "approvals", {"rule": "board", "tool": "close_task", "what": "Close T-3", "detail": ""}) in calls
+    assert statuses(t, "close_task") == ["asking", "running", "done"]  # ran once Yang said yes
+    assert next(e for e in t.events if e.get("status") == "asking")["lead"] == "Yang"
+    assert "- Deploys go out on Fridays only (decided by Yang, lead)" in sent[0]["messages"][0]["content"]  # in every agent's prompt
+
+
+def test_a_leads_no_stops_the_step_and_a_member_can_cancel_one(home, monkeypatch):
+    monkeypatch.setattr(loop, "LEAD_POLL", 0.05)
+    hub, calls = rules_hub([{"status": "denied", "decided_by": "Yang", "note": "Not before the demo"}])
+    llm, sent = script(call("close_task", {"task": "T-3"}, "x1"), answer("Left it open."))
+    t, th = lead_turn(hub, llm)
+    th.join(10)
+    assert statuses(t, "close_task") == ["asking", "declined"] and not any(c[0] == "PATCH" for c in calls)
+    assert "Yang said no: Not before the demo" in [m for m in sent[1]["messages"] if m["role"] == "tool"][0]["content"]
+    hub, calls = rules_hub([{"status": "pending"}])  # nobody answers; Asha moves on
+    llm, sent = script(call("close_task", {"task": "T-3"}, "x2"), answer("OK."))
+    t, th = lead_turn(hub, llm)
+    t.decide("x2", False)
+    th.join(10)
+    assert statuses(t, "close_task") == ["asking", "declined"] and ("POST", "approvals/a1/cancel", None) in calls
+    hub, calls = rules_hub([{"status": "pending"}], role="lead")  # a lead's own agents ask the lead: as always
+    llm, _ = script(call("close_task", {"task": "T-3"}, "x3"), answer("Closed."))
+    t = loop.Turn(chat=loop.new_chat("agent-s"), agent=agents.get("agent-s"), message="close T-3", attachments=[], mode="auto",
+                  model="auto", hub=hub, llm=llm, mcp=NoMcp(), person="Yang")
+    t.run()
+    assert statuses(t, "close_task") == ["running", "done"] and not any(c[1] == "approvals" for c in calls)
+
+
+def test_agents_pin_team_decisions(home):
+    calls = []
+    llm, _ = script(call("pin_decision", {"text": "Postgres, not Mongo"}), answer("Pinned."))
+    t = run_turn("auto", llm, calls)
+    assert statuses(t, "pin_decision") == ["running", "done"] and ("POST", "decisions", {"text": "Postgres, not Mongo"}) in calls
 
 
 def test_auto_runs_changes_but_shell_commands_still_ask(home):
@@ -242,6 +454,22 @@ def test_a_real_mcp_server(home):
     assert m.tools([broken["id"]], timeout=30) == [] and broken["id"] in m.errors
 
 
+def test_a_note_for_a_finished_answer_is_refused(client, monkeypatch):
+    hub = server.cloud
+    monkeypatch.setattr(server, "cloud", lambda state, method, path, body=None, query=None, token=None:
+                        (200, {"content": "Done.", "tool_calls": [], "model": "m"}) if path == "/v1/llm" else hub(state, method, path, body, query, token))
+    tid = client.post("/api/turns", json={"message": "hi", "team": TEAM}).json()["turn"]
+    deadline = time.time() + 10
+    while not client.get(f"/api/turns/{tid}").json()["done"] and time.time() < deadline:
+        time.sleep(0.05)
+    r = client.post(f"/api/turns/{tid}/steer", json={"text": "and use the Q3 numbers"})
+    assert r.status_code == 409 and "new message" in r.json()["detail"]  # the window sends it as the next message instead
+    assert client.post(f"/api/turns/{tid}/steer", json={"text": "x", "via": "fax"}).status_code == 422
+    client.sa_state.turns[tid].ended -= 3601  # an hour on, the app lets go of a finished turn with no plan waiting
+    client.post("/api/turns", json={"message": "again", "team": TEAM})
+    assert client.get(f"/api/turns/{tid}").status_code == 404
+
+
 def test_effort_reaches_the_model_with_room_to_think(client, monkeypatch):
     sent, hub, old = [], server.cloud, {"hub": False}
 
@@ -299,6 +527,7 @@ def client(home, monkeypatch):
     state = server.State("https://hub.example", port=PORT, key="the-key")
     c = TestClient(server.create(state, open_url=lambda u: None), base_url=f"http://127.0.0.1:{PORT}")
     c.headers["X-App-Key"] = "the-key"
+    c.sa_state = state
     signed_in(monkeypatch, c)
     return c
 
@@ -335,3 +564,13 @@ def test_terminal_over_websocket(client, home):
         while "super-agents-ok" not in seen.replace("echo super-agents-ok", "") and time.time() < deadline:
             seen += ws.receive_text()
         assert "super-agents-ok" in seen.replace("echo super-agents-ok", "")
+
+
+def test_every_builtin_tool_has_a_card_in_the_ui_and_a_label_on_the_phone():
+    """A tool missing from app.js's TOOL_UI, or from the phone's Labels.kt, shows as its raw name with its arguments."""
+    from superagents.runtime.tools import BUILTINS
+
+    block = (server.UI / "app.js").read_text(encoding="utf-8").split("const TOOL_UI = {", 1)[1].split("\n};", 1)[0]
+    assert [b.name for b in BUILTINS if f"\n  {b.name}: [" not in block] == []
+    phone = (server.UI.parents[2] / "android/app/src/main/java/com/solobrain/superagents/remote/Labels.kt").read_text(encoding="utf-8")
+    assert [b.name for b in BUILTINS if f'"{b.name}" to (' not in phone] == []
