@@ -406,6 +406,7 @@ class Remote:
         return {"laptop": socket.gethostname(), "user": (boot.get("user") or {}).get("name"), "signed_in": boot.get("signed_in"),
                 "agents": [{k: a.get(k) for k in ("id", "name", "color", "mode", "model")} for a in self.api("GET", "/api/agents")["agents"]],
                 "prefs": {k: (boot.get("prefs") or {}).get(k) for k in ("model", "effort")},  # what the desktop is set to
+                "engines": [{k: e.get(k) for k in ("id", "label", "model_label")} for e in boot.get("engines") or []],
                 "chats": self.api("GET", "/api/chats")["chats"][:40], "live": slim_live(self.api("GET", "/api/turns")["turns"]),
                 "asks": self.team_asks(), "notes": self.team_notes()}
 

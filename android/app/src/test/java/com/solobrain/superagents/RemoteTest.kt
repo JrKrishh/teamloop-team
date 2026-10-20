@@ -1,5 +1,6 @@
 package com.solobrain.superagents
 
+import com.solobrain.superagents.remote.Engine
 import com.solobrain.superagents.remote.Labels
 import com.solobrain.superagents.remote.Note
 import com.solobrain.superagents.remote.Pairings
@@ -101,5 +102,16 @@ class RemoteTest {
             "notes": [{"id": 7, "from": "Asha", "mine": false, "agent": true, "to": "you", "task": "T-3", "text": "Rebase first", "at": 1.0}]}"""))
         assertEquals(Note("Asha", false, true, "you", "Rebase first", 1.0, 7, "T-3"), lp.notes.single())
         assertEquals(emptyList<Note>(), parseLaptop(JSONObject("""{"laptop": "DESK", "agents": [], "chats": [], "live": []}""")).notes)  // an older laptop
+    }
+
+    @Test fun offersTheLaptopsOwnCodingAgentsAsModels() {
+        // as remote.py's state sends them: the turn then runs in that CLI on the laptop
+        val lp = parseLaptop(JSONObject("""{"laptop": "DESK", "agents": [], "chats": [], "live": [],
+            "engines": [{"id": "claude_code", "label": "Claude Code", "model_label": "Opus 5.5 (1M)"}, {"id": "codex", "label": "Codex", "model_label": null}]}"""))
+        assertEquals(Engine("claude_code", "Claude Code", "Opus 5.5 (1M)"), lp.engines.first())
+        assertNull(lp.engines.last().modelLabel)
+        assertEquals(emptyList<Engine>(), parseLaptop(JSONObject("""{"laptop": "DESK", "agents": [], "chats": [], "live": []}""")).engines)
+        assertEquals("Replace:\nteh\n\nwith:\nthe", Labels.detail("edit_file", JSONObject("""{"path": "acme-web/a.md", "old": "teh", "new": "the"}""")))
+        assertEquals("Read a file, edited 2 files", Labels.summary(listOf("read_file", "edit_file", "write_file")))
     }
 }

@@ -1,6 +1,6 @@
 [project]
 name = "teamloop"
-version = "0.4.0"
+version = "0.4.1"
 description = "TeamLoop connector: turns your AI coding session into private, summarized progress for your team."
 license = "MIT"
 requires-python = ">=3.10"

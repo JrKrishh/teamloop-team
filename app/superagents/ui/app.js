@@ -92,6 +92,12 @@ const MODELS = {
   super: {label: "Nemotron Super", desc: "Balanced · 120B"},
   ultra: {label: "Nemotron Ultra", desc: "Deepest reasoning · 550B"},
 };
+// The person's own coding agents, when this laptop has them (runtime/engines.py): the turn runs in that CLI, on the
+// model they picked there lately; added to MODELS at boot
+const ENGINE_DESC = {
+  claude_code: m => `${m || "Its default model"} · your own Claude Code, with its tools and your sign-in`,
+  codex: m => `${m || "Its default model"} · your own Codex. It can't ask first, so it's read only unless you pick Auto`,
+};
 const TOOL_GROUPS = {
   team: {label: "Team board", desc: "Read the board and the team's history; create, assign, close and start tasks."},
   files: {label: "Files and git", desc: "Read, search and write files in the repos connected on This laptop; branch, commit, push and open pull requests."},
@@ -222,6 +228,7 @@ function applyBoot(boot) {
   const prefs = boot.prefs || {};
   setTheme(prefs.theme || "dark", false);
   setMode(prefs.mode || "manual", false);
+  for (const e of boot.engines || []) if (ENGINE_DESC[e.id]) MODELS[e.id] = {label: e.label, desc: ENGINE_DESC[e.id](e.model_label), engine: true};
   setModel(prefs.model || "auto", false);
   setEffort(prefs.effort || "medium", false);
   S.agent = prefs.agent || "agent-s";
@@ -610,7 +617,9 @@ function agentMsg(a = currentAgent()) {
 }
 // The folded line says what the steps did, the way Claude Code does: "Read 3 files, ran a command, took 4 browser steps".
 const STEP_SAID = [[/^read_file$/, "read a file", "read # files"], [/^search_files$/, "searched the code", "searched the code # times"],
-  [/^list_files$/, "listed a folder", "listed # folders"], [/^write_file$/, "edited a file", "edited # files"],
+  [/^list_files$/, "listed a folder", "listed # folders"], [/^(write_file|edit_file)$/, "edited a file", "edited # files"],
+  [/^web_search$/, "searched the web", "searched the web # times"], [/^todo$/, "made a to-do list", "updated its to-do list # times"],
+  [/^subagent$/, "used a subagent", "used # subagents"],
   [/^run_command$/, "ran a command", "ran # commands"], [/^(git_|github_pr$|open_pr$)/, "used git", "took # git steps"],
   [/^(browser_|fetch_url$|dev_server$)/, "used the browser", "took # browser steps"], [/^desktop_/, "used an app", "took # desktop steps"],
   [/^(remember|forget|recall)$/, "used memory", "took # memory steps"], [/^(share_|take_share$|team_files$)/, "used team files", "took # sharing steps"],
@@ -813,6 +822,15 @@ const TOOL_UI = {
   recall: ["search", "Recall", a => `“${a.query}”${a.where && a.where !== "everywhere" ? ` in ${a.where}` : ""}`],
   load_skill: ["book", "Use skill", a => a.name],
   read_skill_file: ["book", "Read skill file", a => `${a.name}/${a.file}`],
+  // steps of a turn on Claude Code or Codex that the app's own tools have no name for (runtime/engines.py)
+  edit_file: ["edit", "Edit", a => a.path],
+  web_search: ["search", "Search the web", a => `“${a.query || ""}”`],
+  todo: ["list", "Plan", a => `${a.steps || 0} step${a.steps === 1 ? "" : "s"}`],
+  subagent: ["team", "Subagent", a => a.task || ""],
+  read_messages: ["send", "Read teammates' notes", () => ""],
+  team_changes: ["branch", "Read teammates' pushes", a => a.repo || ""],
+  report_progress: ["gauge", "Report progress", a => `${a.percent ?? "?"}%${a.doing ? ` · ${a.doing}` : ""}`],
+  mark_blocked: ["flag", "Mark blocked", a => a.reason || ""],
 };
 const STATUS = {running: "running", asking: "needs you", planned: "planned", done: "", failed: "failed", declined: "not run",
   discarded: "not run", undone: "undone"};  // done says nothing: its green dot does
@@ -832,7 +850,7 @@ function toolCard(st, e, past) {
     const tic = el("span", "tic"); tic.innerHTML = icon(iconName);
     const what = describe(e.args || {}) || "";
     let target;
-    if (["read_file", "write_file"].includes(e.name) && what) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openFile(what); }; }
+    if (["read_file", "write_file", "edit_file"].includes(e.name) && what) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openFile(what); }; }
     else if (["fetch_url", "browser_open"].includes(e.name) && /^https?:/.test(what)) { target = el("button", "tlink", what); target.type = "button"; target.onclick = ev => { ev.stopPropagation(); openBrowser(what); }; }
     else target = el("span", "targ", what);
     const tst = el("button", "tst"); tst.type = "button"; tst.setAttribute("aria-expanded", "false");
@@ -882,6 +900,8 @@ function askBox(c, st) {
   const box = el("div", "ask-box");
   if (e.name === "run_command") box.append(el("p", null, `${who} wants to run this on your laptop${a.cwd ? ` in ${a.cwd}` : ""}:`), el("pre", null, a.command || ""));
   else if (e.name === "write_file") box.append(el("p", null, `${who} wants to write ${a.path}:`), el("pre", null, (a.content || "").slice(0, 6000)));
+  else if (e.name === "edit_file") box.append(el("p", null, `${who} wants to edit ${a.path || "a file"}:`),
+    el("pre", null, a.old != null ? `Replace:\n${a.old}\n\nwith:\n${a.new ?? ""}`.slice(0, 6000) : `${a.edits || 1} change${a.edits > 1 ? "s" : ""}`));
   else if (e.name === "git_commit") box.append(el("p", null, `${who} wants to commit these files on the current branch:`), el("pre", null, `${a.message || ""}\n\n${(a.files || []).join("\n")}`));
   else if (e.name === "git_push") box.append(el("p", null, `${who} wants to push the current branch${a.repo ? ` of ${a.repo}` : ""} to GitHub, with your sign-in. Your team will see it there.`));
   else if (e.name === "open_pr") box.append(el("p", null, `${who} wants to open a pull request${a.base ? ` into ${a.base}` : ""}:`), el("pre", null, `${a.title || ""}\n\n${a.body || ""}`));
@@ -1001,7 +1021,7 @@ async function digest() {
   userMsg("Today's digest");
   const slot = agentMsg(S.agents.find(a => a.id === "agent-s") || currentAgent());
   try {
-    const d = await hub(withTeam(`digest?model=${S.model}`));
+    const d = await hub(withTeam(`digest?model=${MODELS[S.model].engine ? "auto" : S.model}`));  // the digest is Agent S's, on Nemotron
     settle(slot, shortModel(d.model));
     const box = el("div", "digest"); box.append(el("div", "answer", d.headline));
     for (const [k, label] of [["shipped", "Shipped"], ["in_progress", "In progress"], ["blocked", "Blocked"], ["at_risk", "At risk"]]) {
@@ -1567,7 +1587,7 @@ async function renderAgents() {
   S.agents.forEach((a, i) => {
     const r = el("article", "agent-row"); r.style.animationDelay = `${Math.min(i, 8) * 30}ms`;
     const who = el("div", "who");
-    who.append(el("b", null, a.name), el("small", null, `${a.model === "auto" ? "Auto model" : MODELS[a.model].label} · ${MODES[a.mode].label}${a.builtin ? " · built in" : ""}`));
+    who.append(el("b", null, a.name), el("small", null, `${a.model === "auto" || !MODELS[a.model] ? "Auto model" : MODELS[a.model].label} · ${MODES[a.mode].label}${a.builtin ? " · built in" : ""}`));
     const n = a.skills.length, k = a.connectors.length;
     const caps = [`${n} skill${n === 1 ? "" : "s"}`, `${k} connector${k === 1 ? "" : "s"}`, ...Object.keys(TOOL_GROUPS).filter(g => a.tools[g]).map(g => TOOL_GROUPS[g].label)];
     const ctl = el("div", "ctl");
@@ -2829,7 +2849,7 @@ function renderLaptop() {
   for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Code you write and commit yourself", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
   nv.append(el("p", "sub", "Except what you allow: a prompt a teammate sends into one of your sessions, and its answer, go on the team's record (Super Team → Sessions sets your rules). So does a note your agent leaves for a teammate on purpose, with secrets taken out."));
   nv.append(el("p", "sub", "What goes: a one-line summary per turn, plus facts such as files changed, tests passed or failed, and token counts. Nemotron writes the summary from the agent's last message, through the Super Agents server, which doesn't keep it. When your agents' commits are pushed: their subject lines, file names and line counts."),
-    el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));
+    el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server, which doesn't store them, or, when you pick Claude Code or Codex as the model, to that tool's provider under your own account. Chats are kept on this laptop."));
   never.append(nv); right.append(never);
   grid.append(left, right);
 }

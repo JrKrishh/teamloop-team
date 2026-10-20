@@ -53,7 +53,7 @@ def clean(fields: dict) -> dict:
         out["color"] = fields["color"]
     if "instructions" in fields:
         out["instructions"] = str(fields["instructions"])[:8000]
-    if fields.get("model") in ("auto", "lightning", "super", "ultra"):
+    if fields.get("model") in ("auto", "lightning", "super", "ultra", "claude_code", "codex"):
         out["model"] = fields["model"]
     if fields.get("mode") in ("manual", "auto", "plan"):
         out["mode"] = fields["mode"]
