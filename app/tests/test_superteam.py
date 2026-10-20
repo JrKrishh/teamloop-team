@@ -125,6 +125,25 @@ def test_codex_continues_its_session_in_its_sandbox(tmp_path, repo):
     assert argv[:5] == ["exec", "resume", "019a-th-1", "-", "--json"] and "sandbox_mode=read-only" in argv
 
 
+def test_a_copy_runs_on_the_model_its_session_is_on(tmp_path, repo, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    transcript = tmp_path / "claude/projects/E--acme-web/sess-asha.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(json.dumps({"type": "assistant", "requestedModel": "claude-opus-5-5[1m]",
+                                      "message": {"model": "claude-opus-5-5"}}) + "\n", encoding="utf-8")
+    cli = fake_cli(tmp_path, FAKE_CLAUDE, "claude")
+    runner = superteam.Runner(lambda *a: (200, {}), team=lambda: "t", clis={"claude_code": lambda: cli},
+                              repos=lambda: [{"name": "acme-web", "path": str(repo), "ok": True}])
+    assert runner.run_one(prompt())["status"] == "done"
+    argv = record(tmp_path)["argv"]
+    assert argv[argv.index("--model") + 1] == "claude-opus-5-5[1m]"
+    codex_argv = superteam.command(prompt(tool="codex", session="th-1", model="gpt-6-astra"), "codex")
+    assert codex_argv[-2:] == ["-m", "gpt-6-astra"]
+    assert "--model" not in superteam.command(prompt(model="opus & del *"), "claude")  # only a name that's safe on argv
+    assert "--model" not in superteam.command(prompt(), "claude")  # unknown: the tool's own default
+
+
 def test_the_runner_claims_runs_and_reports(tmp_path, repo):
     cli = fake_cli(tmp_path, FAKE_CLAUDE, "claude")
     calls = []

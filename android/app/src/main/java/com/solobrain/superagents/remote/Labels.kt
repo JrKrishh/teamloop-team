@@ -70,6 +70,15 @@ object Labels {
         "recall" to ("Recall" to { a -> "“${a.optString("query")}”" + a.optString("where").let { if (it.isEmpty() || it == "everywhere") "" else " in $it" } }),
         "load_skill" to ("Use skill" to { a -> a.optString("name") }),
         "read_skill_file" to ("Read skill file" to { a -> "${a.optString("name")}/${a.optString("file")}" }),
+        // steps of a turn on Claude Code or Codex that the app's own tools have no name for
+        "edit_file" to ("Edit" to { a -> a.optString("path") }),
+        "web_search" to ("Search the web" to { a -> "“${a.optString("query")}”" }),
+        "todo" to ("Plan" to { a -> "${a.optInt("steps")} steps" }),
+        "subagent" to ("Subagent" to { a -> a.optString("task") }),
+        "read_messages" to ("Read teammates' notes" to { _ -> "" }),
+        "team_changes" to ("Read teammates' pushes" to { a -> a.optString("repo") }),
+        "report_progress" to ("Report progress" to { a -> "${a.optString("percent")}% · ${a.optString("doing")}" }),
+        "mark_blocked" to ("Mark blocked" to { a -> a.optString("reason") }),
     )
 
     fun of(name: String, args: JSONObject): Pair<String, String> {
@@ -86,6 +95,7 @@ object Labels {
     fun detail(name: String, args: JSONObject): String = when (name) {
         "run_command" -> args.optString("command")
         "write_file" -> args.optString("content")
+        "edit_file" -> if (args.has("old")) "Replace:\n${args.optString("old")}\n\nwith:\n${args.optString("new")}" else args.optString("path")
         "git_commit" -> args.optString("message") + "\n\n" + args.optJSONArray("files").strings().joinToString("\n")
         else -> if (args.length() == 0) "" else args.toString(2)
     }.trim()
@@ -93,7 +103,10 @@ object Labels {
     private val STEPS = listOf(
         Regex("^read_file$") to ("read a file" to "read # files"),
         Regex("^(search_files|list_files)$") to ("looked through the code" to "looked through the code # times"),
-        Regex("^write_file$") to ("edited a file" to "edited # files"),
+        Regex("^(write_file|edit_file)$") to ("edited a file" to "edited # files"),
+        Regex("^web_search$") to ("searched the web" to "searched the web # times"),
+        Regex("^todo$") to ("made a to-do list" to "updated its to-do list # times"),
+        Regex("^subagent$") to ("used a subagent" to "used # subagents"),
         Regex("^run_command$") to ("ran a command" to "ran # commands"),
         Regex("^(git_|github_pr$|open_pr$)") to ("used git" to "took # git steps"),
         Regex("^(browser_|fetch_url$|dev_server$)") to ("used the browser" to "took # browser steps"),

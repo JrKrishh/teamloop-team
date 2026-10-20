@@ -3,7 +3,8 @@
 The hub keeps the prompts and your rules: off, ask each time, or automatic; read only or edit; tokens per teammate
 per day. This polls for prompts you (or your rules) approved, runs each against the session it names with that tool's
 own CLI, in that session's repo, and reports the answer and the tokens used. Your open session isn't touched: Claude
-Code runs a fork of it (--fork-session); Codex continues it in the background.
+Code runs a fork of it (--fork-session); Codex continues it in the background. Either runs on the model the session
+itself is on (read from its file on this laptop: teamloop.models), not the tool's default.
 
 Claude Code runs in its --restricted mode: no command or code tools, file tools confined to the repo, your own
 allow-rules don't apply, and no MCP servers load. Read-only runs also deny edits; edit runs accept edits. Codex runs in
@@ -28,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from teamloop import claude, codex, redact, spool
+from teamloop import claude, codex, models, redact, spool
 
 POLL_SECONDS = 15
 TIMEOUT = 600
@@ -52,16 +53,17 @@ def framed(p: dict) -> str:
 def command(p: dict, cli: str, last_message: Optional[str] = None) -> list[str]:
     if not SESSION_ID.match(p["session"] or ""):
         raise ValueError("That session id doesn't look right")
+    model = p.get("model") if models.MODEL_ID.match(p.get("model") or "") else None
     if p["tool"] == "claude_code":
         cmd = [cli, "-p", "--resume", p["session"], "--fork-session", "--output-format", "stream-json", "--verbose",
-               "--restricted", "--strict-mcp-config"]  # and none of the owner's MCP servers
+               "--restricted", "--strict-mcp-config", *(["--model", model] if model else [])]  # and none of the owner's MCP servers
         if p["access"] == "read":
             return cmd + ["--permission-mode", "dontAsk", "--disallowedTools", "Edit,Write,MultiEdit,NotebookEdit"]
         return cmd + ["--permission-mode", "acceptEdits"]
     if p["tool"] == "codex":
         sandbox = "read-only" if p["access"] == "read" else "workspace-write"
         return [cli, "exec", "resume", p["session"], "-", "--json", "-o", last_message or os.devnull,
-                "-c", f"sandbox_mode={sandbox}", "--skip-git-repo-check"]
+                "-c", f"sandbox_mode={sandbox}", "--skip-git-repo-check", *(["-m", model] if model else [])]
     raise ValueError(f"{p['tool']} sessions can't take prompts")
 
 
@@ -272,7 +274,7 @@ class Runner:
         if not cli:
             return {"status": "failed", "tokens": 0, "result": f"{TOOL_NAMES.get(p['tool'], p['tool'])} isn't installed here."}
         try:
-            return run(p, repo, cli, p.get("budget"))
+            return run({**p, "model": models.of_session(p["tool"], p.get("session") or "")}, repo, cli, p.get("budget"))
         except ValueError as e:
             return {"status": "failed", "tokens": 0, "result": str(e)}
 

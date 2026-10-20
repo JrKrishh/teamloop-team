@@ -15,11 +15,15 @@ data class LiveTurn(val turn: String, val chat: String?, val agent: String?, val
 /** A lead's: a step of a member's agent waiting for their yes, by the team's rules (Super Team → Rules). */
 data class TeamAsk(val id: String, val from: String, val what: String, val detail: String, val rule: String)
 
+/** A coding agent on the laptop that a turn can run on instead of Nemotron ("claude_code", "codex"), and the model it
+ *  would use there. */
+data class Engine(val id: String, val label: String, val modelLabel: String?)
+
 /** [model] and [effort]: what the desktop is set to, where the phone starts. [asks]: what waits on this lead's yes.
  *  [notes]: unread notes from teammates and their agents (Super Team → Inbox on the desktop). */
 data class Laptop(val host: String, val user: String?, val agents: List<Agent>, val chats: List<ChatItem>, val live: List<LiveTurn>,
                   val model: String? = null, val effort: String? = null, val asks: List<TeamAsk> = emptyList(),
-                  val notes: List<Note> = emptyList()) {
+                  val notes: List<Note> = emptyList(), val engines: List<Engine> = emptyList()) {
     val name: String get() = user?.substringBefore(' ')?.let { "$it's laptop" } ?: "Your laptop"
     fun agent(id: String?): Agent = agents.firstOrNull { it.id == id }
         ?: Agent(id ?: "agent-s", if (id == null || id == "agent-s") "Agent S" else "Agent", null, null)
@@ -75,6 +79,7 @@ fun parseLaptop(o: JSONObject) = Laptop(
     model = o.optJSONObject("prefs")?.text("model"), effort = o.optJSONObject("prefs")?.text("effort"),
     asks = parseAsks(o.optJSONArray("asks")),
     notes = parseNotes(o.optJSONArray("notes")),
+    engines = o.optJSONArray("engines").objects().map { Engine(it.optString("id"), it.optString("label"), it.text("model_label")) },
 )
 
 fun parseBoard(o: JSONObject) = Board(

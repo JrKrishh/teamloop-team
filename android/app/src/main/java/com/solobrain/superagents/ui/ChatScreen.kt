@@ -115,6 +115,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.solobrain.superagents.remote
 import com.solobrain.superagents.remote.Labels
+import com.solobrain.superagents.remote.Laptop
 import com.solobrain.superagents.remote.LiveTurn
 import com.solobrain.superagents.remote.RemoteError
 import com.solobrain.superagents.remote.objects
@@ -217,6 +218,11 @@ private val MODE_HINT = mapOf("manual" to "Asks before each change", "auto" to "
 // The desktop's model picker and effort levels, word for word
 private val MODELS = listOf("auto" to ("Auto" to "Super for chats, Ultra for the digest"), "lightning" to ("Lightning" to "Fastest replies"),
     "super" to ("Super" to "Balanced · 120B"), "ultra" to ("Ultra" to "Deepest reasoning · 550B"))
+// and the laptop's own coding agents, when it has them: the turn runs in that CLI, on the model picked there lately
+private fun models(laptop: Laptop?) = MODELS + laptop?.engines.orEmpty().map { e ->
+    e.id to (e.label to "${e.modelLabel ?: "Its default model"} · your own ${e.label}" +
+        if (e.id == "codex") ". Read only unless you pick Auto" else ", with its tools")
+}
 private val EFFORTS = listOf("low" to "Low", "medium" to "Medium", "high" to "High", "max" to "Max")
 private val EFFORT_HINT = mapOf("low" to "Quickest; fine for lookups and small edits", "medium" to "Thinks before it acts",
     "high" to "Thinks longer: plans, reviews, tricky bugs", "max" to "Thinks the longest; slowest")
@@ -346,7 +352,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
                 .clickable { follow = true; scope.launch { list.animateScrollToItem(model.items.size - 1, scrollOffset = 100_000) } },
                 contentAlignment = Alignment.Center) { Icon(Glyph.Down, "To the newest message", Modifier.size(20.dp)) }
         }
-        val tuning = "${MODELS.toMap()[pickedModel ?: laptop?.model ?: "auto"]?.first ?: "Auto"} · " +
+        val tuning = "${models(laptop).toMap()[pickedModel ?: laptop?.model ?: "auto"]?.first ?: "Auto"} · " +
             (EFFORTS.toMap()[pickedEffort ?: laptop?.effort ?: "medium"] ?: "Medium")
         Composer(text, { text = it }, model.running != null, agent, who?.name ?: "Agent S", who?.color, MODES.first { it.first == mode }.second, tuning,
             onPick = { picking = true }, onSend = { send(text) },
@@ -379,7 +385,7 @@ fun ChatScreen(open: ChatOpen, onBack: () -> Unit) {
             Text(MODE_HINT[mode].orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
             Label("Model")
             val usingModel = pickedModel ?: laptop?.model ?: "auto"
-            for ((k, v) in MODELS) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (k == usingModel) p.panel2 else p.bg2)
+            for ((k, v) in models(laptop)) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (k == usingModel) p.panel2 else p.bg2)
                 .clickable { pickedModel = k }.padding(horizontal = 14.dp, vertical = 11.dp).testTag("model-$k"), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(v.first, style = MaterialTheme.typography.titleMedium)

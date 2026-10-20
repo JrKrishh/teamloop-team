@@ -7,6 +7,7 @@ SuperAgents.exe ─ window (WebView2) ─ UI (app/superagents/ui) ─┐ same or
                 └ local server on 127.0.0.1:<random port> ─────┘
                     ├─ the agent loop (runtime/): tools, skills, MCP connectors, modes, chats in ~/.teamloop/chats
                     │     └─ each model step: the hub's POST /v1/llm → Nemotron on Nebius Token Factory
+                    │        (or the whole turn in your own Claude Code or Codex CLI: runtime/engines.py)
                     ├─ Supabase Auth: GitHub (system browser, PKCE) or email/password
                     ├─ the hub (teamloop.vercel.app/v1/*) with the person's session token
                     └─ this laptop: teamloop init / pause / send, ~/.teamloop/config.json, the terminal (ConPTY)
@@ -38,6 +39,13 @@ A turn works until the job is done, as Claude Code's do: there is no small step 
 - **Switching while an answer runs** (desktop or phone) changes that answer too (`POST /api/turns/{id}/mode`): its next steps work the new way and the model is told. What waits for a yes moves on: a change runs at once in Auto (shell commands still ask), and anything is queued in Plan.
 
 **Model:** Auto uses Nemotron Super for chats (Ultra for the digest); or pin Lightning, Super or Ultra.
+
+**Or your own Claude Code or Codex** (`runtime/engines.py`), listed when this laptop has the CLI. The turn runs in that CLI, in the repo the chat works in (a follow-up continues the same session, kept as `chat["cli"]`), on the model you picked there lately: your newest session's (Claude Code writes the model you chose on each reply in its transcript, Codex each turn's model in its rollout), else the tool's own default (`settings.json`, `config.toml`). It uses your sign-in and that tool's own tools (TeamLoop's too, where its MCP server is registered), so its tokens are your plan's, never the hub's, and nothing goes through the hub. The window and the phone show it like any turn:
+- **Claude Code** runs in its streaming mode, as its SDK drives it: each permission prompt comes back to Super Agents, and the chat's mode decides it as for the app's own tools (Manual asks before a change, Auto runs it, a command always asks; the team's rules apply). Plan is Claude Code's own plan mode, and Run plan has the same session carry the plan out. A note typed while it works goes in as its next message. Effort is Claude Code's `--effort`.
+- **Codex**'s exec mode can't ask, so Manual and Plan run it in its read-only sandbox and Auto in its workspace-write one; a note typed while it works goes in when the run in progress ends. Effort is its reasoning effort (Max is High).
+- A new session in a chat that started on Nemotron gets the chat so far in its first message, with the agent's instructions and the team's decisions. The agent's skills, memory and connectors are the app's own and don't go along; the CLI has its own.
+
+Super Team's copies of a teammate's session (prompts from teammates, `ask_teammate`) run on the model that session itself is on, the same way, not the tool's default.
 
 **Effort:** how hard the model thinks before each step (Token Factory's `reasoning_effort`): Low, Medium (the default), High or Max. Higher thinks longer and gets more room (1800, 4000, 6000 or 8000 tokens a step); in a test, Low got a scheduling question wrong that Medium and up got right. Remembered like the model; a hub from before effort caps a step at 4000 tokens, and the app falls back to that.
 

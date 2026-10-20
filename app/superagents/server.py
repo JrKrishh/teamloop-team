@@ -32,7 +32,7 @@ from teamloop import spool
 
 from . import __version__, laptop, remote, shares, store, supa
 from .runtime import agents as agent_store
-from .runtime import browser, desktop
+from .runtime import browser, desktop, engines
 from .runtime import loop as runtime_loop
 from .runtime import mcpman
 from .runtime import memory
@@ -170,10 +170,14 @@ class ThemeIn(BaseModel):
     dark: bool
 
 
+# Nemotron's tiers, or a turn on the person's own Claude Code or Codex (runtime/engines.py)
+MODEL = "^(auto|lightning|super|ultra|claude_code|codex)$"
+
+
 class PrefsIn(BaseModel):
     theme: Optional[str] = Field(default=None, pattern="^(dark|light)$")
     mode: Optional[str] = Field(default=None, pattern="^(plan|manual|auto)$")
-    model: Optional[str] = Field(default=None, pattern="^(auto|lightning|super|ultra)$")
+    model: Optional[str] = Field(default=None, pattern=MODEL)
     effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")
     agent: Optional[str] = Field(default=None, pattern="^[a-z0-9-]{3,40}$")
 
@@ -182,7 +186,7 @@ class AgentBody(BaseModel):
     name: Optional[str] = Field(default=None, max_length=40)
     color: Optional[str] = Field(default=None, max_length=9)
     instructions: Optional[str] = Field(default=None, max_length=8000)
-    model: Optional[str] = Field(default=None, pattern="^(auto|lightning|super|ultra)$")
+    model: Optional[str] = Field(default=None, pattern=MODEL)
     mode: Optional[str] = Field(default=None, pattern="^(manual|auto|plan)$")
     skills: Optional[list[str]] = None
     connectors: Optional[list[str]] = None
@@ -220,7 +224,7 @@ class TurnBody(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     attachments: list[dict] = Field(default_factory=list, max_length=5)
     mode: str = Field(default="manual", pattern="^(manual|auto|plan)$")
-    model: str = Field(default="auto", pattern="^(auto|lightning|super|ultra)$")
+    model: str = Field(default="auto", pattern=MODEL)
     effort: str = Field(default="medium", pattern="^(low|medium|high|max)$")
     team: str = Field(min_length=36, max_length=36)
 
@@ -341,7 +345,7 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
         s = store.load()
         out = {"version": __version__, "cloud": state.cloud, "signed_in": False, "user": None, "teams": [],
                "team": None, "laptop": laptop.status(), "offline": None, "prefs": s.get("prefs") or {"theme": "dark"},
-               "frame": state.frame}
+               "frame": state.frame, "engines": engines.available()}
         if not s.get("session"):
             return out
         code, me = cloud(state, "GET", "/v1/me")
@@ -717,10 +721,11 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
     def turn_start(body: TurnBody) -> dict:
         chat = (runtime_loop.load_chat(body.chat) if body.chat else {}) or runtime_loop.new_chat(body.agent)
         files = [{"name": str(a.get("name", "file"))[:120], "text": str(a.get("text", ""))[:60_000]} for a in body.attachments]
-        turn = runtime_loop.Turn(chat=chat, agent=agent_store.get(body.agent), message=body.message, attachments=files,
-                                 mode=body.mode, model=body.model, hub=team_hub(body.team), mcp=state.mcp,
-                                 llm=lambda messages, tools, tier: llm_step(messages, tools, tier, body.team, body.effort),
-                                 person=(store.load().get("profile") or {}).get("name") or "you", effort=body.effort)
+        kind = engines.CliTurn if body.model in engines.NAMES else runtime_loop.Turn  # on the person's own CLI, or Nemotron
+        turn = kind(chat=chat, agent=agent_store.get(body.agent), message=body.message, attachments=files,
+                    mode=body.mode, model=body.model, hub=team_hub(body.team), mcp=state.mcp,
+                    llm=lambda messages, tools, tier: llm_step(messages, tools, tier, body.team, body.effort),
+                    person=(store.load().get("profile") or {}).get("name") or "you", effort=body.effort)
         for tid, t in list(state.turns.items()):  # finished over an hour ago with no plan waiting: nothing will ask for it
             if t.done and not t.planned and time.time() - t.ended > 3600:
                 state.turns.pop(tid, None)
