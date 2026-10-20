@@ -1,3 +1,3 @@
 """TeamLoop connector. Everything here runs on the developer's laptop."""
 
-__version__ = "0.3.6"
+__version__ = "0.4.0"

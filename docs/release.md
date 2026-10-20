@@ -10,8 +10,8 @@ Everything ships under one version: the desktop app, the connector inside it, bo
    Then click through the app against a local hub: every view, the agent editor, a task, the side panes.
 3. **Hub database first.** A release that adds a block to `cloud/cloud/migrations.sql` needs it in production before
    the hub that uses it: run each new `-- teamloop_cloud_vN_…` block in Supabase (the SQL editor, or `apply_migration`
-   with the block's name). Every statement is safe to run twice. Production has v1 to v6 (14 Oct); v7 (team rules) and
-   v8 (waitlist) are waiting.
+   with the block's name). Every statement is safe to run twice. Production has v1 to v6 (14 Oct); 0.4.0 needs v7 to v12
+   (team rules, waitlist, messages, handoffs, inbox, agents' prompts) before its hub goes out.
 4. **Hub deploy.** The Vercel project isn't connected to GitHub, so a push deploys nothing. From the repo root:
    `vercel deploy --prod --skip-domain --yes`, open the new deployment's `/healthz` (it shows the version), then promote
    it. The hub also serves the website (`cloud/cloud/site`), so site changes go out the same way. The hub is invite only:
