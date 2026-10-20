@@ -204,7 +204,8 @@ def test_super_team_calls_reach_the_hub_but_running_prompts_stays_with_the_runne
     signed_in(monkeypatch, client)
     pid = "11111111-2222-3333-4444-555555555555"
     for method, path in [("GET", "sessions"), ("PUT", "sessions/access"), ("POST", "prompts"),
-                         ("POST", f"prompts/{pid}/decide"), ("POST", f"prompts/{pid}/cancel"), ("GET", "messages"), ("POST", "messages")]:
+                         ("POST", f"prompts/{pid}/decide"), ("POST", f"prompts/{pid}/cancel"), ("GET", "messages"), ("POST", "messages"),
+                         ("POST", "messages/read")]:
         r = client.request(method, f"/api/cloud/{path}", params={"team": TEAM}, json={"mode": "auto"} if method != "GET" else None)
         assert r.json().get("detail") != "Not a Super Agents call", path
     assert any(c[0] == "PUT" and c[1] == "/v1/sessions/access" and c[2] == {"mode": "auto"} for c in hub.calls)

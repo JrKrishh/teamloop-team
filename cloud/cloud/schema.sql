@@ -271,6 +271,7 @@ create table public.messages (
 );
 create index messages_team_id_idx on public.messages (team_id, id);
 alter table public.session_access add column messages text not null default 'on' check (messages in ('on', 'off'));
+alter table public.session_access add column notes_read bigint not null default 0;  -- v11: Super Team → Inbox
 alter table public.messages enable row level security;
 alter table public.teams enable row level security;
 alter table public.team_repos enable row level security;

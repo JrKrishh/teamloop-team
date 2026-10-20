@@ -3,6 +3,8 @@ and the same X-Hub-Signature-256, so one receiver serves both.
 
 Env: GITHUB_WEBHOOK_SECRET (required), HUB_GITHUB_REPOS="owner/repo=room,owner/other=room2".
 Tasks come from the TeamLoop-Task trailer on commits, else the branch name (T-14-...), else the PR title.
+Pushed commits count only when an agent made them (the commit hook gives only those the trailer); pull requests,
+reviews and checks are how that work lands, whoever opened them.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from .safety import sanitize
 
 TASK = re.compile(r"\b([A-Z][A-Z0-9]{0,15}-\d{1,8})\b")
-TRAILER = re.compile(r"^TeamLoop-Task:\s*([A-Z][A-Z0-9]{0,15}-\d{1,8})\s*$", re.M)
+TRAILER = re.compile(r"^TeamLoop-Task:\s*([A-Z][A-Z0-9]{0,15}-\d{1,8})\s*$", re.M)  # only on commits an agent made
 
 
 def task_from(*texts: Optional[str]) -> Optional[str]:
@@ -73,7 +75,9 @@ def to_events(kind: str, p: dict, delivery: str) -> list[dict]:
         branch = (p.get("ref") or "").removeprefix("refs/heads/")
         for c in p.get("commits", [])[:20]:
             trailer = TRAILER.search(c.get("message") or "")
-            add("commit", trailer.group(1) if trailer else task_from(branch), c.get("timestamp"),
+            if not trailer:  # made by hand (the hook links only agents' commits): Super Team follows agents' work
+                continue
+            add("commit", trailer.group(1), c.get("timestamp"),
                 {"sha": (c.get("id") or "")[:12], "message": _clip(c.get("message")), "branch": branch,
                  "url": c.get("url"), "author": (c.get("author") or {}).get("username")})
     return out

@@ -68,8 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("id", nargs="?")
     t.add_argument("title", nargs="?")
     t.add_argument("--clear", action="store_true")
-    g = sub.add_parser("git-hook", help="install the commit hook that adds TeamLoop-Task trailers")
+    g = sub.add_parser("git-hook", help="install the commit hook that links your coding agent's commits to their task")
     g.add_argument("action", choices=["install"])
+    sub.add_parser("agent-of", help="(the commit hook calls this) prints 'codex' when Codex started this commit")
     sub.add_parser("pause", help="stop recording anything")
     sub.add_parser("resume", help="start recording again")
     sub.add_parser("status", help="show sharing state, spool and current task")
@@ -113,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
         from teamloop import githook
 
         print(githook.install())
+        return 0
+    if args.cmd == "agent-of":
+        from teamloop import githook
+
+        print(githook.agent_of() or "")
         return 0
     if args.cmd in ("pause", "resume"):
         return _pause(args)

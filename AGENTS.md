@@ -45,9 +45,13 @@ holds, its scope and schedule don't.
    stalls on Windows.
 8. **The hubs check what comes in:** an event's shape (`hub.team.bad_shape`), and teammates' text that other people's agents
    read is cleaned (`hub.safety.sanitize`).
+9. **Super Team follows agents' work, never a person's own code.** Everything on the board comes from coding agents' sessions
+   (hooks, MCP tools, Super Agents' agents) or from a person directing them (tasks, notes, rules, handoffs). The commit hook
+   links only commits an agent made (CLAUDECODE, CURSOR_AGENT, TEAMLOOP_AGENT, or a Codex process among the ones that
+   started it) and names no agent in the message; a commit made by hand stays as it was, and the hubs ignore it.
 
 ## Commits
-Branch `T-<id>-slug`; run `teamloop task T-<id>` so the commit hook adds `TeamLoop-Task: T-<id>`. Don't add co-author or
+Branch `T-<id>-slug`; run `teamloop task T-<id>` so the commit hook adds `TeamLoop-Task: T-<id>` (to an agent's commits). Don't add co-author or
 attribution lines.
 
 ## Progress reporting (MCP server: `teamloop mcp`, registered by `teamloop init`)

@@ -15,9 +15,11 @@ data class LiveTurn(val turn: String, val chat: String?, val agent: String?, val
 /** A lead's: a step of a member's agent waiting for their yes, by the team's rules (Super Team → Rules). */
 data class TeamAsk(val id: String, val from: String, val what: String, val detail: String, val rule: String)
 
-/** [model] and [effort]: what the desktop is set to, where the phone starts. [asks]: what waits on this lead's yes. */
+/** [model] and [effort]: what the desktop is set to, where the phone starts. [asks]: what waits on this lead's yes.
+ *  [notes]: unread notes from teammates and their agents (Super Team → Inbox on the desktop). */
 data class Laptop(val host: String, val user: String?, val agents: List<Agent>, val chats: List<ChatItem>, val live: List<LiveTurn>,
-                  val model: String? = null, val effort: String? = null, val asks: List<TeamAsk> = emptyList()) {
+                  val model: String? = null, val effort: String? = null, val asks: List<TeamAsk> = emptyList(),
+                  val notes: List<Note> = emptyList()) {
     val name: String get() = user?.substringBefore(' ')?.let { "$it's laptop" } ?: "Your laptop"
     fun agent(id: String?): Agent = agents.firstOrNull { it.id == id }
         ?: Agent(id ?: "agent-s", if (id == null || id == "agent-s") "Agent S" else "Agent", null, null)
@@ -35,11 +37,14 @@ data class Overlap(val file: String, val who: List<String>)
 
 data class Board(val room: String, val tasks: List<Task>, val overlaps: List<Overlap> = emptyList())
 
-/** A note about a task between the people and coding agents on it. [to]: one person, or null for everyone on it. */
-data class Note(val from: String, val mine: Boolean, val agent: Boolean, val to: String?, val text: String, val at: Double)
+/** A note between teammates and their coding agents. [to]: one person ("you" for this phone's person), or null for
+ *  everyone; [task]: what it's about, if anything. */
+data class Note(val from: String, val mine: Boolean, val agent: Boolean, val to: String?, val text: String, val at: Double,
+                val id: Long = 0, val task: String? = null)
 
 fun parseNotes(a: JSONArray?): List<Note> = a.objects().map {
-    Note(it.optString("from"), it.optBoolean("mine"), it.optBoolean("agent"), it.text("to"), it.optString("text"), it.optDouble("at", 0.0))
+    Note(it.optString("from"), it.optBoolean("mine"), it.optBoolean("agent"), it.text("to"), it.optString("text"), it.optDouble("at", 0.0),
+        it.optLong("id"), it.text("task"))
 }
 
 enum class Link { NotPaired, Connecting, Online, Offline }
@@ -69,6 +74,7 @@ fun parseLaptop(o: JSONObject) = Laptop(
     live = parseLive(o.optJSONArray("live")),
     model = o.optJSONObject("prefs")?.text("model"), effort = o.optJSONObject("prefs")?.text("effort"),
     asks = parseAsks(o.optJSONArray("asks")),
+    notes = parseNotes(o.optJSONArray("notes")),
 )
 
 fun parseBoard(o: JSONObject) = Board(

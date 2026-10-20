@@ -289,6 +289,40 @@ def test_the_phone_reads_a_tasks_notes_and_leaves_one(home):
     assert got["n3"]["t"] == "error"
 
 
+def test_the_phone_hears_unread_notes_and_marks_them_read(home):
+    pid, key = paired()
+    api, reads, posted = Api(), [], []
+    inbox = [{"id": 7, "from": {"id": "u2", "name": "Asha"}, "via": "agent", "to": {"id": "u1", "name": "Yang"}, "task": "T-3",
+              "text": "Rebase first", "at": 1.0, "unread": True},
+             {"id": 6, "from": {"id": "u1", "name": "Yang"}, "via": "person", "to": None, "task": None, "text": "mine", "at": 0.5, "unread": False}]
+
+    def call(method, path, body=None):
+        if path == f"/api/cloud/messages?team={TEAM}&box=inbox&limit=20":
+            return {"messages": inbox, "unread": 1}
+        if path == f"/api/cloud/messages/read?team={TEAM}":
+            reads.append(body)
+            return {"read_up_to": body["up_to"], "unread": 0}
+        if path == f"/api/cloud/messages?team={TEAM}" and method == "POST":
+            posted.append(body)
+            return {"messages": [], "skipped": []}
+        return api(method, path, body)
+    r = remote.Remote(call, relay=lambda: "wss://relay", team=lambda: TEAM, relay_cls=FakeRelay)
+    r.sync()
+    relay = FakeRelay.made[0]
+    relay.on_message(phone(key, pid, {"t": "hello"}, id="h1"))
+    relay.on_message(phone(key, pid, {"t": "notes_read", "up_to": 7}, id="r1"))
+    relay.on_message(phone(key, pid, {"t": "note", "task": "", "to": "Asha", "text": "Done"}, id="n1"))  # a reply with no task
+    assert wait_for(lambda: len(relay.sent) == 3)
+    got = {m["re"]: m for m in heard(relay, key, pid)}
+    assert got["h1"]["notes"] == [{"id": 7, "from": "Asha", "mine": False, "agent": True, "to": "you", "task": "T-3", "text": "Rebase first", "at": 1.0}]
+    assert got["r1"]["unread"] == 0 and reads == [{"up_to": 7}]
+    assert posted == [{"to": "Asha", "text": "Done", "task": None}] and got["n1"]["t"] == "notes"
+    r.online[pid] = time.time()
+    relay.sent.clear()
+    r.push_live(every=0.01, rounds=2)  # while the phone is open, unread notes come with what's running
+    assert heard(relay, key, pid)[0]["notes"][0]["text"] == "Rebase first"
+
+
 def test_long_output_is_cut_for_the_phone():
     e = remote.slim({"kind": "tool", "result": "x" * 5000, "args": {"content": "y" * 9000, "path": "a.py"}})
     assert len(e["result"]) < 1600 and len(e["args"]["content"]) < 4100 and e["args"]["path"] == "a.py"

@@ -2176,9 +2176,10 @@ let teamTab = "people";
 function showTeamTab(tab) {
   teamTab = tab;
   for (const b of $("teamTabs").children) b.classList.toggle("on", b.dataset.tab === tab);
-  for (const t of ["people", "rules", "sessions", "prompts", "files", "usage"]) $(`team-${t}`).hidden = t !== tab;
+  for (const t of ["people", "inbox", "rules", "sessions", "prompts", "files", "usage"]) $(`team-${t}`).hidden = t !== tab;
   const t = team(); $("teamSub").textContent = t ? `${t.name} · ${t.role === "lead" ? "you lead this team" : "member"}` : "";
   if (tab === "people") loadTeam();
+  if (tab === "inbox") loadInbox();
   if (tab === "rules") loadRules();
   if (tab === "sessions") loadSessions();
   if (tab === "prompts") loadPrompts();
@@ -2453,15 +2454,81 @@ function renderUsage() {
 const TOOL_LABEL = {claude_code: "Claude Code", codex: "Codex"};
 const P_STATUS = {pending: "waiting", approved: "allowed", running: "running", done: "answered", failed: "failed",
   denied: "denied", cancelled: "cancelled", stopped: "stopped", expired: "expired"};
-const INBOX = new Set();
+const INBOX = new Set(), NOTE_SEEN = new Set();
 let promptBox = "all", promptTimer = null;
+function setInboxBadge(n) { const b = $("inboxBadge"); b.hidden = !n; b.textContent = String(n); }
+function noteFrom(n) { return n.from.id === (S.user || {}).id ? (n.via === "agent" ? "Your agent" : "You") : n.from.name + (n.via === "agent" ? "'s agent" : ""); }
+// Super Team → Inbox: the notes that involve you (to you, to everyone, or yours) from teammates and their coding agents,
+// newest first by task. Opening it marks them read, on the phone too: the hub keeps how far you've read.
+async function loadInbox() {
+  const box = $("team-inbox"), me = S.user || {};
+  let d;
+  try { d = await hub(withTeam("messages?box=inbox&limit=100")); } catch (e) { box.replaceChildren(el("p", "err", e.message)); return; }
+  const send = async (body, button) => {
+    button.disabled = true;
+    try {
+      const r = await hub(withTeam("messages"), {method: "POST", body});
+      if (r.skipped.length) toast(`Not to ${r.skipped.join(", ")}: they turned off notes from teammates.`);
+      loadInbox(); return true;
+    } catch (e) { toast(e.message, true); button.disabled = false; return false; }
+  };
+  const to = el("select"), task = el("select"); to.setAttribute("aria-label", "To"); task.setAttribute("aria-label", "About which task");
+  to.append(Object.assign(el("option", null, "The whole team"), {value: "team"}));
+  for (const m of ((S.board || {}).members || []).filter(m => m.name !== me.name)) to.append(Object.assign(el("option", null, m.name), {value: m.name}));
+  task.append(Object.assign(el("option", null, "No task"), {value: ""}));
+  for (const t of ((S.board || {}).tasks || []).filter(t => t.status !== "done")) task.append(Object.assign(el("option", null, `${t.task} ${t.title || ""}`.trim()), {value: t.task}));
+  const text = textareaEl({rows: 2, maxLength: 1000, placeholder: "A note for them and their agents, e.g. I changed the session API: rebase before login"});
+  text.setAttribute("aria-label", "Note");
+  const go = btn("Send", "primary", () => text.value.trim() ? send({to: to.value, text: text.value.trim(), task: task.value || null}, go) : text.focus(), "send");
+  const compose = el("div", "note-send"); compose.append(to, task, text, go);
+  const groups = new Map();  // by task, in the order of each task's newest note
+  for (const n of d.messages) { if (!groups.has(n.task || "")) groups.set(n.task || "", []); groups.get(n.task || "").push(n); }
+  const list = el("div", "inbox");
+  for (const [k, notes] of groups) {
+    const g = el("section", "inbox-group"), head = el("div", "inbox-head");
+    if (k) {
+      const open = el("button", "link-btn", k); open.type = "button"; open.onclick = () => openTask(k);
+      head.append(open, ` ${(((S.board || {}).tasks || []).find(t => t.task === k) || {}).title || ""}`);
+    } else head.append("No task");
+    g.append(head);
+    for (const n of notes) {
+      const mine = n.from.id === me.id, it = el("div", "inbox-note" + (n.unread ? " unread" : "") + (mine ? " mine" : ""));
+      it.append(el("small", null, `${noteFrom(n)} → ${n.to ? (n.to.id === me.id ? "you" : n.to.name) : "everyone"} · ${ago(n.at)}`), el("p", null, n.text));
+      if (!mine) {
+        const reply = el("button", "link-btn", "Reply"); reply.type = "button";
+        reply.onclick = () => {
+          const t = textareaEl({rows: 2, maxLength: 1000, placeholder: `To ${n.from.name}${n.task ? `, about ${n.task}` : ""}`}); t.setAttribute("aria-label", "Reply");
+          const b = btn("Send", "primary", () => t.value.trim() ? send({to: n.from.name, text: t.value.trim(), task: n.task}, b) : t.focus(), "send");
+          const row = el("div", "note-send"); row.append(t, b); reply.replaceWith(row); t.focus();
+        };
+        it.append(reply);
+      }
+      g.append(it);
+    }
+    list.append(g);
+  }
+  if (!d.messages.length) list.append(el("p", "sub", "No notes yet. Teammates' agents leave one when a change affects your work, and you can write to them here."));
+  box.replaceChildren(el("p", "sub", "Notes to you or to everyone, from teammates and their coding agents, and the ones you sent. Their agents read yours at their next step."), compose, list);
+  const top = Math.max(0, ...d.messages.filter(n => n.unread).map(n => n.id));
+  if (top) { try { await hub(withTeam("messages/read"), {method: "POST", body: {up_to: top}}); checkInbox(); } catch (e) { /* the next look marks them */ } }
+}
 async function checkInbox() {
   if (!S.team) return;
   try {
     const r = await hub(withTeam("prompts?box=in&limit=30"));
     const waiting = r.prompts.filter(p => p.yours_to_decide);
     const asks = await hub(withTeam("approvals")).then(x => x.approvals).catch(() => []);  // a lead's: members' agents waiting on a yes
-    const b = $("promptBadge"); b.hidden = !(waiting.length + asks.length); b.textContent = String(waiting.length + asks.length);
+    const notes = await hub(withTeam("messages?box=inbox&limit=20")).catch(() => ({messages: [], unread: 0}));  // a hub from before the inbox: none
+    const n = waiting.length + asks.length + notes.unread;
+    const b = $("promptBadge"); b.hidden = !n; b.textContent = String(n); setInboxBadge(notes.unread);
+    const firstNotes = !checkInbox.notesRead;  // unread from before the app opened shows on the badge, without a toast
+    const newNotes = notes.messages.filter(m => m.unread && !NOTE_SEEN.has(m.id));
+    notes.messages.forEach(m => NOTE_SEEN.add(m.id)); checkInbox.notesRead = true;
+    if (newNotes.length && !firstNotes) {
+      toast(newNotes.length === 1 ? `${noteFrom(newNotes[0])}: ${newNotes[0].text.slice(0, 90)}${newNotes[0].task ? ` (${newNotes[0].task})` : ""}. Super Team → Inbox.`
+        : `${newNotes.length} new notes from your team. Super Team → Inbox.`);
+      if (S.view === "team" && teamTab === "inbox") loadInbox();  // open: show them now
+    }
     const fresh = waiting.filter(p => !INBOX.has(p.id)); fresh.forEach(p => INBOX.add(p.id));
     if (fresh.length) toast(fresh.length === 1 ? `${fresh[0].from.name} wants to prompt your ${TOOL_LABEL[fresh[0].tool]} session. Super Team → Prompts.`
       : `${fresh.length} prompts are waiting for you. Super Team → Prompts.`);
@@ -2740,7 +2807,7 @@ function renderLaptop() {
 
   const never = el("section", "panel"); never.append(el("h3", null, "Never reaches your team"));
   const nv = el("div", "never");
-  for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
+  for (const line of ["Your prompts and the agent's replies", "Tool output, file contents and diffs", "Code you write and commit yourself", "Keystrokes, screenshots, time tracking"]) { const p = el("div"); p.append("✕  ", el("b", null, line)); nv.append(p); }
   nv.append(el("p", "sub", "Except what you allow: a prompt a teammate sends into one of your sessions, and its answer, go on the team's record (Super Team → Sessions sets your rules). So does a note your agent leaves for a teammate on purpose, with secrets taken out."));
   nv.append(el("p", "sub", "What goes: a one-line summary per turn, plus facts such as files changed, tests passed or failed, and token counts. Nemotron writes the summary from the agent's last message, through the Super Agents server, which doesn't keep it."),
     el("p", "sub", "Chats with your agents in this app are different: to answer, each message and what its tools read go to Nemotron through the Super Agents server. They aren't stored there; chats are kept on this laptop."));

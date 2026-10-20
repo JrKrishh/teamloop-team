@@ -225,7 +225,7 @@ class Remote:
     def push_live(self, every: float = 2.0, rounds: Optional[int] = None, asks_every: float = 6.0) -> None:
         """While a phone is open, tell it when running turns change, so a question from a turn started at the desk
         reaches its Needs you list in seconds; for a lead, also the steps of members' agents waiting on their yes."""
-        last, asks, asks_at = None, [], 0.0
+        last, asks, notes, asks_at = None, [], [], 0.0
         while rounds is None or rounds > 0:
             rounds = None if rounds is None else rounds - 1
             time.sleep(every)
@@ -236,8 +236,8 @@ class Remote:
                     last = None
                     continue
                 if now - asks_at >= asks_every:  # the hub, less often than this laptop's own turns
-                    asks, asks_at = self.team_asks(), now
-                live = {"live": slim_live(self.api("GET", "/api/turns")["turns"]), "asks": asks}
+                    asks, notes, asks_at = self.team_asks(), self.team_notes(), now
+                live = {"live": slim_live(self.api("GET", "/api/turns")["turns"]), "asks": asks, "notes": notes}
                 if live == last:
                     continue
                 last = live
@@ -259,6 +259,18 @@ class Remote:
             return []
         return [{"id": a["id"], "from": (a.get("from") or {}).get("name") or "A teammate", "what": a.get("what") or "",
                  "detail": (a.get("detail") or "")[:1500], "rule": a.get("rule")} for a in got]
+
+    def team_notes(self) -> list:
+        """Unread notes to this person or to everyone, from teammates and their agents (none on an older hub)."""
+        team = self.team()
+        if not team:
+            return []
+        try:
+            got = self.api("GET", f"/api/cloud/messages?team={urllib.parse.quote(team)}&box=inbox&limit=20")["messages"]
+        except Exception:  # noqa: BLE001 - an older hub, or the hub is away
+            return []
+        return [{"id": m["id"], "from": m["from"]["name"], "mine": False, "agent": m["via"] == "agent", "to": "you" if m.get("to") else None,
+                 "task": m.get("task"), "text": m["text"][:600], "at": m["at"]} for m in got if m.get("unread")]
 
     def sync(self) -> None:
         cfg = store.remote()
@@ -356,17 +368,23 @@ class Remote:
             elif t == "steer":  # typed on the phone while the answer runs
                 self.api("POST", f"/api/turns/{turn}/steer", {"text": str(msg.get("text") or "")[:4000], "via": "phone"})
                 out = {"t": "ok"}
-            elif t in ("notes", "note"):  # a task's notes; "note" leaves one first, for everyone else on it or one person
+            elif t in ("notes", "note"):  # a task's notes; "note" leaves one first (a reply from the inbox may have no task)
                 team, task = self.team(), str(msg.get("task") or "")
-                if not team or not TASK_ID.fullmatch(task):
+                if not team or (task or t == "notes") and not TASK_ID.fullmatch(task):
                     raise ValueError("That task isn't on your team's board")
                 q, skipped = f"team={urllib.parse.quote(team)}", []
                 if t == "note":
                     skipped = self.api("POST", f"/api/cloud/messages?{q}", {"to": str(msg.get("to") or "task")[:64],
-                                                                           "text": str(msg.get("text") or "")[:1000], "task": task})["skipped"]
-                got = self.api("GET", f"/api/cloud/messages?{q}&box=all&task={urllib.parse.quote(task)}")
+                                                                           "text": str(msg.get("text") or "")[:1000], "task": task or None})["skipped"]
+                got = self.api("GET", f"/api/cloud/messages?{q}&box=all&task={urllib.parse.quote(task)}") if task else {}
                 out = {"t": "notes", "task": task, "notes": notes_view(got, (self.api("GET", "/api/boot").get("user") or {}).get("id")),
                        "skipped": skipped}
+            elif t == "notes_read":  # read on the phone: the desktop's badge clears too
+                team = self.team()
+                if not team:
+                    raise ValueError("Sign in to Super Agents on the laptop first.")
+                out = {"t": "ok", **self.api("POST", f"/api/cloud/messages/read?team={urllib.parse.quote(team)}",
+                                             {"up_to": max(0, int(msg.get("up_to") or 0))})}
             elif t == "team_decide":  # a lead's yes or no, from the phone, to a step of a member's agent
                 aid, team = str(msg.get("approval") or ""), self.team()
                 if not APPROVAL_ID.fullmatch(aid) or not team:
@@ -389,7 +407,7 @@ class Remote:
                 "agents": [{k: a.get(k) for k in ("id", "name", "color", "mode", "model")} for a in self.api("GET", "/api/agents")["agents"]],
                 "prefs": {k: (boot.get("prefs") or {}).get(k) for k in ("model", "effort")},  # what the desktop is set to
                 "chats": self.api("GET", "/api/chats")["chats"][:40], "live": slim_live(self.api("GET", "/api/turns")["turns"]),
-                "asks": self.team_asks()}
+                "asks": self.team_asks(), "notes": self.team_notes()}
 
     def chat(self, cid: str) -> dict:
         c = self.api("GET", f"/api/chats/{urllib.parse.quote(cid)}")

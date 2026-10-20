@@ -33,9 +33,11 @@ def checks(cwd: Path) -> list[tuple[str, str, str]]:
     else:
         task = repo.task(found)
         add("ok", f"task {task}") if task else add("warn", "no task set", 'teamloop task T-<id> "title"')
-        hook = githook.hooks_dir(found.root) / githook.NAME
-        if hook.is_file() and githook.MARK in hook.read_text(encoding="utf-8", errors="replace"):
+        state = githook.current(found.root)
+        if state:
             add("ok", "commit hook installed")
+        elif state is False:  # tags hand-made commits too: it predates agent-only tagging
+            add("warn", "commit hook is out of date", "teamloop git-hook install")
         else:
             add("fail", "commit hook missing", "teamloop git-hook install")
 

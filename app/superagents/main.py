@@ -178,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
                                  team=lambda: store.load().get("team") if store.load().get("session") else None)
     state.remote.start()
     memory.start_indexer()  # agents' recall over earlier chats and this laptop's coding sessions
+    threading.Thread(target=laptop.update_commit_hooks, daemon=True).start()  # connected repos get the agent-only commit hook
 
     if args.browser or args.serve:
         print(f"Super Agents: {url}", flush=True)

@@ -52,6 +52,37 @@ def test_commits_only_the_named_files_on_a_branch_never_the_default(repo):
     assert "the existing branch main" in tools.git_branch(None, "main")
 
 
+def test_the_commit_hook_tags_the_agents_commits_and_not_the_persons(repo, monkeypatch):
+    import sys
+
+    from teamloop import githook
+
+    for k in ("CLAUDECODE", "CURSOR_AGENT", "TEAMLOOP_AGENT"):  # these tests may run inside an agent's own shell
+        monkeypatch.delenv(k, raising=False)
+    githook.install(repo)
+    tools.git_branch(None, "T-7-totals")
+    (repo / "a.txt").write_text("a\n")
+    tools.git_commit(None, "Add totals", ["a.txt"])
+    assert git(repo, "log", "-1", "--format=%B").strip() == "Add totals\n\nTeamLoop-Task: T-7"
+    (repo / "b.txt").write_text("b\n")
+    git(repo, "add", "b.txt")
+    git(repo, "commit", "-m", "By hand")
+    assert git(repo, "log", "-1", "--format=%B").strip() == "By hand"
+    said = tools.run_command(None, "Write-Output $env:TEAMLOOP_AGENT" if sys.platform == "win32" else "echo $TEAMLOOP_AGENT")
+    assert said.rstrip().endswith("superagents")  # the agent's own commands carry the mark too
+
+
+def test_the_app_brings_an_older_commit_hook_up_to_date(repo, monkeypatch):
+    from teamloop import githook
+
+    hooks = githook.hooks_dir(repo)
+    hooks.mkdir(parents=True, exist_ok=True)
+    (hooks / githook.NAME).write_text(f"#!/bin/sh\n{githook.MARK}: adds a TeamLoop-Task trailer.\nexit 0\n", newline="\n")
+    monkeypatch.setattr(laptop.store, "repos", lambda: [str(repo)])
+    assert laptop.update_commit_hooks() == 1 and githook.current(repo) is True
+    assert laptop.update_commit_hooks() == 0  # once
+
+
 def test_refuses_files_outside_the_repo_and_bad_branch_names(repo):
     tools.git_branch(None, "feat/x")
     for bad in (["../evil.txt"], ["."], [str(repo.parent / "seed" / "README.md")]):

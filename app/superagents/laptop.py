@@ -50,6 +50,22 @@ def status() -> dict:
             "repos": [repo_status(p) for p in store.repos()]}
 
 
+def update_commit_hooks() -> int:
+    """A repo connected before 19 Oct has TeamLoop's older commit hook, which linked hand-made commits too: bring it up
+    to date (only TeamLoop's own hook; another one is never touched). Returns how many were updated."""
+    from teamloop import githook
+
+    done = 0
+    for p in store.repos():
+        try:
+            if githook.current(p) is False:
+                githook.install(p)
+                done += 1
+        except Exception:  # noqa: BLE001 - a moved or broken repo: This laptop shows it
+            pass
+    return done
+
+
 def connect_team(cloud_url: str, link: dict) -> None:
     """Point this laptop's hooks and MCP server at a team, with the connector token the hub just made for it."""
     login.save({"mode": "cloud", "url": cloud_url, "token": link["token"], "name": link["name"], "team": link["team"]})

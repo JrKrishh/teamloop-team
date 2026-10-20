@@ -1,11 +1,17 @@
-"""The `prepare-commit-msg` hook that adds `TeamLoop-Task: <id>` to commits (PLAN.md §9.3).
+"""The `prepare-commit-msg` hook that links commits an AI coding agent makes to their task (PLAN.md §9.3):
+`TeamLoop-Task: <id>`. Commits made by hand are left alone, so the trailer also says an agent made the commit: Super Team
+follows agents' work. Nothing names the agent in the message (no attribution line).
 
+How it tells (checked in each tool's build, 19 Oct): Claude Code sets CLAUDECODE=1 and Cursor CURSOR_AGENT=1 for the
+commands their agents run; Super Agents' own agents set TEAMLOOP_AGENT. Codex sets no such variable, so `teamloop
+agent-of` looks for a Codex process among the ones that started the commit.
 prepare-commit-msg runs even with `git commit --no-verify`. An existing hook is kept and still runs first.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import stat
 import subprocess
 from pathlib import Path
@@ -14,11 +20,20 @@ MARK = "# teamloop prepare-commit-msg"
 NAME = "prepare-commit-msg"
 KEPT = NAME + ".pre-teamloop"
 
-SCRIPT = f"""#!/bin/sh
-{MARK}: adds a TeamLoop-Task trailer. Installed by `teamloop git-hook install`.
+
+def script() -> str:
+    from teamloop import claude
+
+    exe, *rest = claude.launcher()
+    agent_of = " ".join(shlex.quote(p) for p in [Path(exe).as_posix(), *rest, "agent-of"])
+    return f"""#!/bin/sh
+{MARK}: links commits an AI coding agent makes to their task. Installed by `teamloop git-hook install`.
 KEPT="$(dirname "$0")/{KEPT}"
 if [ -f "$KEPT" ]; then "$KEPT" "$@" || exit $?; fi
 case "$2" in merge|squash) exit 0;; esac
+if [ "$CLAUDECODE" != 1 ] && [ "$CURSOR_AGENT" != 1 ] && [ -z "$TEAMLOOP_AGENT" ] && [ -z "$({agent_of} 2>/dev/null)" ]; then
+  exit 0  # made by hand
+fi
 TASK="${{TEAMLOOP_TASK:-$(git config --get teamloop.task)}}"
 [ -z "$TASK" ] && TASK=$(git symbolic-ref --quiet --short HEAD | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -1)
 [ -n "$TASK" ] && git interpret-trailers --in-place --if-exists=doNothing --trailer "TeamLoop-Task: $TASK" "$1"
@@ -50,6 +65,62 @@ def install(cwd: str | os.PathLike = ".") -> str:
             result = f"installed; your existing hook was kept as {KEPT} and still runs first"
     else:
         result = "installed"
-    hook.write_text(SCRIPT, encoding="utf-8", newline="\n")
+    hook.write_text(script(), encoding="utf-8", newline="\n")  # an older TeamLoop hook is brought up to date
     hook.chmod(hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return f"{result}: {hook}"
+
+
+def current(cwd: str | os.PathLike = ".") -> bool | None:
+    """Whether this repo's hook is TeamLoop's current one (None: not TeamLoop's), for `teamloop doctor`."""
+    hook = hooks_dir(cwd) / NAME
+    text = hook.read_text(encoding="utf-8", errors="replace") if hook.is_file() else ""
+    return None if MARK not in text else "CLAUDECODE" in text
+
+
+def processes() -> dict[int, tuple[int, str]]:
+    """pid -> (parent pid, executable name, lower case): a snapshot of the running processes."""
+    out: dict[int, tuple[int, str]] = {}
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        class Entry(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", ctypes.c_wchar * 260)]
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k32.Process32FirstW.argtypes = k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(Entry)]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        snap = k32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+        if snap in (None, wintypes.HANDLE(-1).value):
+            return out
+        e = Entry()
+        e.dwSize = ctypes.sizeof(Entry)
+        ok = k32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            out[e.th32ProcessID] = (e.th32ParentProcessID, e.szExeFile.lower())
+            ok = k32.Process32NextW(snap, ctypes.byref(e))
+        k32.CloseHandle(snap)
+        return out
+    r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            out[int(parts[0])] = (int(parts[1]), os.path.basename(parts[2]).lower())
+    return out
+
+
+def agent_of(pid: int | None = None, procs: dict[int, tuple[int, str]] | None = None) -> str | None:
+    """'codex' when a Codex process (codex, codex-command-runner) started this one, else None."""
+    procs = processes() if procs is None else procs
+    pid, seen = os.getpid() if pid is None else pid, set()
+    while pid in procs and pid not in seen:
+        seen.add(pid)
+        parent, name = procs[pid]
+        if name.startswith("codex"):
+            return "codex"
+        pid = parent
+    return None

@@ -61,7 +61,12 @@ def test_ready_pr_moves_task_to_review(hub):
 
 def test_push_uses_the_commit_trailer_and_redelivery_is_idempotent(hub):
     _, client, yang = hub
-    body = fixture("push.json")
+    payload = json.loads(fixture("push.json"))
+    by_hand = json.loads(json.dumps(payload))
+    for c in by_hand["commits"]:  # the commit hook links only an agent's commits; a person's on a T-14 branch has no trailer
+        c["message"] = c["message"].split("\n\nTeamLoop-Task:")[0]
+    assert deliver(client, "push", json.dumps(by_hand).encode(), "d-6").json()["accepted"] == 0
+    body = json.dumps(payload).encode()
     assert deliver(client, "push", body, "d-7").json()["accepted"] >= 1
     assert deliver(client, "push", body, "d-7").json()["accepted"] == 0
     lines = [r["line"] for r in client.get("/v1/board", headers=yang).json()["tasks"][0]["recent"]]
