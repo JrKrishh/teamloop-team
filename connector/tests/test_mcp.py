@@ -39,8 +39,8 @@ def test_tools_record_self_reports(tmp_path, teamloop_home):
         ("mark_blocked", {"reason": "need the hub URL", "needs": "info"}),
         ("task_start", {"task_id": "not an id"}),
     ])
-    assert names == ["get_team_status", "handoff", "mark_blocked", "message_teammate", "read_messages", "report_progress",
-                     "task_start", "team_changes"]
+    assert names == ["ask_status", "ask_teammate", "get_team_status", "handoff", "mark_blocked", "message_teammate",
+                     "read_messages", "report_progress", "task_start", "team_changes"]
     assert out[0] == "Tracking T-4." and "100%" in out[1] and "blocked" in out[2] and "not a task ID" in out[3]
     assert subprocess.run(["git", "config", "teamloop.task"], cwd=tmp_path, capture_output=True, text=True).stdout.strip() == "T-4"
 

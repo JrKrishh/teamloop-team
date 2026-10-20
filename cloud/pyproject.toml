@@ -1,6 +1,6 @@
 [project]
 name = "teamloop-cloud"
-version = "0.3.6"
+version = "0.4.0"
 description = "TeamLoop cloud hub: Supabase sign-in, teams, invite links, Postgres storage."
 license = "MIT"
 requires-python = ">=3.10"

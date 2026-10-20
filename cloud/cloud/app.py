@@ -293,7 +293,9 @@ class MessageIn(BaseModel):
 
 
 class PromptIn(BaseModel):
-    session: str = Field(min_length=4, max_length=80)
+    session: Optional[str] = Field(default=None, min_length=4, max_length=80)
+    member: Optional[str] = Field(default=None, min_length=1, max_length=120)  # instead: a teammate's latest session
+    task: Optional[str] = Field(default=None, max_length=30)  # with member: their latest session on this task, if any
     prompt: str = Field(min_length=1, max_length=4000)
 
 
@@ -1363,7 +1365,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
                 "run_session": r["run_session"], "created_at": r["created_at"].timestamp(),
                 "finished_at": r["finished_at"].timestamp() if r["finished_at"] else None,
                 "yours_to_decide": str(r["to_user"]) == me and r["status"] == "pending",
-                "yours": str(r["from_user"]) == me}
+                "yours": str(r["from_user"]) == me, "via": r.get("via") or "person"}
 
     def session_scope(c: Caller, team: Optional[str], conn) -> tuple[str, str]:
         if c.kind != "session":
@@ -1611,7 +1613,20 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     @app.post("/v1/prompts")
     def send_prompt(body: PromptIn, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        team_id, _ = session_scope(c, team, conn)
+        """Into a teammate's session, from a person or their coding agent (via the connector): by session id, or by
+        teammate for their latest Claude Code or Codex session, on `task` when they have one there. The owner's rules decide."""
+        team_id, _, _ = team_scope(c, team, conn)
+        if not body.session:
+            if not body.member:
+                raise HTTPException(400, "Name a session or a teammate")
+            uid, name = member_named(conn, team_id, body.member)
+            latest = conn.execute(
+                "select body->>'session' as session from events where team_id = %s and user_id = %s and body->>'session' is not null"
+                " and body->>'tool' in ('claude_code', 'codex') group by 1 order by bool_or(task = %s) desc nulls last,"
+                " max(received_at) desc limit 1", (team_id, uid, (body.task or "").strip().upper() or None)).fetchone()
+            if not latest:
+                raise HTTPException(404, f"{name} has no Claude Code or Codex session to ask")
+            body.session = latest["session"]
         s = conn.execute(
             "select e.user_id, max(e.member) as member, max(e.body->>'tool') as tool, max(e.body->>'repo') as repo,"
             " max(e.task) as task from events e join memberships m on m.team_id = e.team_id and m.user_id = e.user_id"
@@ -1632,10 +1647,11 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         auto = rules["mode"] == "auto"
         row = conn.execute(
             "insert into session_prompts (team_id, from_user, from_name, to_user, to_name, session, tool, repo, task, prompt,"
-            " access, status, decided_by, decided_at) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-            " case when %s then now() end) returning *",
+            " access, status, decided_by, decided_at, via) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+            " case when %s then now() end, %s) returning *",
             (team_id, c.person.id, c.person.name, owner, s["member"], body.session, s["tool"], s["repo"], s["task"],
-             body.prompt.strip(), rules["access"], "approved" if auto else "pending", "auto" if auto else None, auto)).fetchone()
+             body.prompt.strip(), rules["access"], "approved" if auto else "pending", "auto" if auto else None, auto,
+             "agent" if c.kind == "connector" else "person")).fetchone()
         return prompt_view(row, c.person.id)
 
     @app.get("/v1/prompts")
@@ -1677,7 +1693,7 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
 
     @app.get("/v1/prompts/{pid}")
     def get_prompt(pid: str, team: Optional[str] = None, c: Caller = Depends(caller), conn=Depends(db)) -> dict:
-        team_id, role = session_scope(c, team, conn)
+        team_id, _, role = team_scope(c, team, conn)  # a coding agent reads the answer to what it asked, too
         return prompt_view(visible_prompt(conn, team_id, role, pid, c.person.id), c.person.id)
 
     def change_prompt(conn, team_id: str, pid: str, sql: str, params: tuple, why: str) -> dict:
@@ -1733,6 +1749,14 @@ def create(chat: Optional[Callable] = None, chat_step: Optional[Callable] = None
         row = change_prompt(conn, team_id, pid, "status = %s, result = %s, tokens = %s, run_session = %s, finished_at = now()"
                             " where team_id = %s and id = %s and to_user = %s and status = 'running'",
                             (body.status, body.result, body.tokens, body.run_session, team_id, pid, c.person.id), "Not running")
+        # the run was a copy of the owner's session: their live sessions hear at the next step what was asked in its name
+        tool = {"claude_code": "Claude Code", "codex": "Codex"}.get(row["tool"], row["tool"])
+        said = f"It answered: {' '.join((row['result'] or '').split())[:600]}" if row["status"] == "done" else f"It {row['status']}."
+        text = (f"Asked a copy of your {tool} session: \"{' '.join(row['prompt'].split())[:300]}\" {said}"
+                + (" It could edit files in the repo: check git status." if row["access"] == "edit" else ""))
+        conn.execute("insert into messages (team_id, from_user, from_name, via, to_user, to_name, task, body) values"
+                     " (%s, %s, %s, %s, %s, %s, %s, %s)", (team_id, row["from_user"], row["from_name"], row.get("via") or "person",
+                                                           row["to_user"], row["to_name"], row["task"], peer_text(text)[:2000]))
         return prompt_view(row, c.person.id)
 
     @app.get("/v1/usage")

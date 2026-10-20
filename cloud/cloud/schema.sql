@@ -159,7 +159,8 @@ create table public.session_prompts (
   tokens bigint not null default 0,
   created_at timestamptz not null default now(),
   decided_at timestamptz,
-  finished_at timestamptz
+  finished_at timestamptz,
+  via text not null default 'person' check (via in ('agent', 'person'))  -- v12
 );
 create index session_prompts_team_idx on public.session_prompts (team_id, created_at desc);
 

@@ -181,3 +181,6 @@ alter table public.shares add column if not exists task text;
 
 -- teamloop_cloud_v11_inbox: how far each person has read the notes to them (Super Team → Inbox, the unread badge)
 alter table public.session_access add column if not exists notes_read bigint not null default 0;
+
+-- teamloop_cloud_v12_agent_prompts: a coding agent may send a Super Team prompt too (via 'agent'), under the owner's same rules
+alter table public.session_prompts add column if not exists via text not null default 'person' check (via in ('agent', 'person'));
