@@ -46,7 +46,7 @@ def status() -> dict:
             "name": cfg.get("name") if cfg.get("mode") == "cloud" else None,
             "self_hosted": cfg.get("url") if cfg and cfg.get("mode") != "cloud" else None,
             "paused": spool.paused(), "pending": len(pending), "oldest_pending_s": age,
-            "tools": {"claude_code": claude.cli() is not None, "codex": codex.cli() is not None},
+            "tools": {"claude_code": claude.cli() is not None, "codex": codex.cli() is not None, "cursor": shutil.which("cursor") is not None},
             "repos": [repo_status(p) for p in store.repos()]}
 
 

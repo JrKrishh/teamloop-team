@@ -631,6 +631,9 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 /* tags: quiet labels, no outlines */
 .tag{display:inline-flex;align-items:center;font:500 12px/1.5 var(--fb);padding:1px 7px;border-radius:5px;background:var(--tint);color:var(--muted);white-space:nowrap}
 .tag.pr{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.tag.editing{color:var(--text)}
+.overlap{display:flex;gap:10px;align-items:flex-start;margin:0 0 14px;padding:10px 12px;border-radius:10px;font-size:13.5px;line-height:1.45;color:var(--text);background:color-mix(in srgb,var(--warn) 13%,transparent)}
+.overlap .ic{color:var(--warn);flex:none;margin-top:1px}
 .tag.faint{color:var(--faint);background:none;padding-inline:0}
 .empty{display:grid;justify-items:center;gap:10px;text-align:center;padding:64px 20px;color:var(--muted)}
 .empty img{width:72px;height:94px;object-fit:contain}
@@ -658,6 +661,7 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .nav-badge{margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--brick-strong);color:var(--on-brick);font:700 11px/20px var(--fm);text-align:center}
 .rules .row{flex-wrap:wrap}
 .rules input[type=number]{width:150px}
+.rules .hint{max-width:84ch}
 .item.sess .iic{overflow:hidden}
 .item.sess .iic img{width:30px;height:38px;object-fit:contain}
 .grow{flex:1}
@@ -706,6 +710,21 @@ button.group-head[aria-expanded="true"] .ic{transform:rotate(90deg)}
 .tl-parts{font:500 12px var(--fm);color:var(--faint)}
 .tl-fold .sh-bad{font:600 11.5px var(--fm);color:var(--bad)}
 .tl-steps .timeline{padding:0 0 4px}
+/* handing a task to a teammate */
+.handoff-form{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px}
+.handoff-form .btn{justify-self:start}
+.handoff{display:grid;gap:10px}
+.handoff > .btn{justify-self:start}
+/* a task's notes between the people and agents on it */
+.notes{display:grid;gap:8px}
+.note-list{display:grid;gap:8px}
+.note-list .note{justify-self:start;max-width:88%;background:var(--panel2);padding:8px 12px;border-radius:12px 12px 12px 4px;font-size:14px;overflow-wrap:anywhere}
+.note-list .note.mine{justify-self:end;border-radius:12px 12px 4px 12px}
+.note-list .note p{margin:0;white-space:pre-wrap}
+.note-list .note small{display:block;font:500 11.5px var(--fm);color:var(--faint);margin-top:3px}
+.note-send{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.note-send select{max-width:190px}
+.note-send textarea{flex:1;min-width:200px;min-height:40px;max-height:140px;resize:vertical}
 
 /* ---- memory; Super Team threads ---- */
 .mem-stats{font-size:12.5px;color:var(--faint)}

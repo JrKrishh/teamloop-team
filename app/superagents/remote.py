@@ -32,6 +32,7 @@ FRESH = 120  # seconds a message stays valid
 PAIR_TTL = 600  # a pairing code nobody scanned expires
 TURN_ID = re.compile(r"[A-Za-z0-9_-]{4,64}")
 APPROVAL_ID = re.compile(r"[0-9a-f-]{36}")
+TASK_ID = re.compile(r"[A-Za-z0-9_.-]{1,40}")
 
 
 def b64(b: bytes) -> str:
@@ -182,8 +183,20 @@ def board_view(b: dict) -> dict:
                       "members": t.get("members") or [], "tools": t.get("tools") or [], "due": t.get("due"),
                       "percent": p.get("percent"), "says": p.get("agent_says_percent"), "confidence": p.get("confidence"),
                       "blockers": texts(p.get("blockers"), 3), "doing": texts(p.get("doing"), 1), "next": texts(p.get("next"), 2),
-                      "pr": pr and {k: pr.get(k) for k in ("number", "state", "draft", "checks")}, "last": t.get("last_activity")})
-    return {"room": b.get("room"), "tasks": tasks}
+                      "pr": pr and {k: pr.get(k) for k in ("number", "state", "draft", "checks")}, "last": t.get("last_activity"),
+                      "editing": [e.get("file") for e in (t.get("editing") or [])[:3]]})
+    overlaps = [{"file": f"{o.get('repo')}/{o.get('file')}", "who": [w.get("member") for w in o.get("who") or []]}
+                for o in (b.get("overlaps") or [])[:5]]  # two sessions in one file: where merge conflicts start
+    return {"room": b.get("room"), "tasks": tasks, "overlaps": overlaps}
+
+
+def notes_view(got: dict, me: Optional[str]) -> list:
+    """A task's notes between the people and agents on it, oldest first, for a phone: `to` is a name, "you", or None for
+    everyone."""
+    def to(m: dict) -> Optional[str]:
+        return None if not m.get("to") else "you" if m["to"]["id"] == me else m["to"]["name"]
+    return [{"from": m["from"]["name"], "mine": m["from"]["id"] == me, "agent": m["via"] == "agent", "to": to(m),
+             "text": m["text"], "at": m["at"]} for m in reversed(got.get("messages") or [])][-30:]
 
 
 class Remote:
@@ -343,6 +356,17 @@ class Remote:
             elif t == "steer":  # typed on the phone while the answer runs
                 self.api("POST", f"/api/turns/{turn}/steer", {"text": str(msg.get("text") or "")[:4000], "via": "phone"})
                 out = {"t": "ok"}
+            elif t in ("notes", "note"):  # a task's notes; "note" leaves one first, for everyone else on it or one person
+                team, task = self.team(), str(msg.get("task") or "")
+                if not team or not TASK_ID.fullmatch(task):
+                    raise ValueError("That task isn't on your team's board")
+                q, skipped = f"team={urllib.parse.quote(team)}", []
+                if t == "note":
+                    skipped = self.api("POST", f"/api/cloud/messages?{q}", {"to": str(msg.get("to") or "task")[:64],
+                                                                           "text": str(msg.get("text") or "")[:1000], "task": task})["skipped"]
+                got = self.api("GET", f"/api/cloud/messages?{q}&box=all&task={urllib.parse.quote(task)}")
+                out = {"t": "notes", "task": task, "notes": notes_view(got, (self.api("GET", "/api/boot").get("user") or {}).get("id")),
+                       "skipped": skipped}
             elif t == "team_decide":  # a lead's yes or no, from the phone, to a step of a member's agent
                 aid, team = str(msg.get("approval") or ""), self.team()
                 if not APPROVAL_ID.fullmatch(aid) or not team:

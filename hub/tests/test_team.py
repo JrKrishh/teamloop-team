@@ -82,6 +82,52 @@ def test_progress_snapshot_after_quiet_period(hub):
     assert progress["percent"] == 95 and progress["done"][0]["text"] == "fixed add()"
 
 
+def edit(n, file, session, task, tool="claude_code", ok=True, repo="acme-web"):
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return {"v": 1, "id": f"{n:032x}", "ts": ts, "tool": tool, "session": session, "kind": "tool", "task": task, "repo": repo,
+            "facts": {"tool": "Edit", "ok": ok, "file": file}}
+
+
+def test_the_board_says_who_is_editing_what_and_where_sessions_overlap(hub):
+    _, client = hub
+    yang, asha = member(client, "yang"), member(client, "asha")
+    client.post("/v1/events", json={"events": [edit(1, "src/auth.py", "s-yang", "T-21", tool="codex"), edit(2, "README.md", "s-yang", "T-21", tool="codex")]},
+                headers=yang)
+    client.post("/v1/events", json={"events": [edit(3, "src/auth.py", "s-asha", "T-19"), edit(4, "src/ui.py", "s-asha", "T-19", ok=False)]},
+                headers=asha)
+    board = client.get("/v1/board", headers=yang).json()
+    assert [(o["repo"], o["file"], sorted(w["member"] for w in o["who"])) for o in board["overlaps"]] == [("acme-web", "src/auth.py", ["asha", "yang"])]
+    assert {t["file"] for t in board["touching"]} == {"src/auth.py", "README.md"}  # a failed edit doesn't count
+    cards = {t["task"]: t for t in board["tasks"]}
+    assert sorted(e["file"] for e in cards["T-21"]["editing"]) == ["README.md", "src/auth.py"]
+    assert [(e["file"], e["member"]) for e in cards["T-19"]["editing"]] == [("src/auth.py", "asha")]
+
+
+def test_old_edits_and_one_session_twice_are_not_overlaps():
+    from hub import cards
+    now = 10_000.0
+    evs = [{**edit(1, "a.py", "s1", "T-1"), "member": "yang", "_at": now - 60}, {**edit(2, "a.py", "s1", "T-1"), "member": "yang", "_at": now - 30},
+           {**edit(3, "b.py", "s2", "T-2"), "member": "asha", "_at": now - 4000}]  # older than half an hour
+    touch = cards.touching(evs, now)
+    assert [(t["file"], len(t["who"]), t["who"][0]["at"]) for t in touch] == [("a.py", 1, now - 30)] and cards.overlaps(touch) == []
+
+
+def test_editing_a_file_of_a_task_someone_else_claimed():
+    from hub import cards
+    now = 100_000.0
+    owned = [{**edit(1, "src/auth.py", "s1", "T-22"), "member": "asha", "_at": now - 5 * 3600},  # hours ago: not an overlap
+             {**edit(2, "src/old.py", "s1", "T-22"), "member": "asha", "_at": now - 2 * 86400},  # days ago: no longer claimed
+             {**edit(3, "src/util.py", "s3", "T-22"), "member": "ravi", "_at": now - 3600}]  # not the owner's edit
+    claims = cards.claimed(owned, {"T-22": "asha"}, now)
+    assert claims == {("acme-web", "src/auth.py"): {"task": "T-22", "owner": "asha"}}
+    recent = [{**edit(4, "src/auth.py", "s2", "T-19"), "member": "yang", "_at": now - 60},
+              {**edit(5, "src/auth.py", "s3", "T-22"), "member": "ravi", "_at": now - 30},  # on T-22 too: working together
+              {**edit(6, "src/old.py", "s2", "T-19"), "member": "yang", "_at": now - 20}]
+    [t] = cards.trespass(cards.touching(recent, now), claims)
+    assert (t["file"], t["task"], t["owner"], [w["member"] for w in t["who"]]) == ("src/auth.py", "T-22", "asha", ["yang"])
+
+
 def test_blocked_task_shows_blocked(hub):
     _, client = hub
     sourabh = member(client, "sourabh")

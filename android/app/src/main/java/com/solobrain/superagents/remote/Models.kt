@@ -27,9 +27,20 @@ data class Task(
     val task: String, val title: String, val status: String, val owner: String?, val tools: List<String>, val due: String?,
     val percent: Int?, val says: Int?, val confidence: String?,
     val blockers: List<String>, val doing: List<String>, val next: List<String>, val pr: String?,
+    val editing: List<String> = emptyList(),  // files its sessions edited in the last half hour
 )
 
-data class Board(val room: String, val tasks: List<Task>)
+/** A file more than one session edited in the last half hour: where merge conflicts start. */
+data class Overlap(val file: String, val who: List<String>)
+
+data class Board(val room: String, val tasks: List<Task>, val overlaps: List<Overlap> = emptyList())
+
+/** A note about a task between the people and coding agents on it. [to]: one person, or null for everyone on it. */
+data class Note(val from: String, val mine: Boolean, val agent: Boolean, val to: String?, val text: String, val at: Double)
+
+fun parseNotes(a: JSONArray?): List<Note> = a.objects().map {
+    Note(it.optString("from"), it.optBoolean("mine"), it.optBoolean("agent"), it.text("to"), it.optString("text"), it.optDouble("at", 0.0))
+}
 
 enum class Link { NotPaired, Connecting, Online, Offline }
 
@@ -72,6 +83,8 @@ fun parseBoard(o: JSONObject) = Board(
             says = if (it.isNull("says") || !it.has("says")) null else it.optInt("says"), confidence = it.text("confidence"),
             blockers = it.optJSONArray("blockers").strings(), doing = it.optJSONArray("doing").strings(), next = it.optJSONArray("next").strings(),
             pr = pr?.let { p -> "PR #${p.optInt("number")} ${p.optString("state")}" },
+            editing = it.optJSONArray("editing").strings(),
         )
     },
+    overlaps = o.optJSONArray("overlaps").objects().map { Overlap(it.optString("file"), it.optJSONArray("who").strings()) },
 )

@@ -39,7 +39,8 @@ def test_tools_record_self_reports(tmp_path, teamloop_home):
         ("mark_blocked", {"reason": "need the hub URL", "needs": "info"}),
         ("task_start", {"task_id": "not an id"}),
     ])
-    assert names == ["get_team_status", "mark_blocked", "report_progress", "task_start"]
+    assert names == ["get_team_status", "handoff", "mark_blocked", "message_teammate", "read_messages", "report_progress",
+                     "task_start"]
     assert out[0] == "Tracking T-4." and "100%" in out[1] and "blocked" in out[2] and "not a task ID" in out[3]
     assert subprocess.run(["git", "config", "teamloop.task"], cwd=tmp_path, capture_output=True, text=True).stdout.strip() == "T-4"
 
@@ -99,3 +100,9 @@ def test_team_status_text_is_framed_and_compact():
     text = mcp_server.team_status_text(board)
     assert text.startswith(mcp_server.FRAME) and "Active now: yang" in text
     assert "- T-22 Snapshots migration: blocked, Agent S 40%; sourabh" in text and "blockers: DB user is read-only" in text
+    who = [{"member": "asha", "tool": "cursor", "task": "T-19"}, {"member": "yang", "tool": "codex", "task": None}]
+    board.update(overlaps=[{"repo": "acme-web", "file": "src/auth.py", "who": who}],
+                 touching=[{"repo": "acme-web", "file": "src/auth.py", "who": who}])
+    text = mcp_server.team_status_text(board)
+    assert "Overlap: acme-web/src/auth.py was edited by more than one session in the last half hour: asha (Cursor, T-19), yang (Codex)." in text
+    assert "Being edited now: acme-web/src/auth.py (asha)" in text

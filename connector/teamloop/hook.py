@@ -1,6 +1,7 @@
 """`teamloop hook <tool>`: hook JSON on stdin -> normalize -> redact -> spool.
 
-Rules: no network, no subprocess (except one detached `send` at session end), print nothing (Claude Code adds SessionStart stdout to the model's context),
+Rules: no network, no subprocess (except one detached `send` at session end), print nothing (Claude Code adds SessionStart stdout to the model's context)
+except one context block when teammates' notes are waiting for this session (read from the local inbox, see messages.py),
 and always exit 0 so a TeamLoop bug can never block the developer's session.
 """
 
@@ -13,8 +14,13 @@ import sys
 import time
 import traceback
 
-from teamloop import redact, repo, spool, usage
+from teamloop import messages, redact, repo, spool, usage
 from teamloop.normalize import NORMALIZERS
+
+# Claude Code and Codex add these hooks' `additionalContext` to what the model reads next (each checked in its own hook
+# schema: Claude Code's 18 Oct, Codex's 19 Oct, the same shape). Not Stop: context there could set a finished agent going again.
+CONTEXT_EVENTS = {"SessionStart", "PostToolUse", "PostToolUseFailure"}
+CONTEXT_TOOLS = {"claude_code", "codex"}
 
 
 def handle(tool: str, raw: bytes) -> dict | None:
@@ -75,9 +81,28 @@ def flush_detached() -> None:
     subprocess.Popen([*claude.launcher(), "send"], **kwargs)
 
 
+def deliver(tool: str, payload: dict) -> str | None:
+    """Teammates' notes this live session hasn't had, as the hook's answer for Claude Code or Codex to add to what the
+    model reads next. Other tools' sessions read notes with the MCP tool `read_messages`."""
+    name = payload.get("hook_event_name")
+    if tool not in CONTEXT_TOOLS or name not in CONTEXT_EVENTS or not payload.get("session_id"):
+        return None
+    notes = messages.take(payload["session_id"])
+    if not notes:
+        return None
+    return json.dumps({"hookSpecificOutput": {"hookEventName": name, "additionalContext": messages.frame(notes)}})
+
+
 def main(tool: str) -> int:
+    raw = sys.stdin.buffer.read()
     try:
-        handle(tool, sys.stdin.buffer.read())
+        handle(tool, raw)
     except Exception:  # noqa: BLE001 - logged, never raised into the agent's session
+        log(tool)
+    try:
+        out = deliver(tool, json.loads(raw.decode("utf-8") or "{}"))
+        if out:
+            sys.stdout.write(out)
+    except Exception:  # noqa: BLE001 - a note that can't be delivered now waits for the next step
         log(tool)
     return 0

@@ -45,7 +45,7 @@ UI = Path(__file__).parent / "ui"
 CLOUD_PATHS = re.compile(r"^(teams|board|team|digest|refresh|events|usage"
                          r"|teams/[0-9a-f-]{36}/(invites|members/[0-9a-f-]{36}(/restore)?|repos)|shares|shares/[0-9a-f-]{36}"
                          r"|invites/[A-Za-z0-9_-]{8,80}/accept|tasks/[A-Za-z0-9_.-]{1,40}"
-                         r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread"
+                         r"|sessions|sessions/access|sessions/[A-Za-z0-9_-]{4,80}/thread|messages"
                          r"|prompts|prompts/[0-9a-f-]{36}/(decide|cancel)"
                          r"|rules|decisions|decisions/[0-9a-f-]{36}|approvals|approvals/[0-9a-f-]{36}/decide)$")
 
@@ -271,6 +271,13 @@ class ShareSendIn(BaseModel):
 
 class ShareTakeIn(BaseModel):
     team: str = Field(min_length=36, max_length=36)
+    repo: str = Field(default="", max_length=200)
+
+
+class HandoffIn(BaseModel):
+    team: str = Field(min_length=36, max_length=36)
+    to: str = Field(min_length=1, max_length=120)
+    note: str = Field(default="", max_length=1000)
     repo: str = Field(default="", max_length=200)
 
 
@@ -911,6 +918,14 @@ def create(state: State, open_url: Callable[[str], object] = webbrowser.open,
             raise HTTPException(404, "No such share")
         try:
             return runtime_tools.take(team_hub(body.team), sid, body.repo)
+        except (ValueError, PermissionError, OSError, RuntimeError, urllib.error.URLError) as e:
+            raise HTTPException(400, str(e)[:500]) from None
+
+    @app.post("/api/tasks/{task}/handoff")
+    def task_handoff(task: str, body: HandoffIn) -> dict:
+        """The task drawer's Hand off: this laptop's repo branch, checked to be all on origin, then the hub's handoff."""
+        try:
+            return runtime_tools.hand_off(team_hub(body.team), task, body.to, body.note, body.repo)
         except (ValueError, PermissionError, OSError, RuntimeError, urllib.error.URLError) as e:
             raise HTTPException(400, str(e)[:500]) from None
 

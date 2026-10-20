@@ -187,6 +187,7 @@ create table public.shares (
   files jsonb not null default '[]',
   repo text,
   branch text,
+  task text,  -- v10: a handoff's task
   status text not null default 'uploading' check (status in ('uploading', 'ready', 'expired', 'deleted')),
   saved_by jsonb not null default '[]',
   created_at timestamptz not null default now(),
@@ -252,6 +253,25 @@ create table public.waitlist (
 );
 
 alter table public.waitlist enable row level security;
+
+-- v9 (migration teamloop_cloud_v9_messages): notes between teammates' agents and people. To a person (or the whole
+-- team when to_user is null), about a task or not; they reach the person's live coding sessions at the next step.
+-- session_access.messages: whether teammates may message this person's sessions.
+create table public.messages (
+  id bigserial primary key,
+  team_id uuid not null references public.teams(id) on delete cascade,
+  from_user uuid not null,
+  from_name text not null,
+  via text not null default 'agent' check (via in ('agent', 'person')),
+  to_user uuid,
+  to_name text,
+  task text,
+  body text not null check (char_length(body) <= 2000),
+  created_at timestamptz not null default now()
+);
+create index messages_team_id_idx on public.messages (team_id, id);
+alter table public.session_access add column messages text not null default 'on' check (messages in ('on', 'off'));
+alter table public.messages enable row level security;
 alter table public.teams enable row level security;
 alter table public.team_repos enable row level security;
 alter table public.shares enable row level security;

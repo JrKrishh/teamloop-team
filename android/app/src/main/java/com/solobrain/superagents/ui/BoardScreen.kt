@@ -1,5 +1,6 @@
 package com.solobrain.superagents.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,16 +13,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -32,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +49,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.solobrain.superagents.remote
+import com.solobrain.superagents.remote.Note
 import com.solobrain.superagents.remote.Task
+import kotlinx.coroutines.launch
 
 private val SAID = mapOf("blocked" to "blocked", "review" to "in review", "in_progress" to "in progress", "todo" to "to do", "done" to "done")
 
@@ -80,12 +90,18 @@ fun BoardScreen(onChat: (ChatOpen) -> Unit) {
                 }
             }
         }
+        items(b.overlaps, key = { "overlap-" + it.file }) { o ->  // two sessions in one file: where merge conflicts start
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.warn.copy(alpha = 0.13f)).padding(12.dp)) {
+                Text(buildString { append(o.file); append(" was edited by "); append(o.who.joinToString(" and ")); append(" in the last half hour.") },
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         items(groups[only].second, key = { it.task }) { t -> TaskCard(t) { open = t } }
         if (groups[only].second.isEmpty()) item { Text(if (only == 0) "Nothing in progress." else "Nothing here.", color = p.muted, modifier = Modifier.padding(8.dp)) }
     }
     open?.let { t ->
         ModalBottomSheet(onDismissRequest = { open = null }, containerColor = p.bg2) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
                 Text("${t.task} · ${t.title.ifEmpty { "No title yet" }}", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(10.dp))
                 for ((name, lines) in listOf("Blocked" to t.blockers, "Now" to t.doing, "Next" to t.next)) if (lines.isNotEmpty()) {
@@ -93,6 +109,11 @@ fun BoardScreen(onChat: (ChatOpen) -> Unit) {
                     for (line in lines) Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 3.dp))
                 }
                 if (t.blockers.isEmpty() && t.doing.isEmpty() && t.next.isEmpty()) Text("Agent S hasn't seen work on this yet.", color = p.muted)
+                if (t.editing.isNotEmpty()) {
+                    Label("Editing now")
+                    for (f in t.editing) Text(f, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 3.dp))
+                }
+                Notes(t.task)
                 Spacer(Modifier.height(18.dp))
                 Button(onClick = { open = null; onChat(ChatOpen(prefill = "What's the status of ${t.task}${if (t.title.isNotEmpty()) " (${t.title})" else ""}?")) },
                     modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp),
@@ -100,6 +121,62 @@ fun BoardScreen(onChat: (ChatOpen) -> Unit) {
             }
         }
     }
+}
+
+/** A task's notes between the people and coding agents on it, as on the desktop: read them, and leave one for everyone
+ *  else on the task, or reply to one person. Their agents read it at their next step. */
+@Composable
+private fun Notes(task: String) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val r = ctx.remote
+    val scope = rememberCoroutineScope()
+    var notes by remember(task) { mutableStateOf<List<Note>?>(null) }
+    var error by remember(task) { mutableStateOf<String?>(null) }
+    var to by remember(task) { mutableStateOf<String?>(null) }  // null: everyone else on the task
+    var draft by remember(task) { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    LaunchedEffect(task) { runCatching { r.notes(task) }.onSuccess { notes = it }.onFailure { error = it.message } }
+    Label("Notes")
+    val ns = notes
+    when {
+        ns == null -> Text(error ?: "Getting the notes…", style = MaterialTheme.typography.bodySmall, color = p.muted)
+        ns.isEmpty() -> Text("No notes yet. Agents leave one when a change affects someone else's work.", style = MaterialTheme.typography.bodySmall, color = p.muted)
+        else -> for (n in ns.takeLast(10)) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp)).background(p.panel).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(n.text, style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val who = if (n.mine) (if (n.agent) "your agent" else "you") else n.from + if (n.agent) "'s agent" else ""
+                    Text("$who → ${n.to ?: "everyone"} · ${ago(n.at)}", style = MaterialTheme.typography.bodySmall, color = p.faint, modifier = Modifier.weight(1f))
+                    if (!n.mine) Text("Reply", style = MaterialTheme.typography.labelMedium, color = p.brick,
+                        modifier = Modifier.clickable { to = n.from }.padding(6.dp))
+                }
+            }
+        }
+    }
+    if (ns == null && error != null) return
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(to?.let { "To $it" } ?: "To everyone else on $task", style = MaterialTheme.typography.labelMedium, color = p.muted)
+        if (to != null) Text("Everyone instead", style = MaterialTheme.typography.labelMedium, color = p.brick,
+            modifier = Modifier.clickable { to = null }.padding(horizontal = 10.dp, vertical = 4.dp))
+    }
+    OutlinedTextField(draft, { draft = it.take(1000) }, Modifier.fillMaxWidth().testTag("note"), maxLines = 4, shape = RoundedCornerShape(14.dp),
+        placeholder = { Text("A note for them and their agents") },
+        trailingIcon = {
+            IconButton(enabled = draft.isNotBlank() && !sending, onClick = {
+                sending = true
+                scope.launch {
+                    runCatching { r.note(task, to ?: "task", draft.trim()) }
+                        .onSuccess { (fresh, skipped) ->
+                            notes = fresh; draft = ""
+                            if (skipped.isNotEmpty()) Toast.makeText(ctx, "Not to ${skipped.joinToString(", ")}: they turned off notes from teammates.", Toast.LENGTH_LONG).show()
+                        }
+                        .onFailure { Toast.makeText(ctx, it.message ?: "Couldn't reach your laptop.", Toast.LENGTH_LONG).show() }
+                    sending = false
+                }
+            }) { Icon(Glyph.Up, "Send the note") }
+        })
 }
 
 @Composable

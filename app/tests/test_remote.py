@@ -221,7 +221,9 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
                                             "tools": ["claude_code"], "due": "2026-10-30", "last_activity": 1.0, "pr": None,
                                             "progress": {"percent": 55, "agent_says_percent": 100, "confidence": "high",
                                                          "blockers": [], "doing": [{"text": "Committing", "evidence_ids": ["e1"]}],
-                                                         "next": [{"text": "Push", "evidence_ids": []}], "done": [{"text": "x"}] * 6}}]}
+                                                         "next": [{"text": "Push", "evidence_ids": []}], "done": [{"text": "x"}] * 6},
+                                            "editing": [{"repo": "acme-web", "file": "src/a.py", "member": "Yang", "tool": "codex"}]}],
+             "overlaps": [{"repo": "acme-web", "file": "src/a.py", "who": [{"member": "Yang"}, {"member": "Asha"}]}]}
     live = [{"turn": "turn-0001", "chat": "c-1", "agent": "agent-s", "message": "Push it", "asking": True, "now": None,
              "ask": {"id": "c9", "name": "write_file", "args": {"path": "a.py", "content": "x" * 9000}}}]
     def call(method, path, body=None):  # the stand-in API, plus the board and a turn waiting on a question
@@ -243,6 +245,7 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
     [t] = got["b1"]["tasks"]
     assert got["b1"]["room"] == "Loopers" and t["percent"] == 55 and t["says"] == 100 and t["doing"] == ["Committing"] and t["next"] == ["Push"]
     assert "done" not in t and "progress" not in t  # a phone needs the gist, not the evidence ids
+    assert t["editing"] == ["src/a.py"] and got["b1"]["overlaps"] == [{"file": "acme-web/src/a.py", "who": ["Yang", "Asha"]}]
     ask = got["h1"]["live"][0]["ask"]
     assert ask["id"] == "c9" and len(ask["args"]["content"]) < 4100  # what waits, cut for a phone
     assert got["h1"]["asks"] == [{"id": "a1", "from": "Asha", "what": "Close T-3", "detail": "", "rule": "board"}]
@@ -251,6 +254,39 @@ def test_the_phone_gets_the_board_and_whats_waiting(home):
     r.push_live(every=0.01, rounds=3)  # an open phone hears about running turns once, not every round
     pushed = heard(relay, key, pid)
     assert [m["t"] for m in pushed] == ["live"] and pushed[0]["asks"][0]["what"] == "Close T-3"
+
+
+def test_the_phone_reads_a_tasks_notes_and_leaves_one(home):
+    pid, key = paired()
+    api, posted = Api(), []
+    stored = [{"id": 1, "from": {"id": "u2", "name": "Asha"}, "via": "agent", "to": None, "task": "T-3", "text": "Renamed /v1/session", "at": 1.0},
+              {"id": 0, "from": {"id": "u2", "name": "Asha"}, "via": "person", "to": {"id": "u1", "name": "Yang"}, "task": "T-3",
+               "text": "Mine until 5", "at": 0.5}]
+    def call(method, path, body=None):
+        if path == "/api/boot":
+            return {"signed_in": True, "user": {"id": "u1", "name": "Yang"}}
+        if path == f"/api/cloud/messages?team={TEAM}" and method == "POST":
+            posted.append(body)
+            stored.insert(0, {"id": 2, "from": {"id": "u1", "name": "Yang"}, "via": "person", "to": {"id": "u2", "name": "Asha"},
+                              "task": "T-3", "text": body["text"], "at": 2.0})
+            return {"messages": stored[:1], "skipped": []}
+        if path == f"/api/cloud/messages?team={TEAM}&box=all&task=T-3":
+            return {"messages": stored}  # newest first, as the hub gives them
+        return api(method, path, body)
+    r = remote.Remote(call, relay=lambda: "wss://relay", team=lambda: TEAM, relay_cls=FakeRelay)
+    r.sync()
+    relay = FakeRelay.made[0]
+    relay.on_message(phone(key, pid, {"t": "notes", "task": "T-3"}, id="n1"))
+    assert wait_for(lambda: len(relay.sent) == 1)
+    relay.on_message(phone(key, pid, {"t": "note", "task": "T-3", "to": "Asha", "text": "Thanks, rebasing"}, id="n2"))
+    relay.on_message(phone(key, pid, {"t": "notes", "task": "../board"}, id="n3"))
+    assert wait_for(lambda: len(relay.sent) == 3)
+    got = {m["re"]: m for m in heard(relay, key, pid)}
+    assert got["n1"]["notes"] == [{"from": "Asha", "mine": False, "agent": False, "to": "you", "text": "Mine until 5", "at": 0.5},
+                                  {"from": "Asha", "mine": False, "agent": True, "to": None, "text": "Renamed /v1/session", "at": 1.0}]
+    assert posted == [{"to": "Asha", "text": "Thanks, rebasing", "task": "T-3"}]
+    assert [(n["from"], n["mine"], n["to"]) for n in got["n2"]["notes"]] == [("Asha", False, "you"), ("Asha", False, None), ("Yang", True, "Asha")]
+    assert got["n3"]["t"] == "error"
 
 
 def test_long_output_is_cut_for_the_phone():

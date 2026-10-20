@@ -1,10 +1,13 @@
 package com.solobrain.superagents
 
 import com.solobrain.superagents.remote.Labels
+import com.solobrain.superagents.remote.Note
 import com.solobrain.superagents.remote.Pairings
 import com.solobrain.superagents.remote.Seal
+import com.solobrain.superagents.remote.parseNotes
 import com.solobrain.superagents.remote.relayUrlFrom
 import com.solobrain.superagents.ui.ChatModel
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -79,5 +82,15 @@ class RemoteTest {
     @Test fun saysWhatTheStepsDid() {
         assertEquals("Read 3 files, ran a command", Labels.summary(listOf("read_file", "read_file", "run_command", "read_file")))
         assertEquals("Run" to "npm test", Labels.of("run_command", JSONObject().put("command", "npm test")))
+        assertEquals("Note for a teammate" to "everyone on T-19: “Rebase first”",
+            Labels.of("message_teammate", JSONObject().put("to", "task").put("task", "T-19").put("text", "Rebase first")))
+    }
+
+    @Test fun readsATasksNotes() {
+        // as app/superagents/remote.py's notes_view sends them, oldest first
+        val notes = parseNotes(JSONArray("""[{"from": "Asha", "mine": false, "agent": true, "to": null, "text": "Renamed /v1/session", "at": 1.5},
+            {"from": "Yang", "mine": true, "agent": false, "to": "Asha", "text": "Thanks", "at": 2.0}]"""))
+        assertEquals(Note("Asha", false, true, null, "Renamed /v1/session", 1.5), notes[0])
+        assertEquals("Asha", notes[1].to)
     }
 }

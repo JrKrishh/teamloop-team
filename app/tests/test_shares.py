@@ -7,6 +7,7 @@ import subprocess
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 
 import pytest
 
@@ -126,9 +127,67 @@ def test_a_branch_handed_over_is_checked_out_only_into_a_clean_repo(tmp_path, mo
         shares.checkout(ravi, "../evil")
 
 
+def test_a_handoff_from_one_laptop_to_another(tmp_path, monkeypatch):
+    (tmp_path / "gitconfig").write_text("[user]\n\tname = T\n\temail = t@example.com\n[init]\n\tdefaultBranch = main\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+    git(tmp_path, "init", "--bare", "-q", "remote.git")
+    git(tmp_path, "clone", "-q", "remote.git", "web")
+    asha, ravi = tmp_path / "web", tmp_path / "ravi" / "web"
+    (asha / "snap.py").write_text("a\n")
+    git(asha, "add", "snap.py")
+    git(asha, "commit", "-qm", "First")
+    git(asha, "push", "-q", "origin", "main")
+    git(tmp_path, "clone", "-q", "remote.git", str(ravi))
+    asked = []
+
+    def asha_hub(method, path, body=None):
+        asked.append((method, path, body))
+        return {"task": "T-22", "owner": "ravi", "share": {"id": "s1"}, "message": {"id": 1}}
+    monkeypatch.setattr(tools, "roots", lambda: {"web": asha})
+    with pytest.raises(ValueError, match="default branch"):
+        tools.hand_off(asha_hub, "T-22", "Ravi")
+    git(asha, "switch", "-qc", "T-22-snap")
+    (asha / "snap.py").write_text("b\n")
+    git(asha, "commit", "-qam", "Snapshots table")
+    with pytest.raises(ValueError, match="Push T-22-snap first"):
+        tools.hand_off(asha_hub, "T-22", "Ravi")
+    git(asha, "push", "-q", "-u", "origin", "T-22-snap")
+    (asha / "snap.py").write_text("c\n")
+    with pytest.raises(ValueError, match="uncommitted"):
+        tools.hand_off(asha_hub, "T-22", "Ravi")
+    git(asha, "commit", "-qam", "Migration 003")
+    with pytest.raises(ValueError, match="Push your last commits"):
+        tools.hand_off(asha_hub, "T-22", "Ravi")
+    git(asha, "push", "-q")
+    said = tools.handoff(SimpleNamespace(hub=asha_hub), "T-22", "Ravi", "Migration 003 is   written; key ghp_" + "Q" * 36)
+    assert said.startswith("Handed T-22 to ravi: it's theirs on the board, branch T-22-snap of web waits for them")
+    method, path, body = asked[-1]
+    assert (method, path, body["to"], body["branch"], body["repo"]) == ("POST", "tasks/T-22/handoff", "Ravi", "T-22-snap", "web")
+    assert body["note"].startswith("Migration 003 is written; key ") and "ghp_" not in body["note"]
+
+    # Ravi's laptop: Take over checks the branch out and leaves a brief beside the code, out of git
+    share = {"id": "s1", "kind": "branch", "repo": "web", "branch": "T-22-snap", "task": "T-22", "from": {"name": "Asha"},
+             "note": "Migration 003 is written; its test fails on the read-only DB user"}
+    task = {"title": "Snapshots migration", "progress": {"done": [{"text": "table created"}], "doing": [], "blockers": [],
+                                                         "next": [{"text": "run migration 003"}]},
+            "timeline": [{"ts": "2026-10-18T14:02:00.000Z", "member": "Asha", "summary": "Wrote migration 003; its test fails"},
+                         {"ts": "2026-10-18T13:50:00.000Z", "member": "Asha", "line": "ran pytest", "summary": None}]}
+    monkeypatch.setattr(tools, "roots", lambda: {"web": ravi})
+    got = tools.take(lambda method, path, body=None: share if path == "shares/s1" else task, "s1")
+    assert (got["repo"], got["branch"], got["task"], got["brief"]) == ("web", "T-22-snap", "T-22", ".superagents/handoff/T-22.md")
+    assert got["prompt"] == "Read .superagents/handoff/T-22.md and pick up the task from where it stands."
+    text = (ravi / got["brief"]).read_text(encoding="utf-8")
+    assert text.startswith("# T-22: Snapshots migration\n") and "Asha handed this task to you. Branch T-22-snap of web" in text
+    assert "its test fails on the read-only DB user" in text and "- Done: table created" in text and "- Next: run migration 003" in text
+    assert "- 2026-10-18 14:02 Asha: Wrote migration 003; its test fails" in text and "ran pytest" not in text
+    assert git(ravi, "branch", "--show-current").strip() == "T-22-snap" and git(ravi, "status", "--porcelain") == ""
+    with pytest.raises(ValueError):  # a task id names a file here: nothing else is written
+        shares.brief(ravi, {**share, "task": "../../x"}, task)
+
+
 def test_what_the_sharing_tools_need_from_the_person():
-    kinds = {n: tools.BY_NAME[n].kind for n in ("share_files", "share_branch", "team_files", "take_share")}
-    assert kinds == {"share_files": "ask", "share_branch": "ask", "team_files": "read", "take_share": "change"}
+    kinds = {n: tools.BY_NAME[n].kind for n in ("share_files", "share_branch", "team_files", "take_share", "handoff")}
+    assert kinds == {"share_files": "ask", "share_branch": "ask", "team_files": "read", "take_share": "change", "handoff": "ask"}
 
 
 def test_the_window_sends_picked_files_as_base64(monkeypatch):
